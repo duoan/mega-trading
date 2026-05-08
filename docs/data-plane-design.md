@@ -103,6 +103,7 @@ Config-driven ingestion should produce:
 - `stage=04_corpus/mixture=<mixture_name>/cpt.jsonl`.
 - `stage=04_corpus/mixture=<mixture_name>/sft.jsonl`.
 - `stage=04_corpus/mixture=<mixture_name>/samples.jsonl` for multi-stream prediction examples.
+- `stage=05_shards/mixture=<mixture_name>/samples.jsonl`.
 - `stage=05_shards/mixture=<mixture_name>/cpt.jsonl`.
 
 ## Data Readiness
@@ -133,6 +134,7 @@ stage=03_enriched/company_snapshots.jsonl
   -> stage=04_corpus/mixture=public/cpt.jsonl
   -> stage=04_corpus/mixture=public/sft.jsonl
   -> stage=04_corpus/mixture=public/samples.jsonl
+  -> stage=05_shards/mixture=public/samples.jsonl
   -> stage=05_shards/mixture=public/cpt.jsonl
   -> FusionTrainer.train("stage=05_shards/mixture=public/samples.jsonl")
 ```

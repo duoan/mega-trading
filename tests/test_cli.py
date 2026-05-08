@@ -270,7 +270,37 @@ end = "2023-01-31"
             self.assertTrue((output_dir / "stage=04_corpus/mixture=public/cpt.jsonl").exists())
             self.assertTrue((output_dir / "stage=04_corpus/mixture=public/sft.jsonl").exists())
             self.assertTrue((output_dir / "stage=04_corpus/mixture=public/samples.jsonl").exists())
+            self.assertTrue((output_dir / "stage=05_shards/mixture=public/samples.jsonl").exists())
             self.assertTrue((output_dir / "stage=05_shards/mixture=public/cpt.jsonl").exists())
+
+    def test_train_fusion_command_writes_run_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "stage=05_shards/mixture=public").mkdir(parents=True)
+            (root / "stage=05_shards/mixture=public/samples.jsonl").write_text(
+                '{"sample_id":"sample-a","ticker":"AAPL","as_of_time":"2024-01-02T00:00:00Z",'
+                '"price_returns":[0.0,0.01],"price_levels":[0.0,0.01],"fundamental_values":[100.0],'
+                '"evidence_token_ids":[],"return_label":"outperform","risk_label":"low"}\n',
+                encoding="utf-8",
+            )
+
+            exit_code = main(
+                [
+                    "train-fusion",
+                    "--data-dir",
+                    str(root),
+                    "--mixture",
+                    "public",
+                    "--run-id",
+                    "fusion-cli",
+                    "--steps",
+                    "2",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((root / "runs/fusion-cli/metrics.jsonl").exists())
+            self.assertTrue((root / "runs/fusion-cli/checkpoint.json").exists())
 
 
 if __name__ == "__main__":

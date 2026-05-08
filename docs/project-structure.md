@@ -44,7 +44,7 @@ src/marketfm/
     __init__.py          # Placeholder for metrics/alarms/deployment modules
 ```
 
-Root-level modules such as `marketfm.schemas`, `marketfm.store`, and `marketfm.corpus` are compatibility re-exports only. New production code should import from the plane-specific packages, for example:
+New production code should import from the plane-specific packages, for example:
 
 - `marketfm.core.schemas`
 - `marketfm.data.corpus`
@@ -63,4 +63,4 @@ Root-level modules such as `marketfm.schemas`, `marketfm.store`, and `marketfm.c
 - Put evidence-grounded prediction explanation runtime code in `reasoning/`.
 - Put backtesting and evaluation code in `eval/`.
 - Put metrics, alarms, failure injection, deployment helpers, and ops reports in `ops/`.
-- Avoid adding new production modules at the package root unless they are thin compatibility re-exports.
+- Avoid adding production modules at the package root; keep ownership in `core/`, `data/`, `train/`, `reasoning/`, `eval/`, or `ops/`.

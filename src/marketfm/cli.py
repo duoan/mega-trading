@@ -16,7 +16,8 @@ from marketfm.data.public.prices import StooqClient, StooqPriceIngestor, YahooCh
 from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
 from marketfm.data.quality import DataQualityChecker
 from marketfm.data.samples import MultiStreamSampleBuilder
-from marketfm.data.tokenize import ShardBuilder
+from marketfm.data.tokenize import ShardBuilder, StreamShardBuilder
+from marketfm.train.fusion import FusionTrainConfig, TinyFusionTrainer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_public.add_argument("--end", required=True, help="price end date YYYY-MM-DD")
     ingest_public.add_argument("--out", default=".marketfm/public", help="artifact output directory")
     ingest_public.add_argument("--sec-user-agent", required=True, help="SEC-compliant User-Agent, including contact email")
+    train_fusion = subparsers.add_parser("train-fusion", help="run tiny fusion-model smoke training")
+    train_fusion.add_argument("--data-dir", default=".marketfm/public", help="artifact root containing stream shards")
+    train_fusion.add_argument("--mixture", default="public", help="mixture name to train from")
+    train_fusion.add_argument("--run-id", default="fusion-smoke", help="training run id")
+    train_fusion.add_argument("--steps", type=int, default=3, help="number of smoke training steps")
     return parser
 
 
@@ -62,6 +68,11 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
         _run_ingest_config(config)
+    elif args.command == "train-fusion":
+        store = LocalObjectStore(Path(args.data_dir))
+        shard_path = f"stage=05_shards/mixture={args.mixture}/samples.jsonl"
+        TinyFusionTrainer(store, FusionTrainConfig(run_id=args.run_id, max_steps=args.steps)).train(shard_path)
+        print(f"wrote fusion training artifacts to {args.data_dir}/runs/{args.run_id}")
     return 0
 
 
@@ -107,5 +118,6 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
                 return_threshold=config.training_return_threshold,
             ),
         ).build(mixture_name=config.training_mixture_name, run_id="configured-ingest")
+        StreamShardBuilder(store).build(config.training_mixture_name)
         ShardBuilder(store, sequence_length=config.training_sequence_length).build(config.training_mixture_name, "cpt")
     print(f"wrote configured ingest artifacts to {config.output_dir}")

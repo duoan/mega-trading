@@ -14,10 +14,11 @@ make test
 make demo
 ```
 
-Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, multi-stream prediction samples, CPT shards, and evidence-grounded SFT examples under the output directory:
+Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, multi-stream prediction samples/shards, CPT support shards, and evidence-grounded SFT examples under the output directory:
 
 ```bash
 uv run marketfm ingest --config configs/ingest-public.toml
+uv run marketfm train-fusion --data-dir .marketfm/public --mixture public --run-id public-fusion --steps 3
 ```
 
 The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training corpus settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
