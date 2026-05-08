@@ -29,7 +29,6 @@ src/marketfm/
       prices.py          # Yahoo/Stooq price adapters
 
   train/                 # Training plane
-    fusion.py            # Multi-stream fusion smoke trainer
     config.py            # TradingFoundationModel training config
     dataset.py           # Stream shard dataset
     model.py             # TradingFoundationModel architecture

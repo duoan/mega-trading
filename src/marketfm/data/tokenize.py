@@ -149,7 +149,7 @@ class ShardBuilder:
 
 
 class StreamShardBuilder:
-    """Build compact numeric shards for the fusion-model smoke path."""
+    """Build compact numeric shards for TradingFoundationModel training."""
 
     def __init__(self, store: LocalObjectStore) -> None:
         self.store = store

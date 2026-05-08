@@ -273,29 +273,6 @@ end = "2023-01-31"
             self.assertTrue((output_dir / "stage=05_shards/mixture=public/samples.jsonl").exists())
             self.assertTrue((output_dir / "stage=05_shards/mixture=public/cpt.jsonl").exists())
 
-    def test_train_fusion_command_writes_run_artifacts(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            _write_stream_shard(root)
-
-            exit_code = main(
-                [
-                    "train-fusion",
-                    "--data-dir",
-                    str(root),
-                    "--mixture",
-                    "public",
-                    "--run-id",
-                    "fusion-cli",
-                    "--steps",
-                    "2",
-                ]
-            )
-
-            self.assertEqual(exit_code, 0)
-            self.assertTrue((root / "runs/fusion-cli/metrics.jsonl").exists())
-            self.assertTrue((root / "runs/fusion-cli/checkpoint.json").exists())
-
     def test_train_trading_foundation_model_command_writes_run_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

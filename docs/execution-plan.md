@@ -218,7 +218,7 @@ Tests first:
 
 Commit after:
 
-- fusion smoke tests pass.
+- TradingFoundationModel smoke tests pass.
 
 ## Phase 8: CPT And SFT Support Paths
 
