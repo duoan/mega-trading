@@ -136,7 +136,7 @@ stage=03_enriched/company_snapshots.jsonl
   -> stage=04_corpus/mixture=public/samples.jsonl
   -> stage=05_shards/mixture=public/samples.jsonl
   -> stage=05_shards/mixture=public/cpt.jsonl
-  -> MarketFusionTrainer.train("stage=05_shards/mixture=public/samples.jsonl")
+  -> TradingFoundationTrainer.train("stage=05_shards/mixture=public/samples.jsonl")
 ```
 
 The MVP public CPT/SFT corpus proves the first data contract from real public ingestion to trainable artifacts. The next model-facing contract is stronger: each sample should preserve separate price, fundamental, and text/evidence streams with forward-return and risk labels. That contract is what enables a fusion model to learn market structure instead of asking a text-only LLM to infer everything from weak summaries.

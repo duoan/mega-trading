@@ -296,20 +296,20 @@ end = "2023-01-31"
             self.assertTrue((root / "runs/fusion-cli/metrics.jsonl").exists())
             self.assertTrue((root / "runs/fusion-cli/checkpoint.json").exists())
 
-    def test_train_market_fusion_command_writes_run_artifacts(self) -> None:
+    def test_train_trading_foundation_model_command_writes_run_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_stream_shard(root)
 
             exit_code = main(
                 [
-                    "train-market-fusion",
+                    "train-trading-foundation-model",
                     "--data-dir",
                     str(root),
                     "--mixture",
                     "public",
                     "--run-id",
-                    "market-fusion-cli",
+                    "tfm-cli",
                     "--steps",
                     "2",
                     "--hidden-dim",
@@ -320,8 +320,8 @@ end = "2023-01-31"
             )
 
             self.assertEqual(exit_code, 0)
-            self.assertTrue((root / "runs/market-fusion-cli/metrics.jsonl").exists())
-            self.assertTrue((root / "runs/market-fusion-cli/checkpoint.pt").exists())
+            self.assertTrue((root / "runs/tfm-cli/metrics.jsonl").exists())
+            self.assertTrue((root / "runs/tfm-cli/checkpoint.pt").exists())
 
 
 if __name__ == "__main__":

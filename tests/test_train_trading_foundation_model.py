@@ -5,19 +5,19 @@ from pathlib import Path
 import torch
 
 from marketfm.core.store import LocalObjectStore
-from marketfm.train.market_fusion import (
-    MarketFusionDataset,
-    MarketFusionModel,
-    MarketFusionTrainConfig,
-    MarketFusionTrainer,
+from marketfm.train.trading_foundation_model import (
+    TradingFoundationDataset,
+    TradingFoundationModel,
+    TradingFoundationTrainConfig,
+    TradingFoundationTrainer,
 )
 
 
-class MarketFusionTests(unittest.TestCase):
+class TradingFoundationModelTests(unittest.TestCase):
     def test_dataset_pads_streams_and_encodes_labels(self) -> None:
         rows = [_row("a", "outperform", "low"), _row("b", "underperform", "high", fundamentals=[1.0, 2.0])]
 
-        dataset = MarketFusionDataset(rows, price_window_size=4, fundamental_size=3, evidence_size=5)
+        dataset = TradingFoundationDataset(rows, price_window_size=4, fundamental_size=3, evidence_size=5)
         item = dataset[0]
 
         self.assertEqual(item["price"].shape, torch.Size([4, 2]))
@@ -27,7 +27,7 @@ class MarketFusionTests(unittest.TestCase):
         self.assertEqual(item["risk_label"].item(), 0)
 
     def test_model_forward_returns_two_prediction_heads(self) -> None:
-        model = MarketFusionModel(price_window_size=4, fundamental_size=3, evidence_size=5, hidden_dim=8)
+        model = TradingFoundationModel(price_window_size=4, fundamental_size=3, evidence_size=5, hidden_dim=8)
         batch = {
             "price": torch.zeros((2, 4, 2), dtype=torch.float32),
             "fundamentals": torch.zeros((2, 3), dtype=torch.float32),
@@ -47,18 +47,18 @@ class MarketFusionTests(unittest.TestCase):
                 [_row("a", "outperform", "low"), _row("b", "underperform", "high")],
             )
 
-            result = MarketFusionTrainer(
+            result = TradingFoundationTrainer(
                 store,
-                MarketFusionTrainConfig(run_id="market-fusion-test", max_steps=2, hidden_dim=8, batch_size=2),
+                TradingFoundationTrainConfig(run_id="tfm-test", max_steps=2, hidden_dim=8, batch_size=2),
             ).train("stage=05_shards/mixture=public/samples.jsonl")
-            metrics = store.read_jsonl("runs/market-fusion-test/metrics.jsonl")
+            metrics = store.read_jsonl("runs/tfm-test/metrics.jsonl")
             manifest = store.read_manifest(result.manifest_path)
 
             self.assertEqual(result.steps, 2)
-            self.assertEqual(metrics[-1]["stage"], "market_fusion")
+            self.assertEqual(metrics[-1]["stage"], "trading_foundation_model")
             self.assertIn("loss", metrics[-1])
             self.assertTrue((Path(tmp) / result.checkpoint_path).exists())
-            self.assertEqual(manifest.metadata["stage"], "market_fusion")
+            self.assertEqual(manifest.metadata["stage"], "trading_foundation_model")
 
 
 def _row(

@@ -1,15 +1,15 @@
-"""MarketFusion neural architecture."""
+"""TradingFoundationModel neural architecture."""
 
 from __future__ import annotations
 
 import torch
 from torch import nn
 
-from marketfm.train.market_fusion.config import RETURN_LABELS, RISK_LABELS
+from marketfm.train.trading_foundation_model.config import RETURN_LABELS, RISK_LABELS
 
 
-class MarketFusionModel(nn.Module):
-    """Cross-attention fusion model over price, fundamentals, and evidence streams."""
+class TradingFoundationModel(nn.Module):
+    """Cross-attention model over price, fundamentals, and evidence streams."""
 
     def __init__(self, price_window_size: int, fundamental_size: int, evidence_size: int, hidden_dim: int) -> None:
         super().__init__()

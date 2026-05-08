@@ -18,7 +18,7 @@ from marketfm.data.quality import DataQualityChecker
 from marketfm.data.samples import MultiStreamSampleBuilder
 from marketfm.data.tokenize import ShardBuilder, StreamShardBuilder
 from marketfm.train.fusion import FusionTrainConfig, TinyFusionTrainer
-from marketfm.train.market_fusion import MarketFusionTrainConfig, MarketFusionTrainer
+from marketfm.train.trading_foundation_model import TradingFoundationTrainConfig, TradingFoundationTrainer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,13 +45,13 @@ def build_parser() -> argparse.ArgumentParser:
     train_fusion.add_argument("--mixture", default="public", help="mixture name to train from")
     train_fusion.add_argument("--run-id", default="fusion-smoke", help="training run id")
     train_fusion.add_argument("--steps", type=int, default=3, help="number of smoke training steps")
-    train_market_fusion = subparsers.add_parser("train-market-fusion", help="run MarketFusion model training")
-    train_market_fusion.add_argument("--data-dir", default=".marketfm/public", help="artifact root containing stream shards")
-    train_market_fusion.add_argument("--mixture", default="public", help="mixture name to train from")
-    train_market_fusion.add_argument("--run-id", default="market-fusion", help="training run id")
-    train_market_fusion.add_argument("--steps", type=int, default=10, help="number of training steps")
-    train_market_fusion.add_argument("--hidden-dim", type=int, default=32, help="fusion hidden dimension")
-    train_market_fusion.add_argument("--batch-size", type=int, default=8, help="training batch size")
+    train_tfm = subparsers.add_parser("train-trading-foundation-model", help="run TradingFoundationModel training")
+    train_tfm.add_argument("--data-dir", default=".marketfm/public", help="artifact root containing stream shards")
+    train_tfm.add_argument("--mixture", default="public", help="mixture name to train from")
+    train_tfm.add_argument("--run-id", default="trading-foundation-model", help="training run id")
+    train_tfm.add_argument("--steps", type=int, default=10, help="number of training steps")
+    train_tfm.add_argument("--hidden-dim", type=int, default=32, help="model hidden dimension")
+    train_tfm.add_argument("--batch-size", type=int, default=8, help="training batch size")
     return parser
 
 
@@ -81,19 +81,19 @@ def main(argv: list[str] | None = None) -> int:
         shard_path = f"stage=05_shards/mixture={args.mixture}/samples.jsonl"
         TinyFusionTrainer(store, FusionTrainConfig(run_id=args.run_id, max_steps=args.steps)).train(shard_path)
         print(f"wrote fusion training artifacts to {args.data_dir}/runs/{args.run_id}")
-    elif args.command == "train-market-fusion":
+    elif args.command == "train-trading-foundation-model":
         store = LocalObjectStore(Path(args.data_dir))
         shard_path = f"stage=05_shards/mixture={args.mixture}/samples.jsonl"
-        MarketFusionTrainer(
+        TradingFoundationTrainer(
             store,
-            MarketFusionTrainConfig(
+            TradingFoundationTrainConfig(
                 run_id=args.run_id,
                 max_steps=args.steps,
                 hidden_dim=args.hidden_dim,
                 batch_size=args.batch_size,
             ),
         ).train(shard_path)
-        print(f"wrote MarketFusion training artifacts to {args.data_dir}/runs/{args.run_id}")
+        print(f"wrote TradingFoundationModel training artifacts to {args.data_dir}/runs/{args.run_id}")
     return 0
 
 

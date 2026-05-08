@@ -18,7 +18,7 @@ Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normaliz
 
 ```bash
 uv run marketfm ingest --config configs/ingest-public.toml
-uv run marketfm train-market-fusion --data-dir .marketfm/public --mixture public --run-id public-market-fusion --steps 10
+uv run marketfm train-trading-foundation-model --data-dir .marketfm/public --mixture public --run-id public-tfm --steps 10
 ```
 
 The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training corpus settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:

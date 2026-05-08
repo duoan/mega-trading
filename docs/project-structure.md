@@ -30,7 +30,7 @@ src/marketfm/
 
   train/                 # Training plane
     fusion.py            # Multi-stream fusion smoke trainer
-    market_fusion/       # MarketFusion config, dataset, model, and trainer
+    trading_foundation_model/  # TradingFoundationModel config, dataset, model, and trainer
     cpt.py               # CPT/DAPT smoke trainer
     sft.py               # Explanation SFT smoke path
     preference.py        # Explanation preference/DPO-style smoke path

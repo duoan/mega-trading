@@ -1,4 +1,4 @@
-"""Configuration and label contracts for the MarketFusion model."""
+"""Configuration and label contracts for TradingFoundationModel."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ RISK_TO_ID = {label: index for index, label in enumerate(RISK_LABELS)}
 
 
 @dataclass(frozen=True)
-class MarketFusionTrainConfig:
+class TradingFoundationTrainConfig:
     run_id: str
     max_steps: int
     hidden_dim: int = 32
@@ -54,7 +54,7 @@ class MarketFusionTrainConfig:
 
 
 @dataclass(frozen=True)
-class MarketFusionTrainResult:
+class TradingFoundationTrainResult:
     steps: int
     checkpoint_path: str
     manifest_path: str
