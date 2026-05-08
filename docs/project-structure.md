@@ -30,6 +30,7 @@ src/marketfm/
 
   train/                 # Training plane
     fusion.py            # Multi-stream fusion model smoke trainer
+    torch_fusion.py      # PyTorch fusion model, dataset, and trainer
     cpt.py               # CPT/DAPT smoke trainer
     sft.py               # Explanation SFT smoke path
     preference.py        # Explanation preference/DPO-style smoke path

@@ -70,7 +70,8 @@ Metrics:
 
 MVP implementation:
 
-- Train a tiny fusion model with small stream encoders and one fusion block.
+- Train a PyTorch fusion model with price, fundamental, and evidence encoders plus cross-attention.
+- Keep the dependency-free fusion trainer as a fast artifact-contract sanity check.
 - Support local CPU smoke tests first.
 - Keep model and data contracts compatible with future Modal GPU runs.
 
