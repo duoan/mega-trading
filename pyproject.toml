@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
+[dependency-groups]
+dev = []
+
 [project.scripts]
 marketfm = "marketfm.cli:main"
 

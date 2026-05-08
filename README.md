@@ -4,6 +4,16 @@ MarketFM Forge is a data and training infrastructure prototype for a finance fou
 
 The target model is a reasoning-oriented long-term value investing model. It is not a low-latency trading predictor. Its job is to form investment theses, estimate long-horizon risk/reward, explain the reasoning behind a view, and trace that reasoning back to the exact data sources it used, such as filings, earnings reports, transcripts, historical fundamentals, news, macro context, and historical prices.
 
+## Quickstart
+
+This project uses [`uv`](https://docs.astral.sh/uv/) for Python environment and command execution.
+
+```bash
+uv sync
+make test
+make demo
+```
+
 ## Documents
 
 - [Feasibility Analysis](docs/feasibility-analysis.md): deep feasibility study covering public data, related work, system design, model training, evaluation, risks, and the recommended MVP.

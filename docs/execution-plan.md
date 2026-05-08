@@ -12,6 +12,7 @@ The implementation process must follow:
 - **One step, one commit**: each step should leave the repo in a working state and be committed separately.
 - **Reviewer-first demo**: the deterministic local path must work without private credentials.
 - **Infrastructure-first evidence**: each feature should produce artifacts, metrics, or manifests that show system behavior.
+- **UV-based execution**: use `uv run` and `uv sync` for local Python commands and environment setup.
 
 ## Definition Of Done For Each Step
 
@@ -51,7 +52,7 @@ Steps:
 
 1. Add project metadata, package layout, test runner, and formatting/linting config.
 2. Add a minimal `marketfm` CLI with `--help`.
-3. Add CI-like local commands in `Makefile`.
+3. Add CI-like local commands in `Makefile` backed by `uv run`.
 
 Tests first:
 
