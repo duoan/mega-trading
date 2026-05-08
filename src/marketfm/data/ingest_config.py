@@ -36,6 +36,9 @@ class IngestPipelineConfig:
     training_data_enabled: bool = True
     training_mixture_name: str = "public"
     training_sequence_length: int = 32
+    training_input_window_observations: int = 20
+    training_horizon_observations: int = 20
+    training_return_threshold: float = 0.02
 
     def __post_init__(self) -> None:
         if not self.output_dir:
@@ -65,6 +68,9 @@ class IngestPipelineConfig:
             training_data_enabled=bool(training_data.get("enabled", True)),
             training_mixture_name=str(training_data.get("mixture_name", "public")),
             training_sequence_length=int(training_data.get("sequence_length", 32)),
+            training_input_window_observations=int(training_data.get("input_window_observations", 20)),
+            training_horizon_observations=int(training_data.get("horizon_observations", 20)),
+            training_return_threshold=float(training_data.get("return_threshold", 0.02)),
         )
 
     def enabled_sources(self) -> tuple[IngestSourceConfig, ...]:

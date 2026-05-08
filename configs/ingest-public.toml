@@ -13,6 +13,9 @@ enabled = true
 enabled = true
 mixture_name = "public"
 sequence_length = 32
+input_window_observations = 20
+horizon_observations = 20
+return_threshold = 0.02
 
 [[ingest.sources]]
 name = "sec_companyfacts"

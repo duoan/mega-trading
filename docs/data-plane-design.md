@@ -69,6 +69,9 @@ enabled = true
 enabled = true
 mixture_name = "public"
 sequence_length = 32
+input_window_observations = 20
+horizon_observations = 20
+return_threshold = 0.02
 
 [[ingest.sources]]
 name = "sec_companyfacts"
@@ -99,7 +102,7 @@ Config-driven ingestion should produce:
 - `stage=03_enriched/company_snapshots.jsonl`.
 - `stage=04_corpus/mixture=<mixture_name>/cpt.jsonl`.
 - `stage=04_corpus/mixture=<mixture_name>/sft.jsonl`.
-- future `stage=04_corpus/mixture=<mixture_name>/samples.jsonl` for multi-stream prediction examples.
+- `stage=04_corpus/mixture=<mixture_name>/samples.jsonl` for multi-stream prediction examples.
 - `stage=05_shards/mixture=<mixture_name>/cpt.jsonl`.
 
 ## Data Readiness
@@ -135,6 +138,8 @@ stage=03_enriched/company_snapshots.jsonl
 ```
 
 The MVP public CPT/SFT corpus proves the first data contract from real public ingestion to trainable artifacts. The next model-facing contract is stronger: each sample should preserve separate price, fundamental, and text/evidence streams with forward-return and risk labels. That contract is what enables a fusion model to learn market structure instead of asking a text-only LLM to infer everything from weak summaries.
+
+The initial sample builder uses observation counts rather than market calendars: `input_window_observations` controls the trailing price window and `horizon_observations` controls the future label window. This keeps the MVP deterministic across sparse fixtures and public daily prices while preserving the no-future-input invariant.
 
 #### Fixture Data
 

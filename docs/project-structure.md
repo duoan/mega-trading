@@ -22,6 +22,7 @@ src/marketfm/
     quality.py           # Quality gates and data-readiness reports
     corpus.py            # Fixture/public text corpora and future sample builders
     labels.py            # Forward-return and risk label generation
+    samples.py           # Multi-stream price/fundamental/text sample builder
     tokenize.py          # Tokenizer and stream shard builder
     public/              # Real public data adapters
       sec.py             # SEC EDGAR company facts

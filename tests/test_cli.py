@@ -269,6 +269,7 @@ end = "2023-01-31"
             self.assertTrue((output_dir / "stage=03_enriched/company_snapshots.jsonl").exists())
             self.assertTrue((output_dir / "stage=04_corpus/mixture=public/cpt.jsonl").exists())
             self.assertTrue((output_dir / "stage=04_corpus/mixture=public/sft.jsonl").exists())
+            self.assertTrue((output_dir / "stage=04_corpus/mixture=public/samples.jsonl").exists())
             self.assertTrue((output_dir / "stage=05_shards/mixture=public/cpt.jsonl").exists())
 
 

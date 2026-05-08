@@ -69,6 +69,9 @@ enabled = false
 enabled = false
 mixture_name = "disabled"
 sequence_length = 16
+input_window_observations = 4
+horizon_observations = 2
+return_threshold = 0.05
 
 [[ingest.sources]]
 name = "yahoo_prices"
@@ -88,6 +91,9 @@ end = "2024-01-31"
             self.assertFalse(config.training_data_enabled)
             self.assertEqual(config.training_mixture_name, "disabled")
             self.assertEqual(config.training_sequence_length, 16)
+            self.assertEqual(config.training_input_window_observations, 4)
+            self.assertEqual(config.training_horizon_observations, 2)
+            self.assertEqual(config.training_return_threshold, 0.05)
 
 
 if __name__ == "__main__":

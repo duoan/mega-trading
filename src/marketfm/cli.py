@@ -10,10 +10,12 @@ from marketfm.data.enrich import DataEnricher
 from marketfm.data.corpus import PublicCorpusBuilder
 from marketfm.data.ingest import PriceIngestRequest, TickerIngestRequest
 from marketfm.data.ingest_config import IngestPipelineConfig, IngestSourceConfig, load_ingest_config
+from marketfm.data.labels import LabelConfig
 from marketfm.data.lance_store import LanceTableStore
 from marketfm.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
 from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
 from marketfm.data.quality import DataQualityChecker
+from marketfm.data.samples import MultiStreamSampleBuilder
 from marketfm.data.tokenize import ShardBuilder
 
 
@@ -97,5 +99,13 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
         DataEnricher(store).run(run_id="configured-ingest")
     if config.training_data_enabled and quality_passed:
         PublicCorpusBuilder(store).build(mixture_name=config.training_mixture_name)
+        MultiStreamSampleBuilder(
+            store,
+            LabelConfig(
+                input_window_observations=config.training_input_window_observations,
+                horizon_observations=config.training_horizon_observations,
+                return_threshold=config.training_return_threshold,
+            ),
+        ).build(mixture_name=config.training_mixture_name, run_id="configured-ingest")
         ShardBuilder(store, sequence_length=config.training_sequence_length).build(config.training_mixture_name, "cpt")
     print(f"wrote configured ingest artifacts to {config.output_dir}")
