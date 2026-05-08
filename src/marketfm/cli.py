@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from marketfm.core.store import LocalObjectStore
+from marketfm.data.lance_store import LanceTableStore
 from marketfm.data.public.prices import YahooChartClient, YahooPriceIngestor
 from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
 
@@ -40,7 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "ingest-public":
         tickers = [ticker.strip().upper() for ticker in args.tickers.split(",") if ticker.strip()]
         store = LocalObjectStore(Path(args.out))
-        SecCompanyFactsIngestor(store, SecClient(user_agent=args.sec_user_agent)).ingest(tickers)
-        YahooPriceIngestor(store, YahooChartClient()).ingest(tickers, args.start, args.end)
+        table_store = LanceTableStore(Path(args.out) / "lancedb")
+        SecCompanyFactsIngestor(store, SecClient(user_agent=args.sec_user_agent), table_store=table_store).ingest(tickers)
+        YahooPriceIngestor(store, YahooChartClient(), table_store=table_store).ingest(tickers, args.start, args.end)
         print(f"wrote public artifacts for {','.join(tickers)} to {args.out}")
     return 0

@@ -16,6 +16,7 @@ src/marketfm/
   data/                  # Data plane
     fixtures.py          # Deterministic demo data
     ingest.py            # Ingestion contracts and fixture ingestor
+    lance_store.py       # LanceDB table/index store
     corpus.py            # Corpus builder
     tokenize.py          # Tokenizer and shard builder
     public/              # Real public data adapters
@@ -49,6 +50,7 @@ Root-level modules such as `marketfm.schemas`, `marketfm.store`, and `marketfm.c
 
 - Put shared contracts in `core/`.
 - Put data ingestion, corpus, tokenization, and public data adapters in `data/`.
+- Use `marketfm.data.lance_store` for normalized query tables and evidence/corpus indexes.
 - Put training stages in `train/`.
 - Put evidence-grounded model runtime code in `reasoning/`.
 - Put backtesting and evaluation code in `eval/`.

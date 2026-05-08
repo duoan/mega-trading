@@ -46,7 +46,7 @@ The module is not a trading signal generator. It is an evidence-grounded researc
 sequenceDiagram
     participant User as Researcher
     participant Runtime as Reasoning Runtime
-    participant Catalog as Evidence Catalog
+    participant Catalog as LanceDB Evidence Catalog
     participant Builder as Evidence Pack Builder
     participant Model as Model Adapter
     participant Validator as Output Validator
@@ -87,7 +87,7 @@ sequenceDiagram
 
 ## Evidence Catalog
 
-The Evidence Catalog indexes model-visible source material.
+The Evidence Catalog indexes model-visible source material. In the MVP, normalized evidence is stored in LanceDB tables such as `silver_evidence_fixture`; object-store JSONL remains the replay/audit path.
 
 Evidence sources:
 
@@ -137,6 +137,8 @@ The MVP can use simple retrieval:
 - include top filing snippets, fundamentals summary, and recent news/earnings evidence.
 
 This is enough to prove the reasoning and auditability contract.
+
+The runtime should read from LanceDB when a table store is configured, then fall back to object-store JSONL only for deterministic compatibility tests.
 
 ### Scaling Retrieval
 

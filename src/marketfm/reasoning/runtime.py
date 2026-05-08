@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
+from marketfm.data.lance_store import LanceTableStore, LanceTables
 
 
 class ReasoningValidationError(ValueError):
@@ -38,8 +39,24 @@ class EvidenceCatalog:
         return candidates[:limit]
 
 
+class LanceEvidenceCatalog:
+    def __init__(self, table_store: LanceTableStore, source: str = "fixture") -> None:
+        self.table_store = table_store
+        self.table_name = LanceTables().silver("evidence", source)
+
+    def query(self, ticker: str, as_of_time: str, limit: int = 5) -> list[dict[str, Any]]:
+        boundary = _parse_time(as_of_time)
+        rows = self.table_store.read_rows(self.table_name)
+        candidates = [
+            row
+            for row in rows
+            if row["ticker"] == ticker and _parse_time(str(row["timestamp"])) <= boundary
+        ]
+        return candidates[:limit]
+
+
 class EvidencePackBuilder:
-    def __init__(self, catalog: EvidenceCatalog) -> None:
+    def __init__(self, catalog: EvidenceCatalog | LanceEvidenceCatalog) -> None:
         self.catalog = catalog
 
     def build(self, ticker: str, as_of_time: str, horizon: str) -> EvidencePack:
@@ -64,12 +81,14 @@ class EvidencePackBuilder:
 
 
 class ReasoningRuntime:
-    def __init__(self, store: LocalObjectStore, run_id: str = "demo") -> None:
+    def __init__(self, store: LocalObjectStore, run_id: str = "demo", table_store: LanceTableStore | None = None) -> None:
         self.store = store
+        self.table_store = table_store
         self.paths = ArtifactPaths(run_id=run_id)
 
     def reason(self, ticker: str, as_of_time: str, horizon: str) -> dict[str, Any]:
-        pack = EvidencePackBuilder(EvidenceCatalog(self.store)).build(ticker, as_of_time, horizon)
+        catalog = LanceEvidenceCatalog(self.table_store) if self.table_store else EvidenceCatalog(self.store)
+        pack = EvidencePackBuilder(catalog).build(ticker, as_of_time, horizon)
         if not pack.evidence:
             output = self._insufficient_evidence(ticker, as_of_time, horizon)
         else:

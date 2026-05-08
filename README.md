@@ -14,6 +14,17 @@ make test
 make demo
 ```
 
+Public ingestion writes both replayable JSONL/manifests and LanceDB silver tables under the output directory:
+
+```bash
+uv run marketfm ingest-public \
+  --tickers AAPL,MSFT \
+  --start 2024-01-01 \
+  --end 2024-03-31 \
+  --out .marketfm/public \
+  --sec-user-agent "your-name your-email@example.com"
+```
+
 ## Documents
 
 - [Feasibility Analysis](docs/feasibility-analysis.md): deep feasibility study covering public data, related work, system design, model training, evaluation, risks, and the recommended MVP.

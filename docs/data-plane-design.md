@@ -191,7 +191,12 @@ Important clarification:
 
 ## Storage Layout
 
-The Data Plane uses an S3-compatible object layout. The same paths should work locally, in MinIO, or in S3.
+The Data Plane uses two complementary storage layers:
+
+- Object-store artifacts hold raw payloads, manifests, quarantine records, corpus files, training shards, and replayable audit trails. The same paths should work locally, in MinIO, or in S3.
+- LanceDB tables hold normalized silver records and retrieval-ready corpus/evidence records for fast local querying, future vector search, and reasoning-time evidence lookup.
+
+LanceDB is the primary table/index layer, not the only source of truth. Bronze artifacts and manifests remain in the object store so every table can be regenerated and audited.
 
 ```text
 data/
@@ -225,7 +230,20 @@ data/
     leakage/
   metrics/
     data/
+  lancedb/
+    silver_entities_sec.lance/
+    silver_fundamentals_sec.lance/
+    silver_prices_yahoo.lance/
+    silver_evidence_fixture.lance/
 ```
+
+Initial LanceDB table naming:
+
+- `silver_entities_<source>`
+- `silver_fundamentals_<source>`
+- `silver_prices_<source>`
+- `silver_evidence_<source>`
+- `corpus_<mixture>_<name>`
 
 ## Artifact Stages
 

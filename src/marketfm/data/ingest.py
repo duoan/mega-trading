@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from marketfm.core.schemas import Manifest
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
 from marketfm.data.fixtures import load_fixture_bundle
+from marketfm.data.lance_store import LanceTableStore, LanceTables
 
 
 @dataclass(frozen=True)
@@ -20,8 +21,10 @@ class IngestResult:
 class FixtureIngestor:
     """Load deterministic fixtures into bronze, silver, and quarantine layers."""
 
-    def __init__(self, store: LocalObjectStore) -> None:
+    def __init__(self, store: LocalObjectStore, table_store: LanceTableStore | None = None) -> None:
         self.store = store
+        self.table_store = table_store
+        self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
     def ingest(self) -> IngestResult:
@@ -58,7 +61,10 @@ class FixtureIngestor:
         # Fixture records are already normalized typed schemas. Live adapters will
         # use this same silver contract after source-specific parsing.
         for key, bronze_path in bronze_paths.items():
-            self.store.write_jsonl(silver_paths[key], self.store.read_jsonl(bronze_path))
+            rows = self.store.read_jsonl(bronze_path)
+            self.store.write_jsonl(silver_paths[key], rows)
+            if self.table_store:
+                self.table_store.write_table(self.tables.silver(key, "fixture"), rows)
 
         quarantine_path = "quarantine/fixture/bad_records.jsonl"
         self.store.write_jsonl(quarantine_path, bundle.bad_records)

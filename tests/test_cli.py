@@ -33,14 +33,14 @@ class CliTests(unittest.TestCase):
 
     def test_ingest_public_command_writes_artifacts(self) -> None:
         class FakeSecIngestor:
-            def __init__(self, store, client):
+            def __init__(self, store, client, table_store=None):
                 self.store = store
 
             def ingest(self, tickers):
                 self.store.write_jsonl("silver/entities/sec.jsonl", [{"ticker": tickers[0]}])
 
         class FakePriceIngestor:
-            def __init__(self, store, client):
+            def __init__(self, store, client, table_store=None):
                 self.store = store
 
             def ingest(self, tickers, start, end):

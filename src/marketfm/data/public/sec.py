@@ -13,6 +13,7 @@ import certifi
 from marketfm.core.schemas import EntityRecord, FundamentalRecord, Manifest
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
 from marketfm.data.ingest import IngestResult
+from marketfm.data.lance_store import LanceTableStore, LanceTables
 
 FetchJson = Callable[[str, str], dict]
 
@@ -45,9 +46,11 @@ class SecClient:
 class SecCompanyFactsIngestor:
     concepts = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "NetIncomeLoss", "Assets", "Liabilities")
 
-    def __init__(self, store: LocalObjectStore, client: SecClient) -> None:
+    def __init__(self, store: LocalObjectStore, client: SecClient, table_store: LanceTableStore | None = None) -> None:
         self.store = store
         self.client = client
+        self.table_store = table_store
+        self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
     def ingest(self, tickers: list[str]) -> IngestResult:
@@ -74,8 +77,13 @@ class SecCompanyFactsIngestor:
         entity_path = self.paths.silver("entities", "sec")
         fundamental_path = self.paths.silver("fundamentals", "sec")
         self.store.write_jsonl(bronze_path, raw_rows)
-        self.store.write_jsonl(entity_path, [asdict(row) for row in entities])
-        self.store.write_jsonl(fundamental_path, [asdict(row) for row in fundamentals])
+        entity_rows = [asdict(row) for row in entities]
+        fundamental_rows = [asdict(row) for row in fundamentals]
+        self.store.write_jsonl(entity_path, entity_rows)
+        self.store.write_jsonl(fundamental_path, fundamental_rows)
+        if self.table_store:
+            self.table_store.write_table(self.tables.silver("entities", "sec"), entity_rows)
+            self.table_store.write_table(self.tables.silver("fundamentals", "sec"), fundamental_rows)
 
         bronze_manifest = Manifest(
             manifest_id="sec-companyfacts-bronze",

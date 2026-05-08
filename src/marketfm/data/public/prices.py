@@ -16,6 +16,7 @@ import certifi
 from marketfm.core.schemas import Manifest, PriceRecord
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
 from marketfm.data.ingest import IngestResult
+from marketfm.data.lance_store import LanceTableStore, LanceTables
 
 FetchText = Callable[[str], str]
 FetchJson = Callable[[str], dict]
@@ -51,9 +52,11 @@ class StooqClient:
 
 
 class StooqPriceIngestor:
-    def __init__(self, store: LocalObjectStore, client: StooqClient) -> None:
+    def __init__(self, store: LocalObjectStore, client: StooqClient, table_store: LanceTableStore | None = None) -> None:
         self.store = store
         self.client = client
+        self.table_store = table_store
+        self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
     def ingest(self, tickers: list[str], start: str, end: str) -> IngestResult:
@@ -83,7 +86,10 @@ class StooqPriceIngestor:
         bronze_path = self.paths.bronze("stooq", "daily_prices")
         silver_path = self.paths.silver("prices", "stooq")
         self.store.write_jsonl(bronze_path, raw_rows)
-        self.store.write_jsonl(silver_path, [asdict(price) for price in prices])
+        price_rows = [asdict(price) for price in prices]
+        self.store.write_jsonl(silver_path, price_rows)
+        if self.table_store:
+            self.table_store.write_table(self.tables.silver("prices", "stooq"), price_rows)
 
         bronze_manifest = Manifest(
             manifest_id="stooq-daily-bronze",
@@ -158,9 +164,11 @@ class YahooChartClient:
 
 
 class YahooPriceIngestor:
-    def __init__(self, store: LocalObjectStore, client: YahooChartClient) -> None:
+    def __init__(self, store: LocalObjectStore, client: YahooChartClient, table_store: LanceTableStore | None = None) -> None:
         self.store = store
         self.client = client
+        self.table_store = table_store
+        self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
     def ingest(self, tickers: list[str], start: str, end: str) -> IngestResult:
@@ -190,7 +198,10 @@ class YahooPriceIngestor:
         bronze_path = self.paths.bronze("yahoo", "daily_prices")
         silver_path = self.paths.silver("prices", "yahoo")
         self.store.write_jsonl(bronze_path, raw_rows)
-        self.store.write_jsonl(silver_path, [asdict(price) for price in prices])
+        price_rows = [asdict(price) for price in prices]
+        self.store.write_jsonl(silver_path, price_rows)
+        if self.table_store:
+            self.table_store.write_table(self.tables.silver("prices", "yahoo"), price_rows)
 
         bronze_manifest = Manifest(
             manifest_id="yahoo-daily-bronze",
