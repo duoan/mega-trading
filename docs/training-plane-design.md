@@ -75,6 +75,20 @@ uv run mega-trading train model.hidden_dim=32 training.learning_rate=0.001
 uv run mega-trading train model.hidden_dim=64 training.learning_rate=0.0005
 ```
 
+The default ablation suite lives in `configs/ablation/public.yaml`:
+
+```bash
+uv run mega-trading ablate
+```
+
+It compares price-only, fundamentals-only, evidence-only, price+fundamentals, and all-modality runs, then writes `.mega-trading/public/reports/ablation-summary.json`.
+
+For a faster local smoke run, override the shared run settings:
+
+```bash
+uv run mega-trading ablate 'base_overrides=["training.max_steps=1","training.batch_size=2","model.hidden_dim=8"]'
+```
+
 Modal or Kubernetes jobs should call the same trainer with the same shard contract, only changing device, batch size, worker count, and checkpoint storage.
 
 ## Design Rules

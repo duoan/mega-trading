@@ -1,0 +1,44 @@
+defaults:
+  - _self_
+
+ablation_id: public-modality-ablation
+train_config_dir: configs/train
+train_config_name: default
+report_path: .mega-trading/public/reports/ablation-summary.json
+
+base_overrides:
+  - training.max_steps=5
+  - training.batch_size=8
+  - model.hidden_dim=32
+
+runs:
+  - name: price_only
+    overrides:
+      - run.run_id=ablation-price-only
+      - model.use_price=true
+      - model.use_fundamentals=false
+      - model.use_evidence=false
+  - name: fundamentals_only
+    overrides:
+      - run.run_id=ablation-fundamentals-only
+      - model.use_price=false
+      - model.use_fundamentals=true
+      - model.use_evidence=false
+  - name: evidence_only
+    overrides:
+      - run.run_id=ablation-evidence-only
+      - model.use_price=false
+      - model.use_fundamentals=false
+      - model.use_evidence=true
+  - name: price_fundamentals
+    overrides:
+      - run.run_id=ablation-price-fundamentals
+      - model.use_price=true
+      - model.use_fundamentals=true
+      - model.use_evidence=false
+  - name: all_modalities
+    overrides:
+      - run.run_id=ablation-all-modalities
+      - model.use_price=true
+      - model.use_fundamentals=true
+      - model.use_evidence=true

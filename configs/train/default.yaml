@@ -13,6 +13,9 @@ model:
   price_window_size: null
   fundamental_size: null
   evidence_size: null
+  use_price: true
+  use_fundamentals: true
+  use_evidence: true
 
 training:
   max_steps: 10

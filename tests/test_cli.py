@@ -1,11 +1,12 @@
 import io
+import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from mega_trading.cli import build_parser, load_train_config, main
+from mega_trading.cli import build_parser, load_ablation_config, load_train_config, main
 
 
 class CliTests(unittest.TestCase):
@@ -274,12 +275,18 @@ end = "2023-01-31"
         config = load_train_config(
             Path("configs/train"),
             "default",
-            ["run.run_id=ablation-a", "training.max_steps=3", "model.hidden_dim=16"],
+            [
+                "run.run_id=ablation-a",
+                "training.max_steps=3",
+                "model.hidden_dim=16",
+                "model.use_evidence=false",
+            ],
         )
 
         self.assertEqual(config.run.run_id, "ablation-a")
         self.assertEqual(config.training.max_steps, 3)
         self.assertEqual(config.model.hidden_dim, 16)
+        self.assertFalse(config.model.use_evidence)
 
     def test_train_command_writes_run_artifacts_from_hydra_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -301,6 +308,55 @@ end = "2023-01-31"
             self.assertEqual(exit_code, 0)
             self.assertTrue((root / "runs/tfm-cli/metrics.jsonl").exists())
             self.assertTrue((root / "runs/tfm-cli/checkpoint.pt").exists())
+
+    def test_ablate_command_writes_summary_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_stream_shard(root)
+            config_dir = root / "ablation-config"
+            config_dir.mkdir()
+            report_path = root / "reports/ablation-summary.json"
+            config_dir.joinpath("public.yaml").write_text(
+                f"""
+defaults:
+  - _self_
+
+ablation_id: test-ablation
+train_config_dir: {Path.cwd() / "configs/train"}
+train_config_name: default
+report_path: {report_path}
+base_overrides:
+  - data.data_dir={root}
+  - data.mixture=public
+  - training.max_steps=1
+  - training.batch_size=2
+  - model.hidden_dim=8
+runs:
+  - name: price_only
+    overrides:
+      - run.run_id=price-only
+      - model.use_price=true
+      - model.use_fundamentals=false
+      - model.use_evidence=false
+  - name: all_modalities
+    overrides:
+      - run.run_id=all-modalities
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config = load_ablation_config(config_dir, "public", [])
+            exit_code = main(["ablate", "--config-dir", str(config_dir), "--config-name", "public"])
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(config.ablation_id, "test-ablation")
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(len(report["runs"]), 2)
+            self.assertEqual(report["runs"][0]["name"], "price_only")
+            self.assertEqual(report["runs"][0]["sample_count"], 2)
+            self.assertEqual(report["runs"][0]["return_label_distribution"]["outperform"], 1)
+            self.assertTrue((root / "runs/price-only/checkpoint.pt").exists())
 
 
 if __name__ == "__main__":

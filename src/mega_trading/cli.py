@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+from typing import Any
 
 from hydra import compose, initialize_config_dir
 from omegaconf import DictConfig, OmegaConf
@@ -50,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train.add_argument("--config-name", default="default", help="Hydra config name")
     train.add_argument("overrides", nargs="*", help="Hydra overrides such as training.max_steps=100 model.hidden_dim=64")
+    ablate = subparsers.add_parser("ablate", help="run Hydra-defined training ablations")
+    ablate.add_argument("--config-dir", default="configs/ablation", help="Hydra config directory for ablation plans")
+    ablate.add_argument("--config-name", default="public", help="Hydra ablation config name")
+    ablate.add_argument("overrides", nargs="*", help="Hydra overrides for the ablation plan")
     return parser
 
 
@@ -79,10 +85,22 @@ def main(argv: list[str] | None = None) -> int:
         result = _run_train_config(config)
         print(f"wrote TradingFoundationModel training artifacts to {config.data.data_dir}/runs/{config.run.run_id}")
         print(f"manifest: {result.manifest_path}")
+    elif args.command == "ablate":
+        config = load_ablation_config(Path(args.config_dir), args.config_name, list(args.overrides))
+        report_path = _run_ablation_config(config)
+        print(f"wrote ablation summary to {report_path}")
     return 0
 
 
 def load_train_config(config_dir: Path, config_name: str, overrides: list[str]) -> DictConfig:
+    return _load_hydra_config(config_dir, config_name, overrides)
+
+
+def load_ablation_config(config_dir: Path, config_name: str, overrides: list[str]) -> DictConfig:
+    return _load_hydra_config(config_dir, config_name, overrides)
+
+
+def _load_hydra_config(config_dir: Path, config_name: str, overrides: list[str]) -> DictConfig:
     config_root = config_dir if config_dir.is_absolute() else Path.cwd() / config_dir
     with initialize_config_dir(config_dir=str(config_root), version_base=None):
         config = compose(config_name=config_name, overrides=overrides)
@@ -102,16 +120,92 @@ def _run_train_config(config: DictConfig):
         price_window_size=_optional_int(config.model.price_window_size),
         fundamental_size=_optional_int(config.model.fundamental_size),
         evidence_size=_optional_int(config.model.evidence_size),
+        use_price=bool(config.model.use_price),
+        use_fundamentals=bool(config.model.use_fundamentals),
+        use_evidence=bool(config.model.use_evidence),
         seed=int(config.training.seed),
         device=str(config.training.device),
     )
     return TradingFoundationTrainer(store, train_config).train(shard_path)
 
 
+def _run_ablation_config(config: DictConfig) -> str:
+    base_overrides = _string_list(config.get("base_overrides"))
+    summaries: list[dict[str, Any]] = []
+    for run in config.runs:
+        run_name = str(run.name)
+        overrides = list(base_overrides) + _string_list(run.get("overrides"))
+        if not any(override.startswith("run.run_id=") for override in overrides):
+            overrides.append(f"run.run_id={run_name}")
+        train_config = load_train_config(Path(str(config.train_config_dir)), str(config.train_config_name), overrides)
+        result = _run_train_config(train_config)
+        summaries.append(_ablation_summary(run_name, train_config, result.manifest_path))
+
+    report = {
+        "ablation_id": str(config.get("ablation_id", "default")),
+        "train_config": str(config.train_config_name),
+        "runs": summaries,
+    }
+    report_path = Path(str(config.report_path))
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    return str(report_path)
+
+
+def _ablation_summary(run_name: str, config: DictConfig, manifest_path: str) -> dict[str, Any]:
+    store = LocalObjectStore(Path(str(config.data.data_dir)))
+    run_id = str(config.run.run_id)
+    metrics_path = f"runs/{run_id}/metrics.jsonl"
+    shard_path = f"stage=05_shards/mixture={config.data.mixture}/samples.jsonl"
+    metrics = store.read_jsonl(metrics_path)
+    samples = store.read_jsonl(shard_path)
+    final_metrics = dict(metrics[-1]) if metrics else {}
+    manifest = store.read_manifest(manifest_path)
+    return {
+        "name": run_name,
+        "run_id": run_id,
+        "manifest_path": manifest_path,
+        "metrics_path": metrics_path,
+        "checkpoint_path": f"runs/{run_id}/checkpoint.pt",
+        "config_hash": manifest.metadata["config_hash"],
+        "sample_count": len(samples),
+        "return_label_distribution": _distribution(samples, "return_label"),
+        "risk_label_distribution": _distribution(samples, "risk_label"),
+        "modalities": {
+            "price": bool(config.model.use_price),
+            "fundamentals": bool(config.model.use_fundamentals),
+            "evidence": bool(config.model.use_evidence),
+        },
+        "training": {
+            "max_steps": int(config.training.max_steps),
+            "batch_size": int(config.training.batch_size),
+            "learning_rate": float(config.training.learning_rate),
+        },
+        "model": {
+            "hidden_dim": int(config.model.hidden_dim),
+        },
+        "final_metrics": final_metrics,
+    }
+
+
 def _optional_int(value: object) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _string_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    return [str(item) for item in value]
+
+
+def _distribution(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        label = str(row.get(field, ""))
+        counts[label] = counts.get(label, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _run_ingest_config(config: IngestPipelineConfig) -> None:

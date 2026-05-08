@@ -148,6 +148,8 @@ Key commands:
   - Fetch or load public financial data.
 - `mega-trading train`
   - Train the multi-stream TradingFoundationModel from Hydra config and overrides.
+- `mega-trading ablate`
+  - Run Hydra-defined training ablations and write a summary report.
 - `mega-trading reason`
   - Generate evidence-grounded investment theses.
 - `mega-trading eval`

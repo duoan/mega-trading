@@ -37,6 +37,37 @@ class TradingFoundationModelTests(unittest.TestCase):
         self.assertEqual(return_logits.shape, torch.Size([2, 3]))
         self.assertEqual(risk_logits.shape, torch.Size([2, 3]))
 
+    def test_model_supports_modality_ablation(self) -> None:
+        model = TradingFoundationModel(
+            price_window_size=4,
+            fundamental_size=3,
+            evidence_size=5,
+            hidden_dim=8,
+            use_price=True,
+            use_fundamentals=False,
+            use_evidence=False,
+        )
+        batch = {
+            "price": torch.zeros((2, 4, 2), dtype=torch.float32),
+            "fundamentals": torch.ones((2, 3), dtype=torch.float32),
+            "evidence": torch.ones((2, 5), dtype=torch.float32),
+        }
+
+        return_logits, risk_logits = model(batch)
+
+        self.assertEqual(return_logits.shape, torch.Size([2, 3]))
+        self.assertEqual(risk_logits.shape, torch.Size([2, 3]))
+
+    def test_config_requires_at_least_one_modality(self) -> None:
+        with self.assertRaises(ValueError):
+            TradingFoundationTrainConfig(
+                run_id="bad",
+                max_steps=1,
+                use_price=False,
+                use_fundamentals=False,
+                use_evidence=False,
+            )
+
     def test_trainer_consumes_stream_shards_and_writes_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
@@ -57,6 +88,7 @@ class TradingFoundationModelTests(unittest.TestCase):
             self.assertIn("loss", metrics[-1])
             self.assertTrue((Path(tmp) / result.checkpoint_path).exists())
             self.assertEqual(manifest.metadata["stage"], "trading_foundation_model")
+            self.assertEqual(manifest.metadata["use_price"], "True")
 
 
 def _row(

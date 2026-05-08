@@ -23,6 +23,12 @@ uv run mega-trading train run.run_id=public-tfm training.max_steps=10
 
 Training uses Hydra config from `configs/train/default.yaml`, so ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
 
+Run the default modality ablation suite and write a summary report:
+
+```bash
+uv run mega-trading ablate
+```
+
 The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training sample settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
 
 ```bash

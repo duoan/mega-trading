@@ -23,6 +23,9 @@ class TradingFoundationTrainConfig:
     price_window_size: int | None = None
     fundamental_size: int | None = None
     evidence_size: int | None = None
+    use_price: bool = True
+    use_fundamentals: bool = True
+    use_evidence: bool = True
     seed: int = 7
     device: str = "cpu"
 
@@ -35,6 +38,8 @@ class TradingFoundationTrainConfig:
             raise ValueError("batch_size must be positive")
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
+        if not (self.use_price or self.use_fundamentals or self.use_evidence):
+            raise ValueError("at least one modality must be enabled")
 
     def content_hash(self) -> str:
         return stable_hash(
@@ -47,6 +52,9 @@ class TradingFoundationTrainConfig:
                 "price_window_size": self.price_window_size,
                 "fundamental_size": self.fundamental_size,
                 "evidence_size": self.evidence_size,
+                "use_price": self.use_price,
+                "use_fundamentals": self.use_fundamentals,
+                "use_evidence": self.use_evidence,
                 "seed": self.seed,
                 "device": self.device,
             }

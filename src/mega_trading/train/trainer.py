@@ -34,7 +34,13 @@ class TradingFoundationTrainer:
         loader = DataLoader(dataset, batch_size=self.config.batch_size, shuffle=True)
         iterator = iter(loader)
         device = torch.device(self.config.device)
-        model = TradingFoundationModel(*sizes, hidden_dim=self.config.hidden_dim).to(device)
+        model = TradingFoundationModel(
+            *sizes,
+            hidden_dim=self.config.hidden_dim,
+            use_price=self.config.use_price,
+            use_fundamentals=self.config.use_fundamentals,
+            use_evidence=self.config.use_evidence,
+        ).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate)
         loss_fn = nn.CrossEntropyLoss()
         metrics: list[dict[str, object]] = []
@@ -81,6 +87,11 @@ class TradingFoundationTrainer:
                     "fundamental_size": sizes[1],
                     "evidence_size": sizes[2],
                 },
+                "modalities": {
+                    "price": self.config.use_price,
+                    "fundamentals": self.config.use_fundamentals,
+                    "evidence": self.config.use_evidence,
+                },
                 "step": self.config.max_steps,
                 "shard_path": shard_path,
             },
@@ -95,6 +106,9 @@ class TradingFoundationTrainer:
                 "steps": str(self.config.max_steps),
                 "shard_path": shard_path,
                 "stream_contract": "price_fundamental_text",
+                "use_price": str(self.config.use_price),
+                "use_fundamentals": str(self.config.use_fundamentals),
+                "use_evidence": str(self.config.use_evidence),
                 "config_hash": self.config.content_hash(),
                 "device": self.config.device,
             },
