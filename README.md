@@ -14,13 +14,15 @@ make test
 make demo
 ```
 
-Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, and trainable CPT shards under the output directory:
+Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, CPT shards, and evidence-grounded SFT examples under the output directory:
 
 ```bash
 uv run marketfm ingest --config configs/ingest-public.toml
 ```
 
 The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training corpus settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
+
+CPT records are domain-adaptation text: they teach the base model the local finance vocabulary and schema. Reasoning behavior comes from SFT records, which ask for an investment thesis as of a specific time and require the answer to cite normalized SEC fundamental and historical price evidence IDs.
 
 ```bash
 uv run marketfm ingest-public \
