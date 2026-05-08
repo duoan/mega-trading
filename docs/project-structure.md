@@ -29,8 +29,8 @@ src/marketfm/
       prices.py          # Yahoo/Stooq price adapters
 
   train/                 # Training plane
-    fusion.py            # Multi-stream fusion model smoke trainer
-    torch_fusion.py      # PyTorch fusion model, dataset, and trainer
+    fusion.py            # Multi-stream fusion smoke trainer
+    market_fusion/       # MarketFusion config, dataset, model, and trainer
     cpt.py               # CPT/DAPT smoke trainer
     sft.py               # Explanation SFT smoke path
     preference.py        # Explanation preference/DPO-style smoke path
