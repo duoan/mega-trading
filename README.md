@@ -1,6 +1,6 @@
-# MarketFM Forge
+# Mega-Trading
 
-MarketFM Forge is an end-to-end infra-model co-design prototype for a finance foundation model lab. The project designs the data contracts, training system, model architecture, evaluation loop, and operations layer together, because the model can only learn useful market behavior if the infrastructure gives it time-correct multi-stream inputs, labels, lineage, and fast feedback.
+Mega-Trading is a foundation model of trading. It is an end-to-end infra-model co-design prototype that designs the data contracts, training system, model architecture, evaluation loop, and operations layer together, because the model can only learn useful market behavior if the infrastructure gives it time-correct multi-stream inputs, labels, lineage, and fast feedback.
 
 The target model is a multi-input market foundation model for long-term investment research. It is not a next-tick trading predictor and it is not a pure LLM over finance text. The core model consumes price windows, fundamentals, and text/evidence streams through modality-specific encoders and a fusion transformer, predicts forward return and risk targets, and then uses an explanation layer to trace the view back to filings, historical fundamentals, news, macro context, and prices.
 
@@ -17,8 +17,8 @@ make demo
 Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, multi-stream prediction samples/shards, CPT support shards, and evidence-grounded SFT examples under the output directory:
 
 ```bash
-uv run marketfm ingest --config configs/ingest-public.toml
-uv run marketfm train-trading-foundation-model --data-dir .marketfm/public --mixture public --run-id public-tfm --steps 10
+uv run mega-trading ingest --config configs/ingest-public.toml
+uv run mega-trading train-trading-foundation-model --data-dir .marketfm/public --mixture public --run-id public-tfm --steps 10
 ```
 
 The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training corpus settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
@@ -26,7 +26,7 @@ The config-driven API is the preferred path: a reviewer can inspect one TOML fil
 CPT records are domain-adaptation text: they teach the base model the local finance vocabulary and schema. Reasoning behavior comes from SFT records, which ask for an investment thesis as of a specific time and require the answer to cite normalized SEC fundamental and historical price evidence IDs.
 
 ```bash
-uv run marketfm ingest-public \
+uv run mega-trading ingest-public \
   --tickers AAPL,MSFT \
   --start 2024-01-01 \
   --end 2024-03-31 \
@@ -86,7 +86,7 @@ If extended into a real Deeter-scale system, the prototype should evolve into a 
 
 ## Prediction, Reasoning, And Backtesting
 
-MarketFM Forge should evaluate whether the model can learn useful long-horizon market structure from multiple data streams, and whether its explanations remain faithful to the evidence and model-visible context.
+Mega-Trading should evaluate whether the model can learn useful long-horizon market structure from multiple data streams, and whether its explanations remain faithful to the evidence and model-visible context.
 
 ### Model Output Contract
 

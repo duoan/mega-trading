@@ -1,4 +1,4 @@
-"""Shared artifact schemas for MarketFM Forge.
+"""Shared artifact schemas for Mega-Trading.
 
 The schemas intentionally use stdlib dataclasses so the deterministic demo has
 no runtime dependency on external validators.

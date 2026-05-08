@@ -246,7 +246,7 @@ def _fetch_text(url: str) -> str:
 
 
 def _fetch_json(url: str) -> dict:
-    request = Request(url, headers={"User-Agent": "MarketFM Forge"})
+    request = Request(url, headers={"User-Agent": "Mega-Trading"})
     context = ssl.create_default_context(cafile=certifi.where())
     with urlopen(request, timeout=30, context=context) as response:
         return json.loads(response.read().decode("utf-8"))

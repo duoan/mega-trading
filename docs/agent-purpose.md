@@ -2,7 +2,7 @@
 
 ## Name
 
-MarketFM Investment Reasoning Agent
+Mega-Trading Research Agent
 
 ## Purpose
 

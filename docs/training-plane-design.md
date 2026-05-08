@@ -454,9 +454,9 @@ Recommended functions:
 
 Every Modal job should have a local equivalent:
 
-- `marketfm train cpt --local`
-- `marketfm train sft --local`
-- `marketfm train dpo --local`
+- `mega-trading train cpt --local`
+- `mega-trading train sft --local`
+- `mega-trading train dpo --local`
 
 This keeps the project reviewable without Modal credentials.
 
@@ -466,12 +466,12 @@ This keeps the project reviewable without Modal credentials.
 
 Commands:
 
-- `marketfm train cpt --config configs/train/cpt_tiny_gpt.yaml`
-- `marketfm train sft --config configs/train/sft_lora.yaml`
-- `marketfm train dpo --config configs/train/dpo_lora.yaml`
-- `marketfm train resume --checkpoint <path>`
-- `marketfm train validate-checkpoint --checkpoint <path>`
-- `marketfm train profile --run-id <run_id>`
+- `mega-trading train cpt --config configs/train/cpt_tiny_gpt.yaml`
+- `mega-trading train sft --config configs/train/sft_lora.yaml`
+- `mega-trading train dpo --config configs/train/dpo_lora.yaml`
+- `mega-trading train resume --checkpoint <path>`
+- `mega-trading train validate-checkpoint --checkpoint <path>`
+- `mega-trading train profile --run-id <run_id>`
 
 ### API
 

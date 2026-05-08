@@ -13,7 +13,7 @@ class IngestConfigTests(unittest.TestCase):
                 """
 [ingest]
 output_dir = ".marketfm/public"
-sec_user_agent = "MarketFM test@example.com"
+sec_user_agent = "Mega-Trading test@example.com"
 
 [[ingest.sources]]
 name = "sec_companyfacts"
@@ -32,7 +32,7 @@ end = "2024-03-31"
             config = load_ingest_config(config_path)
 
             self.assertEqual(config.output_dir, ".marketfm/public")
-            self.assertEqual(config.sec_user_agent, "MarketFM test@example.com")
+            self.assertEqual(config.sec_user_agent, "Mega-Trading test@example.com")
             self.assertEqual(config.sources[0].name, "sec_companyfacts")
             self.assertEqual(config.sources[1].tickers, ("AAPL", "MSFT"))
             self.assertEqual(config.sources[1].start, "2024-01-01")

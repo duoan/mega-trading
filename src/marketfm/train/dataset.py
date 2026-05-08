@@ -1,11 +1,11 @@
-"""Dataset utilities for TradingFoundationModel stream shards."""
+"""Dataset utilities for stream shards."""
 
 from __future__ import annotations
 
 import torch
 from torch.utils.data import Dataset
 
-from marketfm.train.trading_foundation_model.config import RETURN_TO_ID, RISK_TO_ID
+from marketfm.train.config import RETURN_TO_ID, RISK_TO_ID
 
 
 class TradingFoundationDataset(Dataset[dict[str, torch.Tensor]]):

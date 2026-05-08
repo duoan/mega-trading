@@ -9,10 +9,10 @@ from marketfm.cli import build_parser, main
 
 
 class CliTests(unittest.TestCase):
-    def test_parser_exposes_marketfm_program(self) -> None:
+    def test_parser_exposes_mega_trading_program(self) -> None:
         parser = build_parser()
 
-        self.assertEqual(parser.prog, "marketfm")
+        self.assertEqual(parser.prog, "mega-trading")
 
     def test_help_smoke(self) -> None:
         parser = build_parser()
@@ -155,7 +155,7 @@ class CliTests(unittest.TestCase):
                         "--out",
                         tmp,
                         "--sec-user-agent",
-                        "MarketFM test@example.com",
+                        "Mega-Trading test@example.com",
                     ]
                 )
 
@@ -241,7 +241,7 @@ class CliTests(unittest.TestCase):
                 f"""
 [ingest]
 output_dir = "{output_dir}"
-sec_user_agent = "MarketFM test@example.com"
+sec_user_agent = "Mega-Trading test@example.com"
 
 [[ingest.sources]]
 name = "sec_companyfacts"

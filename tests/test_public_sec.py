@@ -39,7 +39,7 @@ class SecClientTests(unittest.TestCase):
                 },
             }
 
-        client = SecClient(user_agent="MarketFM test@example.com", fetch_json=fetch_json)
+        client = SecClient(user_agent="Mega-Trading test@example.com", fetch_json=fetch_json)
 
         entity = client.resolve_ticker("aapl")
         facts = client.company_facts("AAPL")
@@ -89,7 +89,7 @@ class SecClientTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            client = SecClient(user_agent="MarketFM test@example.com", fetch_json=fetch_json)
+            client = SecClient(user_agent="Mega-Trading test@example.com", fetch_json=fetch_json)
 
             result = SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
 
@@ -140,7 +140,7 @@ class SecClientTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            client = SecClient(user_agent="MarketFM test@example.com", fetch_json=fetch_json)
+            client = SecClient(user_agent="Mega-Trading test@example.com", fetch_json=fetch_json)
 
             SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
             fundamentals = store.read_jsonl("stage=02_normalized/family=fundamentals/source=sec.jsonl")

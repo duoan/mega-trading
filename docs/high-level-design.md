@@ -2,7 +2,7 @@
 
 ## Overview
 
-MarketFM Forge is a prototype infra-model co-design platform for a long-term investment research model. The system turns public financial data into auditable multi-stream training signal, trains small market foundation-model variants, and evaluates outputs through prediction quality, explanation faithfulness, long-horizon backtesting, and infrastructure health metrics.
+Mega-Trading is a prototype infra-model co-design platform for a foundation model of trading. The system turns public financial data into auditable multi-stream training signal, trains small trading foundation-model variants, and evaluates outputs through prediction quality, explanation faithfulness, long-horizon backtesting, and infrastructure health metrics.
 
 The design is intentionally end-to-end. The model is not an afterthought behind an infra demo, and the infrastructure is not generic plumbing. They are co-designed around a shared contract:
 
@@ -43,7 +43,7 @@ The design is intentionally end-to-end. The model is not an afterthought behind 
 
 ## Non-Goals
 
-MarketFM Forge is not:
+Mega-Trading is not:
 
 - A live trading system.
 - A low-latency signal engine.
@@ -75,7 +75,7 @@ The researcher interacts with the system through a CLI, API, and generated repor
 
 ## Architecture
 
-MarketFM Forge is organized into five major planes:
+Mega-Trading is organized into five major planes:
 
 - **Data plane**: ingestion, normalization, quality, label generation, multi-stream sample construction, and tokenization.
 - **Training plane**: multi-stream supervised training, CPT/DAPT and SFT support paths, checkpointing, and metrics.
@@ -145,25 +145,25 @@ The CLI is the primary interface for the prototype. The API can expose the same 
 
 Key commands:
 
-- `marketfm ingest`
+- `mega-trading ingest`
   - Fetch or load public financial data.
-- `marketfm build-corpus`
+- `mega-trading build-corpus`
   - Convert normalized records into foundation-model corpus records.
-- `marketfm tokenize`
+- `mega-trading tokenize`
   - Tokenize and pack corpus records into shards.
-- `marketfm train cpt`
+- `mega-trading train cpt`
   - Run continual/domain-adaptive pretraining.
-- `marketfm train sft`
+- `mega-trading train sft`
   - Run supervised fine-tuning.
-- `marketfm train dpo`
+- `mega-trading train dpo`
   - Run preference tuning.
-- `marketfm reason`
+- `mega-trading reason`
   - Generate evidence-grounded investment theses.
-- `marketfm eval`
+- `mega-trading eval`
   - Run reasoning evaluation and backtesting.
-- `marketfm ops-report`
+- `mega-trading ops-report`
   - Emit metrics, alarms, lineage, and end-to-end timing.
-- `marketfm demo`
+- `mega-trading demo`
   - Run the deterministic end-to-end fixture path.
 
 ### Data Ingest Adapters

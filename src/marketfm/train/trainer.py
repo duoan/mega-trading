@@ -10,9 +10,9 @@ from torch.utils.data import DataLoader
 
 from marketfm.core.schemas import Manifest
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
-from marketfm.train.trading_foundation_model.config import TradingFoundationTrainConfig, TradingFoundationTrainResult
-from marketfm.train.trading_foundation_model.dataset import TradingFoundationDataset, infer_stream_sizes
-from marketfm.train.trading_foundation_model.model import TradingFoundationModel
+from marketfm.train.config import TradingFoundationTrainConfig, TradingFoundationTrainResult
+from marketfm.train.dataset import TradingFoundationDataset, infer_stream_sizes
+from marketfm.train.model import TradingFoundationModel
 
 
 class TradingFoundationTrainer:

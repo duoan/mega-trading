@@ -4,7 +4,7 @@
 
 The Reasoning and Evidence module turns trained model artifacts and time-bounded financial evidence into auditable long-term investment theses.
 
-This module is the product-facing layer of MarketFM Forge. It should make the model useful to a researcher without hiding the system constraints:
+This module is the product-facing layer of Mega-Trading. It should make the model useful to a researcher without hiding the system constraints:
 
 - What evidence was available?
 - What evidence was used?
@@ -351,10 +351,10 @@ Low-confidence behavior:
 
 Commands:
 
-- `marketfm reason --ticker AAPL --as-of 2023-12-31 --horizon 12m`
-- `marketfm reason --universe configs/universe/demo.yaml --as-of-schedule configs/eval/schedule.yaml`
-- `marketfm reason validate --output <path>`
-- `marketfm reason evidence-pack --ticker AAPL --as-of 2023-12-31`
+- `mega-trading reason --ticker AAPL --as-of 2023-12-31 --horizon 12m`
+- `mega-trading reason --universe configs/universe/demo.yaml --as-of-schedule configs/eval/schedule.yaml`
+- `mega-trading reason validate --output <path>`
+- `mega-trading reason evidence-pack --ticker AAPL --as-of 2023-12-31`
 
 ### API
 

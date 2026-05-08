@@ -56,7 +56,7 @@ Example:
 ```toml
 [ingest]
 output_dir = ".marketfm/public"
-sec_user_agent = "MarketFM Forge your-email@example.com"
+sec_user_agent = "Mega-Trading your-email@example.com"
 
 [ingest.quality]
 enabled = true
@@ -740,13 +740,13 @@ Pair generation rules:
 
 Primary commands:
 
-- `marketfm ingest --source fixtures`
-- `marketfm ingest --source sec --tickers AAPL,MSFT --forms 10-K,10-Q`
-- `marketfm ingest --source prices --tickers AAPL,MSFT --start 2018-01-01 --end 2024-12-31`
-- `marketfm normalize --manifest <ingest_manifest>`
-- `marketfm build-corpus --mixture configs/data/mixture.yaml`
-- `marketfm data-quality --corpus-version <version>`
-- `marketfm leakage-check --as-of <date>`
+- `mega-trading ingest --source fixtures`
+- `mega-trading ingest --source sec --tickers AAPL,MSFT --forms 10-K,10-Q`
+- `mega-trading ingest --source prices --tickers AAPL,MSFT --start 2018-01-01 --end 2024-12-31`
+- `mega-trading normalize --manifest <ingest_manifest>`
+- `mega-trading build-corpus --mixture configs/data/mixture.yaml`
+- `mega-trading data-quality --corpus-version <version>`
+- `mega-trading leakage-check --as-of <date>`
 
 ### API
 

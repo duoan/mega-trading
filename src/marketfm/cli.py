@@ -1,4 +1,4 @@
-"""Command line interface for MarketFM Forge."""
+"""Command line interface for Mega-Trading."""
 
 from __future__ import annotations
 
@@ -18,13 +18,14 @@ from marketfm.data.quality import DataQualityChecker
 from marketfm.data.samples import MultiStreamSampleBuilder
 from marketfm.data.tokenize import ShardBuilder, StreamShardBuilder
 from marketfm.train.fusion import FusionTrainConfig, TinyFusionTrainer
-from marketfm.train.trading_foundation_model import TradingFoundationTrainConfig, TradingFoundationTrainer
+from marketfm.train.config import TradingFoundationTrainConfig
+from marketfm.train.trainer import TradingFoundationTrainer
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="marketfm",
-        description="MarketFM Forge data and training infrastructure CLI.",
+        prog="mega-trading",
+        description="Mega-Trading data, model, and training CLI.",
     )
     parser.add_argument(
         "--version",

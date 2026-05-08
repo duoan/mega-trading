@@ -1,1 +1,1 @@
-"""Training modules for MarketFM Forge."""
+"""Training modules for Mega-Trading."""

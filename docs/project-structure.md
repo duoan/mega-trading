@@ -1,6 +1,6 @@
 # Project Structure
 
-MarketFM Forge follows the same module boundaries described in the high-level design. Source code is organized by system plane, with a small compatibility layer at the package root for early imports.
+Mega-Trading follows the same module boundaries described in the high-level design. Source code is organized by system plane, with the TradingFoundationModel modules directly under `train/`.
 
 ```text
 src/marketfm/
@@ -30,7 +30,10 @@ src/marketfm/
 
   train/                 # Training plane
     fusion.py            # Multi-stream fusion smoke trainer
-    trading_foundation_model/  # TradingFoundationModel config, dataset, model, and trainer
+    config.py            # TradingFoundationModel training config
+    dataset.py           # Stream shard dataset
+    model.py             # TradingFoundationModel architecture
+    trainer.py           # TradingFoundationModel trainer
     cpt.py               # CPT/DAPT smoke trainer
     sft.py               # Explanation SFT smoke path
     preference.py        # Explanation preference/DPO-style smoke path
@@ -60,7 +63,7 @@ New production code should import from the plane-specific packages, for example:
 - Treat ingestion config as the public ingestion API; CLI and schedulers should dispatch from config rather than hard-coded source arguments.
 - Run quality and enrichment between ingestion and corpus construction; corpus builders should consume data that has a readiness report.
 - Use `marketfm.data.lance_store` for normalized query tables and evidence/corpus indexes.
-- Put fusion-model and support training stages in `train/`.
+- Put foundation-model and support training stages in `train/`.
 - Put evidence-grounded prediction explanation runtime code in `reasoning/`.
 - Put backtesting and evaluation code in `eval/`.
 - Put metrics, alarms, failure injection, deployment helpers, and ops reports in `ops/`.

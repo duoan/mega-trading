@@ -2,7 +2,7 @@
 
 ## Purpose
 
-MarketFM Forge is not a pure LLM project and not a next-tick trading model. The model target is a multi-stream market foundation model for long-term investment research. Infrastructure and model architecture are designed together: the data plane decides what information is visible at `as_of_time`, the model consumes that information through modality-aware encoders, and the evaluation plane measures whether predictions and explanations are useful without leaking future data.
+Mega-Trading is not a pure LLM project and not a next-tick trading model. The model target is a multi-stream foundation model of trading for long-term investment research. Infrastructure and model architecture are designed together: the data plane decides what information is visible at `as_of_time`, the model consumes that information through modality-aware encoders, and the evaluation plane measures whether predictions and explanations are useful without leaking future data.
 
 The key thesis is that finance data is not naturally a single text sequence. Prices are time series, fundamentals are structured point-in-time facts, filings and news are text evidence, and labels come from future market outcomes. A credible model should preserve those structures instead of forcing everything into weak CPT text.
 

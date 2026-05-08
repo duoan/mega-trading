@@ -4,7 +4,7 @@
 
 The target role is **AI Infrastructure Engineer (Training Systems)**. The project should therefore be evaluated less like a finance app and more like a training infrastructure artifact.
 
-MarketFM Forge should show that the builder can turn data and compute into model capability under real constraints:
+Mega-Trading should show that the builder can turn data and compute into model capability under real constraints:
 
 - GPU utilization.
 - Throughput.
@@ -234,7 +234,7 @@ This gives the project a training-infra signature rather than a notebook-demo si
 
 Use this framing in the README and submission:
 
-> MarketFM Forge is a training infrastructure prototype for a finance foundation model lab. It demonstrates how offline and continuously updated financial data becomes traceable language-model training signal, how CPT/SFT/preference stages consume that signal, and how training efficiency, checkpoint reliability, and end-to-end time-to-result are measured.
+> Mega-Trading is a foundation model of trading. It demonstrates how offline and continuously updated financial data becomes traceable model training signal, how supervised and explanation stages consume that signal, and how training efficiency, checkpoint reliability, and end-to-end time-to-result are measured.
 
 Avoid this framing:
 

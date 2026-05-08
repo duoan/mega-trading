@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "marketfm-forge"
+name = "mega-trading"
 version = "0.1.0"
-description = "Data and training infrastructure prototype for a finance foundation model lab."
+description = "A foundation model of trading."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -18,7 +18,7 @@ dependencies = [
 dev = []
 
 [project.scripts]
-marketfm = "marketfm.cli:main"
+mega-trading = "marketfm.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

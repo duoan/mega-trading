@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-MarketFM Forge is feasible as a 72-hour technical submission if the goal is scoped correctly.
+Mega-Trading is feasible as a 72-hour technical submission if the goal is scoped correctly.
 
 The realistic short-term goal is not to train a profitable investment model. The realistic goal is to build a credible, end-to-end prototype of a finance foundation model lab for long-term investment research:
 
@@ -98,7 +98,7 @@ These are the highest-value sources for the MVP.
 
 BloombergGPT shows that finance foundation models benefit from large domain-specific corpora. It trained a 50B model on hundreds of billions of financial and general tokens. This validates the direction but is not reproducible in a 72-hour project.
 
-Project implication: MarketFM Forge should focus on the training factory and data contracts that would make such a system possible at smaller scale.
+Project implication: Mega-Trading should focus on the training factory and data contracts that would make such a system possible at smaller scale.
 
 Reference: [BloombergGPT](https://arxiv.org/abs/2303.17564).
 
@@ -136,7 +136,7 @@ Reference: [Direct Preference Optimization](https://arxiv.org/abs/2305.18290).
 
 ### High-Level Architecture
 
-MarketFM Forge should have three planes:
+Mega-Trading should have three planes:
 
 - **Data plane**
   - Ingests offline and continuously updated market research data.
@@ -416,7 +416,7 @@ Mitigation: make the deterministic local demo excellent, and document the scalab
 
 ## Final Feasibility Verdict
 
-MarketFM Forge is a strong take-home project if positioned as infrastructure for a long-term value investing reasoning model.
+Mega-Trading is a strong take-home project if positioned as an end-to-end foundation model of trading.
 
 The most defensible claim is:
 

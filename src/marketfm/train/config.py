@@ -1,4 +1,4 @@
-"""Configuration and label contracts for TradingFoundationModel."""
+"""Training configuration and label contracts."""
 
 from __future__ import annotations
 

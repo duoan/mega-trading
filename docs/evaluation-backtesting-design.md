@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Evaluation and Backtesting module determines whether MarketFM Forge produces useful, auditable research artifacts.
+The Evaluation and Backtesting module determines whether Mega-Trading produces useful, auditable research artifacts.
 
 It evaluates three different things that must not be confused:
 
@@ -420,11 +420,11 @@ Purpose:
 
 Commands:
 
-- `marketfm eval reasoning --outputs <path>`
-- `marketfm eval backtest --outputs <path> --prices <path> --horizons 3m,6m,12m`
-- `marketfm eval leakage --outputs <path>`
-- `marketfm eval all --config configs/eval/demo.yaml`
-- `marketfm eval compare --runs run_a,run_b`
+- `mega-trading eval reasoning --outputs <path>`
+- `mega-trading eval backtest --outputs <path> --prices <path> --horizons 3m,6m,12m`
+- `mega-trading eval leakage --outputs <path>`
+- `mega-trading eval all --config configs/eval/demo.yaml`
+- `mega-trading eval compare --runs run_a,run_b`
 
 ### API
 

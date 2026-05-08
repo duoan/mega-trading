@@ -51,13 +51,13 @@ Goal: create a minimal Python project that can run tests and expose a CLI.
 Steps:
 
 1. Add project metadata, package layout, test runner, and formatting/linting config.
-2. Add a minimal `marketfm` CLI with `--help`.
+2. Add a minimal `mega-trading` CLI with `--help`.
 3. Add CI-like local commands in `Makefile` backed by `uv run`.
 
 Tests first:
 
 - CLI import test.
-- `marketfm --help` smoke test.
+- `mega-trading --help` smoke test.
 
 Commit after:
 

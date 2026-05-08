@@ -5,12 +5,10 @@ from pathlib import Path
 import torch
 
 from marketfm.core.store import LocalObjectStore
-from marketfm.train.trading_foundation_model import (
-    TradingFoundationDataset,
-    TradingFoundationModel,
-    TradingFoundationTrainConfig,
-    TradingFoundationTrainer,
-)
+from marketfm.train.config import TradingFoundationTrainConfig
+from marketfm.train.dataset import TradingFoundationDataset
+from marketfm.train.model import TradingFoundationModel
+from marketfm.train.trainer import TradingFoundationTrainer
 
 
 class TradingFoundationModelTests(unittest.TestCase):

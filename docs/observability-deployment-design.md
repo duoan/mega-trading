@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Observability and Deployment module makes MarketFM Forge operable.
+The Observability and Deployment module makes Mega-Trading operable.
 
 The project should not only run. It should show whether it is healthy, efficient, recoverable, and deployable. This is especially important for the AI Infrastructure Engineer (Training Systems) role, where the system must maximize learning per unit of compute and expose failures before they waste expensive GPU time.
 
@@ -306,10 +306,10 @@ Expected result:
 
 Commands:
 
-- `marketfm inject stale-feed`
-- `marketfm inject slow-dataloader`
-- `marketfm inject future-leakage`
-- `marketfm inject checkpoint-mismatch`
+- `mega-trading inject stale-feed`
+- `mega-trading inject slow-dataloader`
+- `mega-trading inject future-leakage`
+- `mega-trading inject checkpoint-mismatch`
 
 ## Ops Report
 
@@ -371,7 +371,7 @@ flowchart LR
 
 MVP containers:
 
-- `marketfm`
+- `mega-trading`
   - CLI, API, ingestion, corpus, eval, local training.
 - `minio`
   - local S3-compatible object store.
@@ -406,7 +406,7 @@ Kubernetes deploys the data/control plane.
 
 ### Resources
 
-- Namespace: `marketfm`
+- Namespace: `mega-trading`
 - ConfigMaps:
   - data configs.
   - training configs.
@@ -546,13 +546,13 @@ Each runbook should include:
 
 Commands:
 
-- `marketfm ops-report --run-id <run_id>`
-- `marketfm alerts eval --metrics <path> --config configs/alarms.yaml`
-- `marketfm deploy local`
-- `marketfm deploy k8s`
-- `marketfm deploy modal-check`
-- `marketfm inject slow-dataloader`
-- `marketfm inject future-leakage`
+- `mega-trading ops-report --run-id <run_id>`
+- `mega-trading alerts eval --metrics <path> --config configs/alarms.yaml`
+- `mega-trading deploy local`
+- `mega-trading deploy k8s`
+- `mega-trading deploy modal-check`
+- `mega-trading inject slow-dataloader`
+- `mega-trading inject future-leakage`
 
 ### API
 

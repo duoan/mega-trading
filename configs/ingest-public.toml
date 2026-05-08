@@ -1,6 +1,6 @@
 [ingest]
 output_dir = ".marketfm/public"
-sec_user_agent = "MarketFM Forge your-email@example.com"
+sec_user_agent = "Mega-Trading your-email@example.com"
 
 [ingest.quality]
 enabled = true
