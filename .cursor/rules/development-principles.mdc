@@ -1,0 +1,14 @@
+---
+description: Development process for MarketFM Forge
+alwaysApply: true
+---
+
+# Development Principles
+
+- Follow TDD: write a failing test or executable contract before production code.
+- Keep changes small and commit after each completed implementation step.
+- Apply SOLID pragmatically: small modules, clear interfaces, dependency injection where it reduces coupling.
+- Do not over-engineer: prefer the simplest implementation that preserves documented contracts and scaling paths.
+- Keep the deterministic local demo working; do not make private credentials or live services required.
+- Preserve `as_of_time`, lineage, metrics, and artifact manifests for model-visible data and training outputs.
+- Do not add `Co-authored-by` trailers unless the user explicitly asks.
