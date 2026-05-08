@@ -6,13 +6,14 @@ MarketFM Forge is feasible as a 72-hour technical submission if the goal is scop
 
 The realistic short-term goal is not to train a profitable investment model. The realistic goal is to build a credible, end-to-end prototype of a finance foundation model lab for long-term investment research:
 
-- Public financial documents and market data become versioned, traceable training corpora.
-- A small reasoning-oriented model is trained or adapted through CPT/DAPT, SFT, and preference tuning.
-- The model outputs evidence-grounded investment theses instead of opaque predictions.
-- The evaluation stack combines reasoning quality, long-horizon backtesting metrics, and infrastructure health metrics.
+- Public financial documents, fundamentals, and prices become versioned, traceable multi-stream training samples.
+- A small fusion model consumes price, fundamental, and text/evidence streams to predict forward return and risk targets.
+- CPT/SFT support paths adapt text and teach evidence-grounded explanations, but they are not the core prediction model.
+- The model outputs forward-looking investment views with cited explanations instead of opaque short-term predictions.
+- The evaluation stack combines prediction quality, explanation quality, long-horizon backtesting metrics, and infrastructure health metrics.
 - Every run is reproducible, observable, containerized, and deployable through Kubernetes/IaC, with Modal providing the GPU training path.
 
-The long-term ambition is a value-investing reasoning foundation model. The 72-hour artifact should prove the infrastructure contracts, training loop, evaluation discipline, and scaling path.
+The long-term ambition is a value-investing market foundation model. The 72-hour artifact should prove the data/model contracts, training loop, evaluation discipline, and scaling path.
 
 ## What Is Feasible In 72 Hours
 
@@ -20,10 +21,10 @@ The long-term ambition is a value-investing reasoning foundation model. The 72-h
 
 - Build a local-first data plane that consumes small public datasets and fixture samples.
 - Pull or ingest SEC metadata, fundamentals, historical prices, and selected financial reasoning datasets.
-- Create a versioned corpus with source IDs, timestamps, document provenance, and leakage controls.
-- Tokenize and pack text into language-model training shards.
-- Run a tiny from-scratch GPT training smoke test to prove the foundation-model training stack.
-- LoRA-tune a small open causal LM for evidence-grounded investment thesis generation.
+- Create versioned multi-stream samples with source IDs, timestamps, document provenance, labels, and leakage controls.
+- Tokenize text and pack price/fundamental/text/label streams into training shards.
+- Run a tiny fusion model training smoke test to prove the market-model training stack.
+- Keep tiny GPT/LoRA SFT as support paths for domain text and evidence-grounded explanation generation.
 - Add a lightweight DPO/preference step that rewards cited, cautious, temporally valid reasoning.
 - Produce 3/6/12-month forward-return evaluation for model-generated rankings or buckets.
 - Emit metrics, alarms, lineage manifests, checkpoint/resume validation, and an end-to-end ops report.
@@ -143,8 +144,8 @@ MarketFM Forge should have three planes:
   - Preserves source provenance, timestamps, quality signals, and replay cursors.
 
 - **Training plane**
-  - Converts corpora into tokenized and packed training shards.
-  - Runs CPT/DAPT, SFT, and DPO/preference training stages.
+  - Converts samples into stream shards and text corpora into tokenized packed shards.
+  - Runs multi-stream supervised training plus CPT/DAPT, SFT, and preference support stages.
   - Supports checkpointing, resume, metrics, and artifact lineage.
   - Uses Modal for GPU execution and local CPU runs for smoke tests.
 
@@ -167,8 +168,8 @@ Use an S3-compatible object layout that also works locally or with MinIO:
   - Include schemas, entity IDs, ticker mapping, and quality scores.
 
 - `stage=04_corpus/`
-  - Foundation-model text corpora.
-  - Include source references, `as_of_time`, document type, ticker, fiscal period, and mixture labels.
+  - Foundation-model text corpora and multi-stream sample records.
+  - Include source references, `as_of_time`, document type, ticker, fiscal period, label windows, and mixture labels.
 
 - `stage=05_shards/`
   - Tokenized and packed training shards.
@@ -208,11 +209,12 @@ Long-term investing evaluation is easy to corrupt with future leakage. The syste
 
 ### Model Role
 
-The model is a long-term investment reasoning model, not a real-time trading predictor.
+The model is a long-term investment research model, not a real-time trading predictor and not a pure text LLM.
 
 It should answer questions like:
 
-- Is this company attractive for long-term ownership as of this date?
+- What forward return/risk bucket does the model predict as of this date?
+- Is this company attractive for long-term ownership given the predicted risk/reward?
 - What is the investment thesis?
 - What evidence supports or weakens the thesis?
 - What are the major risks and uncertainties?
@@ -223,6 +225,7 @@ It should answer questions like:
 
 The model should produce structured output:
 
+- `prediction`: forward return bucket, risk bucket, drawdown or volatility estimate, and confidence.
 - `investment_view`: rating, ranking score, or expected return bucket.
 - `horizon`: 3-month, 6-month, 12-month, or multi-year.
 - `confidence`: calibrated confidence or uncertainty.

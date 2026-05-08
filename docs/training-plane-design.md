@@ -2,12 +2,12 @@
 
 ## Purpose
 
-The Training Plane turns versioned financial corpora and tokenized shards into model capability. It is the central module for demonstrating alignment with the AI Infrastructure Engineer (Training Systems) role.
+The Training Plane turns versioned financial samples, tokenized shards, and stream shards into model capability. It is the central module for demonstrating infra-model co-design and alignment with the AI Infrastructure Engineer (Training Systems) role.
 
-The finance reasoning model is the workload. The Training Plane is the signal:
+The multi-stream market foundation model is the workload. The Training Plane is the signal:
 
 - Can the system consume data efficiently?
-- Can it run multiple training stages reproducibly?
+- Can it run multi-stream supervised training and explanation support stages reproducibly?
 - Can it measure learning per unit of compute?
 - Can it recover from failures?
 - Can it expose bottlenecks clearly?
@@ -17,14 +17,15 @@ The finance reasoning model is the workload. The Training Plane is the signal:
 
 ### Model Capability Goals
 
-- Adapt a small causal language model to financial language.
-- Teach structured, evidence-grounded long-term investment reasoning.
-- Align the model toward cautious, cited, temporally valid outputs.
+- Train modality-aware encoders over prices, fundamentals, and text/evidence.
+- Fuse streams with cross-attention or a shallow fusion transformer.
+- Predict forward return, risk, volatility, and drawdown targets.
+- Teach an explanation layer to produce cautious, cited, temporally valid outputs from model-visible evidence and predictions.
 
 ### Infrastructure Goals
 
 - Use versioned tokenized shards, not ad hoc in-memory datasets.
-- Share the same artifact contracts across CPT/DAPT, SFT, and DPO.
+- Share the same artifact contracts across multi-stream supervised training, CPT/DAPT, SFT, and preference paths.
 - Support local CPU smoke tests and Modal GPU jobs.
 - Emit detailed training efficiency metrics.
 - Support checkpoint save/resume validation.
@@ -39,9 +40,43 @@ The finance reasoning model is the workload. The Training Plane is the signal:
 
 ## Training Stages
 
+### Multi-Stream Supervised Training
+
+This is the core model path. It trains a small market foundation model over price, fundamental, and text/evidence streams.
+
+Inputs:
+
+- Price-window shards ending at `as_of_time`.
+- Fundamental fact shards visible by `as_of_time`.
+- Text/evidence token shards visible by `as_of_time`.
+- Forward-return and risk labels whose windows begin after `as_of_time`.
+
+Outputs:
+
+- Fusion model checkpoint.
+- Prediction-head metrics.
+- Calibration report.
+- Run manifest.
+
+Metrics:
+
+- return-bucket accuracy and macro F1.
+- risk-bucket accuracy or regression error.
+- calibration by confidence bucket.
+- rank IC when ranking scores are available.
+- examples/sec.
+- dataloader wait ratio.
+- checkpoint time.
+
+MVP implementation:
+
+- Train a tiny fusion model with small stream encoders and one fusion block.
+- Support local CPU smoke tests first.
+- Keep model and data contracts compatible with future Modal GPU runs.
+
 ### CPT / DAPT
 
-Continual pretraining or domain-adaptive pretraining adapts the model to financial text.
+Continual pretraining or domain-adaptive pretraining adapts text encoders or explanation models to financial language. It is useful, but it is not the core market prediction model.
 
 Inputs:
 
@@ -71,7 +106,7 @@ MVP implementation:
 
 ### SFT
 
-Supervised fine-tuning teaches the model to produce structured investment reasoning.
+Supervised fine-tuning teaches the explanation layer to produce structured investment reasoning from evidence and prediction outputs.
 
 Inputs:
 
@@ -96,7 +131,7 @@ Outputs:
 
 MVP implementation:
 
-- Fine-tune a small open causal LM with LoRA.
+- Fine-tune a small open causal LM with LoRA for the explanation layer.
 - Use a small dataset derived from FinanceBench-style examples, fixture filings, and synthetic thesis examples.
 
 ### DPO / Preference Tuning
@@ -129,11 +164,27 @@ MVP implementation:
 
 ## Model Choices
 
+### Tiny Fusion Model
+
+Purpose:
+
+- Prove the end-to-end market model contract from multi-stream data to prediction heads.
+
+Why include it:
+
+- It demonstrates price/fundamental/text stream loading, fusion, labels, prediction metrics, checkpointing, and throughput.
+- It avoids pretending that text-only CPT is sufficient for market reasoning.
+
+Expected quality:
+
+- Not expected to produce tradable alpha.
+- Expected to prove the architecture and reveal data/model bottlenecks.
+
 ### Tiny GPT From Scratch
 
 Purpose:
 
-- Prove the foundation-model training stack end to end.
+- Prove the language-model support path end to end.
 
 Why include it:
 
@@ -149,7 +200,7 @@ Expected quality:
 
 Purpose:
 
-- Produce credible reasoning outputs with SFT/DPO.
+- Produce credible explanation outputs with SFT/DPO.
 
 Candidate models:
 
@@ -175,7 +226,7 @@ Benefits:
 - Lower cost.
 - Fast iteration.
 - Small artifacts.
-- Easier comparison across CPT/SFT/DPO stages.
+- Easier comparison across explanation CPT/SFT/preference stages.
 
 Configurable parameters:
 

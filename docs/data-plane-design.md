@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Data Plane turns messy public financial data into reliable, replayable, and auditable training signal for a long-term value investing reasoning model.
+The Data Plane turns messy public financial data into reliable, replayable, and auditable training signal for a multi-stream market foundation model.
 
 This module owns the path from source systems to model-ready corpora:
 
@@ -10,11 +10,11 @@ This module owns the path from source systems to model-ready corpora:
 - Preserve raw source payloads for auditability.
 - Normalize records into typed schemas.
 - Enforce quality checks and time-aware leakage controls.
-- Build foundation-model corpora with source lineage.
-- Produce tokenizable records for CPT/DAPT, SFT, and preference training.
+- Build model-facing samples with source lineage, price windows, fundamentals, text/evidence, and labels.
+- Produce stream shards for supervised fusion-model training plus tokenizable records for CPT/DAPT, SFT, and preference support paths.
 - Emit data health metrics and alarms.
 
-The Data Plane is not a feature engineering notebook. It is the system of record for what the model was allowed to see.
+The Data Plane is not a feature engineering notebook. It is the system of record for what the model was allowed to see, what future labels were generated after the as-of boundary, and which sample contract each model consumed.
 
 ## Design Goals
 
@@ -27,8 +27,8 @@ The Data Plane is not a feature engineering notebook. It is the system of record
 
 ### Training Readiness
 
-- Corpora should be directly consumable by tokenization and training jobs.
-- Corpus mixtures should be config-driven and versioned.
+- Multi-stream samples should be directly consumable by tokenization, stream packing, and training jobs.
+- Data mixtures, label horizons, and stream windows should be config-driven and versioned.
 - Records should preserve enough metadata for training, evaluation, and evidence retrieval.
 
 ### Time Discipline
@@ -98,6 +98,8 @@ Config-driven ingestion should produce:
 - `quarantine/quality/<run_id>.jsonl`.
 - `stage=03_enriched/company_snapshots.jsonl`.
 - `stage=04_corpus/mixture=<mixture_name>/cpt.jsonl`.
+- `stage=04_corpus/mixture=<mixture_name>/sft.jsonl`.
+- future `stage=04_corpus/mixture=<mixture_name>/samples.jsonl` for multi-stream prediction examples.
 - `stage=05_shards/mixture=<mixture_name>/cpt.jsonl`.
 
 ## Data Readiness
@@ -120,17 +122,19 @@ Initial enrichment:
 
 ## Training Handoff
 
-After readiness passes, public enriched snapshots are converted into model-facing CPT corpus records and tokenized shards. This makes the Data Plane directly consumable by the Training Plane:
+After readiness passes, public enriched snapshots are converted into model-facing corpus records today, and should evolve into multi-stream prediction samples next. This makes the Data Plane directly consumable by the Training Plane:
 
 ```text
 reports/data-readiness.json
 stage=03_enriched/company_snapshots.jsonl
   -> stage=04_corpus/mixture=public/cpt.jsonl
+  -> stage=04_corpus/mixture=public/sft.jsonl
+  -> stage=04_corpus/mixture=public/samples.jsonl
   -> stage=05_shards/mixture=public/cpt.jsonl
-  -> CPTTrainer.train("stage=05_shards/mixture=public/cpt.jsonl")
+  -> FusionTrainer.train("stage=05_shards/mixture=public/samples.jsonl")
 ```
 
-The MVP public CPT corpus textualizes company identity, latest fundamental availability, and price coverage. It is not yet a high-quality finance pretraining corpus, but it proves the data contract from real public ingestion to trainable model shards.
+The MVP public CPT/SFT corpus proves the first data contract from real public ingestion to trainable artifacts. The next model-facing contract is stronger: each sample should preserve separate price, fundamental, and text/evidence streams with forward-return and risk labels. That contract is what enables a fusion model to learn market structure instead of asking a text-only LLM to infer everything from weak summaries.
 
 #### Fixture Data
 

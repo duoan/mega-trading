@@ -2,14 +2,15 @@
 
 ## Overview
 
-MarketFM Forge is a prototype data and training platform for a long-term value investing reasoning model. The system turns public financial data into auditable training signal, trains small foundation-model variants through multiple stages, and evaluates outputs through reasoning quality, long-horizon backtesting, and infrastructure health metrics.
+MarketFM Forge is a prototype infra-model co-design platform for a long-term investment research model. The system turns public financial data into auditable multi-stream training signal, trains small market foundation-model variants, and evaluates outputs through prediction quality, explanation faithfulness, long-horizon backtesting, and infrastructure health metrics.
 
-The design is intentionally infrastructure-first. The model is important, but the main artifact is the set of contracts around the model:
+The design is intentionally end-to-end. The model is not an afterthought behind an infra demo, and the infrastructure is not generic plumbing. They are co-designed around a shared contract:
 
 - What data was available at a given `as_of_time`.
-- How raw documents became training corpora and tokenized shards.
-- Which model stage consumed which data mixture.
-- Whether the model can cite evidence for an investment thesis.
+- How raw documents, fundamentals, and price windows became model-visible streams.
+- Which labels were generated after the as-of boundary.
+- Which modality encoders and fusion blocks consumed which data mixture.
+- Whether the model can predict forward return/risk targets and cite evidence for the explanation.
 - Whether outputs can be evaluated through realistic long-horizon portfolio metrics.
 - Whether the system is observable, recoverable, and fast enough for research iteration.
 
@@ -17,9 +18,10 @@ The design is intentionally infrastructure-first. The model is important, but th
 
 ### Product Goals
 
-- Build a reasoning-oriented model for long-term value investing research.
-- Produce evidence-grounded investment theses, not opaque short-term predictions.
-- Evaluate model outputs with both reasoning metrics and long-horizon finance metrics.
+- Build a multi-input market foundation model for long-term investment research.
+- Preserve the structure of finance data: price series, fundamentals, text evidence, labels, and lineage should not be collapsed into weak text-only CPT.
+- Produce forward return/risk predictions with evidence-grounded explanations, not opaque short-term predictions.
+- Evaluate model outputs with prediction metrics, explanation metrics, and long-horizon finance metrics.
 - Preserve source lineage so every answer can be audited back to data, model, and config.
 
 ### Infrastructure Goals
@@ -75,9 +77,9 @@ The researcher interacts with the system through a CLI, API, and generated repor
 
 MarketFM Forge is organized into five major planes:
 
-- **Data plane**: ingestion, normalization, quality, corpus construction, and tokenization.
-- **Training plane**: CPT/DAPT, SFT, DPO/preference tuning, checkpointing, and metrics.
-- **Reasoning plane**: retrieval, evidence packaging, model inference, and structured thesis generation.
+- **Data plane**: ingestion, normalization, quality, label generation, multi-stream sample construction, and tokenization.
+- **Training plane**: multi-stream supervised training, CPT/DAPT and SFT support paths, checkpointing, and metrics.
+- **Reasoning plane**: retrieval, evidence packaging, prediction explanation, and structured thesis generation.
 - **Evaluation plane**: reasoning evaluation, long-horizon backtesting, leakage checks, and baselines.
 - **Operations plane**: metrics, alarms, runbooks, deployment, failure injection, and end-to-end efficiency tracking.
 
@@ -87,21 +89,23 @@ flowchart TB
         Ingest[Ingest adapters]
         Normalize[Normalize and validate]
         Quality[Quality gates]
-        Corpus[Corpus builder]
-        Tokenize[Tokenizer and packer]
+        Samples[Multi-stream sample builder]
+        Labels[Forward labels]
+        Tokenize[Tokenizer and stream packer]
     end
 
     subgraph trainPlane [Training Plane]
-        CPT[CPT or DAPT]
-        SFT[SFT]
-        DPO[DPO preference tuning]
+        Encoders[Modality encoders]
+        Fusion[Fusion transformer]
+        Heads[Prediction heads]
+        Explain[Explanation SFT path]
         Checkpoint[Checkpoint manager]
     end
 
     subgraph reasoningPlane [Reasoning Plane]
         Retrieve[Evidence retrieval]
         Prompt[Evidence pack builder]
-        Agent[Reasoning agent]
+        Agent[Prediction explanation agent]
     end
 
     subgraph evalPlane [Evaluation Plane]
@@ -118,9 +122,10 @@ flowchart TB
         Deploy[K8s and IaC]
     end
 
-    Ingest --> Normalize --> Quality --> Corpus --> Tokenize
-    Tokenize --> CPT --> SFT --> DPO --> Checkpoint
-    Corpus --> Retrieve --> Prompt --> Agent
+    Ingest --> Normalize --> Quality --> Samples --> Labels --> Tokenize
+    Tokenize --> Encoders --> Fusion --> Heads --> Checkpoint
+    Heads --> Explain --> Agent
+    Samples --> Retrieve --> Prompt --> Agent
     Checkpoint --> Agent
     Agent --> ReasonEval
     Agent --> Backtest
@@ -245,8 +250,9 @@ The shard builder turns corpus records into packed language-model training examp
 Responsibilities:
 
 - Load tokenizer config.
-- Tokenize corpus records.
-- Pack sequences to improve training efficiency.
+- Tokenize text/evidence records.
+- Pack text sequences to improve language-model support paths.
+- Package price windows, fundamental facts, and labels into stream-specific shards.
 - Preserve sample boundaries and source IDs.
 - Write shard files and shard manifests.
 - Track sequence packing efficiency.
@@ -269,16 +275,20 @@ The training orchestrator launches local smoke tests and Modal GPU jobs.
 
 Training stages:
 
+- **Multi-stream supervised training**
+  - Train modality encoders and a fusion transformer over price, fundamental, and text/evidence streams.
+  - Metric: forward-return bucket quality, risk prediction quality, calibration, examples/sec, and data-loader wait ratio.
+
 - **CPT/DAPT**
-  - Continue pretraining on finance-domain corpus.
+  - Continue pretraining on finance-domain text for text encoders or explanation models.
   - Metric: held-out finance perplexity and tokens/sec.
 
 - **SFT**
-  - Fine-tune on evidence-grounded investment reasoning examples.
-  - Metric: schema compliance, citation inclusion, reasoning task score.
+  - Fine-tune the explanation layer on evidence-grounded investment reasoning examples.
+  - Metric: schema compliance, citation inclusion, explanation faithfulness.
 
 - **DPO/preference**
-  - Align toward grounded, cautious, temporally valid reasoning.
+  - Align explanations toward grounded, cautious, temporally valid reasoning.
   - Metric: preference win rate, unsupported-claim reduction, temporal correctness.
 
 The orchestrator should share core components across stages:
@@ -423,14 +433,14 @@ sequenceDiagram
     CLI->>Ingest: fetch fixture and public data
     Ingest->>Store: write stage=01_raw records
     Ingest->>Store: write ingest manifest
-    CLI->>Corpus: normalize and build corpus
+    CLI->>Corpus: normalize and build multi-stream samples
     Corpus->>Store: write stage=02_normalized records
-    Corpus->>Store: write corpus records and mixture manifest
-    CLI->>Tok: tokenize and pack
+    Corpus->>Store: write sample, label, corpus, and mixture manifests
+    CLI->>Tok: tokenize text and pack stream shards
     Tok->>Store: write training shards and shard manifest
-    CLI->>Train: run CPT, SFT, DPO smoke stages
+    CLI->>Train: run fusion model and explanation smoke stages
     Train->>Store: write checkpoints, metrics, model artifacts
-    CLI->>Eval: run reasoning and backtest evaluation
+    CLI->>Eval: run prediction, reasoning, and backtest evaluation
     Eval->>Store: write eval report and ops report
     CLI->>User: print summary and artifact paths
 ```
@@ -439,18 +449,19 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    Corpus["Versioned corpus"] --> Shards["Tokenized packed shards"]
-    Shards --> TinyGPT["Tiny GPT from scratch"]
-    Shards --> BaseLM["Small open causal LM"]
-    TinyGPT --> CPTMetrics["CPT smoke metrics"]
-    BaseLM --> CPTLoRA["CPT or DAPT LoRA"]
-    CPTLoRA --> SFT["Evidence grounded SFT"]
-    SFT --> DPO["DPO preference tuning"]
-    DPO --> ReasoningModel["Reasoning model artifact"]
-    ReasoningModel --> Eval["Reasoning and backtest eval"]
+    Samples["Multi-stream samples"] --> StreamShards["Price/fundamental/text shards"]
+    StreamShards --> PriceEnc["Price encoder"]
+    StreamShards --> FundEnc["Fundamental encoder"]
+    StreamShards --> TextEnc["Text/evidence encoder"]
+    PriceEnc --> Fusion["Fusion transformer"]
+    FundEnc --> Fusion
+    TextEnc --> Fusion
+    Fusion --> Heads["Return/risk heads"]
+    Heads --> Explain["Evidence-grounded explanation layer"]
+    Explain --> Eval["Prediction, reasoning, and backtest eval"]
 ```
 
-The tiny GPT path proves the training stack can train a language model from tokenized shards. The small open causal LM path proves that the platform can adapt a pretrained model into a value-investing reasoning agent.
+The fusion path is the core model path. Tiny GPT/CPT and small causal-LM SFT remain useful support paths for validating text infrastructure and explanation formatting, but they are not the primary claim of market reasoning capability.
 
 ## Artifact Contracts
 
@@ -591,12 +602,11 @@ Terraform and Kubernetes manifests should define:
 
 - Deterministic fixture demo.
 - Data ingestion and normalized records.
-- Corpus builder with `as_of_time` and source IDs.
-- Tokenized packed shards.
-- Tiny GPT CPT smoke test.
-- Small causal LM SFT or LoRA path.
-- Lightweight DPO/preference path or simulated preference trainer.
-- Evidence-grounded reasoning output contract.
+- Multi-stream sample builder with `as_of_time`, source IDs, price windows, fundamentals, evidence tokens, and labels.
+- Stream shards for price, fundamental, text/evidence, and label tensors.
+- Tiny fusion model smoke test with prediction heads.
+- CPT/SFT support paths for text adaptation and explanation formatting.
+- Evidence-grounded prediction and explanation output contract.
 - 3/6/12-month forward-return evaluation for a small universe or fixture.
 - Metrics and ops report.
 - At least two alert simulations.
@@ -609,7 +619,7 @@ Terraform and Kubernetes manifests should define:
 - FinanceBench or FinQA-derived examples.
 - Price/fundamentals live adapter.
 - Checkpoint/resume validation.
-- Baselines: random, momentum, simple value, prompt-only, SFT-only.
+- Baselines: random, momentum, simple value, text-only LLM, price-only model, fundamentals-only model.
 
 ### Can Defer
 
@@ -626,8 +636,8 @@ The prototype should scale along clear dimensions:
 
 - More data sources: proprietary research, paid fundamentals, transcripts, macro, credit, options, real estate.
 - More compute: Modal to internal GPU clusters, Ray, EKS, FSDP/DeepSpeed.
-- Better corpora: higher-quality extraction, deduplication, entity resolution, and leakage controls.
-- Better training: larger models, longer context, better SFT data, richer preference labels.
+- Better samples: higher-quality extraction, deduplication, entity resolution, richer price/fundamental/text windows, and leakage controls.
+- Better training: larger fusion models, longer windows, richer labels, stronger encoders, better SFT data, and richer preference labels.
 - Better evaluation: walk-forward experiments, broader universes, factor controls, regime splits.
 - Better operations: SLOs, incident workflows, cost dashboards, and model/data governance.
 
@@ -635,15 +645,15 @@ The prototype should scale along clear dimensions:
 
 ### Small Model Versus Real Model
 
-The demo uses small models because the submission window is short. This is acceptable because the project is about proving system contracts. The design keeps model size independent from data and artifact contracts, so larger models can replace the demo model later.
+The demo uses small models because the submission window is short. This is acceptable because the project is about proving system and model contracts together. The design keeps model size independent from data and artifact contracts, so larger fusion models can replace the demo model later.
 
 ### Fixture Data Versus Live Data
 
 The demo needs deterministic fixture data for reliability. Live public adapters are still valuable, but they should not be required for the reviewer to run the project.
 
-### Backtesting Signal Versus Reasoning Quality
+### Backtesting Signal Versus Explanation Quality
 
-The model may not produce strong investment signal in 72 hours. The evaluation stack should still compute real finance metrics, but the project should frame them as diagnostics. Reasoning quality, lineage, and leakage control are equally important.
+The model may not produce strong investment signal in 72 hours. The evaluation stack should still compute real finance metrics, but the project should frame them as diagnostics. Explanation quality, lineage, calibration, and leakage control are equally important.
 
 ### K8s Completeness Versus Implementation Depth
 
@@ -651,9 +661,10 @@ Kubernetes and IaC should show deployability, but the implementation should prio
 
 ## Open Questions
 
-- Which small causal LM should be the default: Qwen2.5-0.5B-Instruct, TinyLlama-1.1B, or another lightweight model?
+- Which tiny fusion architecture should be the default: MLP+cross-attention, shallow transformer encoders, or a tabular/time-series transformer?
 - Should the initial universe be hand-picked large-cap companies or dynamically selected from S&P 500 fixtures?
-- How much of the DPO stage should be real training versus a lightweight preference-loss smoke test?
+- Which forward-return horizon should be the first supervised target: 20D, 60D, 120D, or 12-month?
+- How much of the preference stage should be real training versus a lightweight explanation preference-loss smoke test?
 - Should retrieval be simple lexical search in the MVP, or should a vector index be included?
 - Which backtesting horizon should be the headline metric: 3-month, 6-month, or 12-month?
 
@@ -663,11 +674,11 @@ Kubernetes and IaC should show deployability, but the implementation should prio
 2. Build deterministic fixture data.
 3. Implement object-store abstraction and manifests.
 4. Implement ingestion and normalization.
-5. Implement corpus builder.
-6. Implement tokenizer and shard builder.
-7. Implement tiny GPT CPT smoke test.
-8. Implement SFT path and reasoning output schema.
-9. Implement DPO/preference path.
+5. Implement label generation and multi-stream sample builder.
+6. Implement tokenizer and stream shard builder.
+7. Implement tiny fusion model smoke test.
+8. Implement CPT/SFT support paths for text and explanations.
+9. Implement preference path for explanation quality.
 10. Implement evaluation and backtesting.
 11. Implement metrics, alarms, and ops report.
 12. Add Docker, K8s, IaC, Modal entry points.

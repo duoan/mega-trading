@@ -20,16 +20,18 @@ src/marketfm/
     ingest_config.py     # Config-driven ingestion API
     lance_store.py       # LanceDB table/index store
     quality.py           # Quality gates and data-readiness reports
-    corpus.py            # Fixture and public trainable corpus builders
-    tokenize.py          # Tokenizer and shard builder
+    corpus.py            # Fixture/public text corpora and future sample builders
+    labels.py            # Forward-return and risk label generation
+    tokenize.py          # Tokenizer and stream shard builder
     public/              # Real public data adapters
       sec.py             # SEC EDGAR company facts
       prices.py          # Yahoo/Stooq price adapters
 
   train/                 # Training plane
+    fusion.py            # Multi-stream fusion model smoke trainer
     cpt.py               # CPT/DAPT smoke trainer
-    sft.py               # SFT reasoning smoke path
-    preference.py        # Preference/DPO-style smoke path
+    sft.py               # Explanation SFT smoke path
+    preference.py        # Explanation preference/DPO-style smoke path
 
   reasoning/             # Reasoning plane
     runtime.py           # Evidence retrieval, pack building, thesis output
@@ -52,12 +54,12 @@ Root-level modules such as `marketfm.schemas`, `marketfm.store`, and `marketfm.c
 ## Rules
 
 - Put shared contracts in `core/`.
-- Put data ingestion, corpus, tokenization, and public data adapters in `data/`.
+- Put data ingestion, label generation, sample/corpus construction, tokenization, and public data adapters in `data/`.
 - Treat ingestion config as the public ingestion API; CLI and schedulers should dispatch from config rather than hard-coded source arguments.
 - Run quality and enrichment between ingestion and corpus construction; corpus builders should consume data that has a readiness report.
 - Use `marketfm.data.lance_store` for normalized query tables and evidence/corpus indexes.
-- Put training stages in `train/`.
-- Put evidence-grounded model runtime code in `reasoning/`.
+- Put fusion-model and support training stages in `train/`.
+- Put evidence-grounded prediction explanation runtime code in `reasoning/`.
 - Put backtesting and evaluation code in `eval/`.
 - Put metrics, alarms, failure injection, deployment helpers, and ops reports in `ops/`.
 - Avoid adding new production modules at the package root unless they are thin compatibility re-exports.

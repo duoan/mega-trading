@@ -16,7 +16,7 @@ MarketFM Forge should show that the builder can turn data and compute into model
 - Time from idea to evaluated model.
 - Learning per unit of compute.
 
-The finance reasoning model provides the domain. The training system is the main signal.
+The multi-stream finance model provides the domain. The training system and model architecture are the joint signal: the project should show that data contracts, labels, model inputs, training loops, and metrics were designed together.
 
 ## Role Requirements And Project Response
 
@@ -24,7 +24,7 @@ The finance reasoning model provides the domain. The training system is the main
 
 Project response:
 
-- Provide training entry points for CPT/DAPT, SFT, and DPO/preference tuning.
+- Provide training entry points for multi-stream supervised training plus CPT/DAPT, SFT, and preference support paths.
 - Keep training stages config-driven so model requirements can be translated into system configurations.
 - Support local CPU smoke tests and Modal GPU jobs through the same artifact contracts.
 - Design the training loop so it can later scale to FSDP/DeepSpeed/Ray without rewriting data contracts.

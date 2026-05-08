@@ -146,21 +146,25 @@ Commit after:
 
 - data ingestion tests pass.
 
-## Phase 5: Corpus Builder
+## Phase 5: Label And Multi-Stream Sample Builder
 
-Goal: convert normalized financial records into model-facing corpora.
+Goal: convert normalized financial records into model-facing samples for the fusion model and support corpora for text/explanation paths.
 
 Steps:
 
-1. Build CPT corpus records.
-2. Build SFT instruction records.
-3. Build preference pairs.
-4. Write corpus manifests with source lineage and mixture config hash.
+1. Generate point-in-time price windows ending at `as_of_time`.
+2. Generate forward-return and risk labels whose windows begin after `as_of_time`.
+3. Attach visible fundamentals and text/evidence records.
+4. Build CPT corpus records as a text-adaptation support path.
+5. Build SFT instruction records as an explanation support path.
+6. Build preference pairs for explanation alignment.
+7. Write sample/corpus manifests with source lineage, label windows, and mixture config hash.
 
 Tests first:
 
-- corpus records preserve source IDs.
-- corpus records preserve `as_of_time`.
+- samples preserve source IDs.
+- samples preserve `as_of_time`.
+- label windows start after `as_of_time`.
 - mixture hash changes when weights change.
 - future evidence is blocked.
 
@@ -168,16 +172,17 @@ Commit after:
 
 - corpus builder tests pass.
 
-## Phase 6: Tokenizer And Shard Builder
+## Phase 6: Tokenizer And Stream Shard Builder
 
-Goal: convert corpus records into packed training shards.
+Goal: convert samples and corpus records into packed training shards.
 
 Steps:
 
-1. Add tokenizer wrapper.
-2. Implement sequence packing.
-3. Write shard files and shard manifests.
-4. Track token counts and packing efficiency.
+1. Add tokenizer wrapper for text/evidence streams.
+2. Implement sequence packing for language-model support paths.
+3. Implement stream packing for price, fundamental, text/evidence, and label tensors.
+4. Write shard files and shard manifests.
+5. Track token counts, stream counts, and packing efficiency.
 
 Tests first:
 
@@ -190,42 +195,47 @@ Commit after:
 
 - tokenizer and shard tests pass.
 
-## Phase 7: Tiny CPT Smoke Test
+## Phase 7: Tiny Fusion Model Smoke Test
 
-Goal: prove foundation-model training infra from tokenized shards.
+Goal: prove the core market foundation model path from multi-stream shards.
 
 Steps:
 
-1. Add tiny decoder-only GPT model.
-2. Add CPT training loop.
-3. Emit training metrics.
-4. Save and resume checkpoint.
+1. Add tiny price encoder.
+2. Add tiny fundamental encoder.
+3. Add text/evidence encoder.
+4. Add one fusion block with cross-stream attention.
+5. Add forward-return and risk prediction heads.
+6. Emit prediction, throughput, and checkpoint metrics.
+7. Save and resume checkpoint.
 
 Tests first:
 
-- training consumes shard dataset.
-- one training step reduces or records loss without crashing.
+- training consumes multi-stream shard dataset.
+- one training step records prediction loss without crashing.
 - checkpoint save and resume restore step count.
 - metrics file is written.
 
 Commit after:
 
-- CPT smoke tests pass.
+- fusion smoke tests pass.
 
-## Phase 8: SFT Reasoning Training Path
+## Phase 8: CPT And SFT Support Paths
 
-Goal: train or simulate a small reasoning model path over SFT examples.
+Goal: train or simulate text adaptation and explanation paths over CPT/SFT examples.
 
 Steps:
 
-1. Add SFT dataset format.
-2. Add SFT training entry point.
-3. Add output schema target.
-4. Add local smoke mode and Modal-ready config.
+1. Add CPT text dataset format for domain adaptation.
+2. Add SFT dataset format for evidence-grounded explanations.
+3. Add SFT training entry point.
+4. Add output schema target.
+5. Add local smoke mode and Modal-ready config.
 
 Tests first:
 
 - SFT examples format correctly.
+- CPT examples remain separate from model prediction labels.
 - output target validates against reasoning schema.
 - SFT run writes manifest and metrics.
 
@@ -278,15 +288,16 @@ Commit after:
 
 ## Phase 11: Evaluation And Backtesting
 
-Goal: evaluate reasoning quality and long-horizon investment diagnostics.
+Goal: evaluate prediction quality, explanation quality, and long-horizon investment diagnostics.
 
 Steps:
 
-1. Add reasoning metrics.
-2. Add temporal correctness checks.
-3. Add forward-return label generation.
-4. Add rank IC, bucketed return, precision@k, and simple top-k backtest.
-5. Add random and simple momentum/value baseline.
+1. Add prediction metrics.
+2. Add explanation metrics.
+3. Add temporal correctness checks.
+4. Reuse forward-return labels from the sample builder.
+5. Add rank IC, bucketed return, precision@k, and simple top-k backtest.
+6. Add random, momentum, value, price-only, and fundamentals-only baselines.
 
 Tests first:
 
