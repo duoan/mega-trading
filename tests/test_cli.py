@@ -264,6 +264,8 @@ end = "2023-01-31"
             self.assertTrue((output_dir / "silver/prices/yahoo.jsonl").exists())
             self.assertTrue((output_dir / "reports/data-readiness.json").exists())
             self.assertTrue((output_dir / "silver/enriched/company_snapshots.jsonl").exists())
+            self.assertTrue((output_dir / "corpus/public/cpt.jsonl").exists())
+            self.assertTrue((output_dir / "shards/public/cpt.jsonl").exists())
 
 
 if __name__ == "__main__":

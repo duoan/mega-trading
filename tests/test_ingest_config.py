@@ -38,6 +38,8 @@ end = "2024-03-31"
             self.assertEqual(config.sources[1].start, "2024-01-01")
             self.assertTrue(config.quality_enabled)
             self.assertTrue(config.enrichment_enabled)
+            self.assertTrue(config.training_data_enabled)
+            self.assertEqual(config.training_mixture_name, "public")
 
     def test_rejects_price_source_without_date_window(self) -> None:
         with self.assertRaises(ValueError):
@@ -63,6 +65,11 @@ fail_on_error = true
 [ingest.enrichment]
 enabled = false
 
+[ingest.training_data]
+enabled = false
+mixture_name = "disabled"
+sequence_length = 16
+
 [[ingest.sources]]
 name = "yahoo_prices"
 tickers = ["AAPL"]
@@ -78,6 +85,9 @@ end = "2024-01-31"
             self.assertTrue(config.quality_enabled)
             self.assertTrue(config.quality_fail_on_error)
             self.assertFalse(config.enrichment_enabled)
+            self.assertFalse(config.training_data_enabled)
+            self.assertEqual(config.training_mixture_name, "disabled")
+            self.assertEqual(config.training_sequence_length, 16)
 
 
 if __name__ == "__main__":

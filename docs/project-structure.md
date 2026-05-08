@@ -20,7 +20,7 @@ src/marketfm/
     ingest_config.py     # Config-driven ingestion API
     lance_store.py       # LanceDB table/index store
     quality.py           # Quality gates and data-readiness reports
-    corpus.py            # Corpus builder
+    corpus.py            # Fixture and public trainable corpus builders
     tokenize.py          # Tokenizer and shard builder
     public/              # Real public data adapters
       sec.py             # SEC EDGAR company facts

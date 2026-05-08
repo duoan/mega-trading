@@ -33,6 +33,9 @@ class IngestPipelineConfig:
     quality_enabled: bool = True
     quality_fail_on_error: bool = False
     enrichment_enabled: bool = True
+    training_data_enabled: bool = True
+    training_mixture_name: str = "public"
+    training_sequence_length: int = 32
 
     def __post_init__(self) -> None:
         if not self.output_dir:
@@ -49,6 +52,9 @@ class IngestPipelineConfig:
         enrichment = value.get("enrichment", {})
         if not isinstance(enrichment, dict):
             enrichment = {}
+        training_data = value.get("training_data", {})
+        if not isinstance(training_data, dict):
+            training_data = {}
         return cls(
             output_dir=str(value.get("output_dir", "")),
             sec_user_agent=_optional_string(value.get("sec_user_agent")),
@@ -56,6 +62,9 @@ class IngestPipelineConfig:
             quality_enabled=bool(quality.get("enabled", True)),
             quality_fail_on_error=bool(quality.get("fail_on_error", False)),
             enrichment_enabled=bool(enrichment.get("enabled", True)),
+            training_data_enabled=bool(training_data.get("enabled", True)),
+            training_mixture_name=str(training_data.get("mixture_name", "public")),
+            training_sequence_length=int(training_data.get("sequence_length", 32)),
         )
 
     def enabled_sources(self) -> tuple[IngestSourceConfig, ...]:

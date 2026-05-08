@@ -9,6 +9,11 @@ fail_on_error = false
 [ingest.enrichment]
 enabled = true
 
+[ingest.training_data]
+enabled = true
+mixture_name = "public"
+sequence_length = 32
+
 [[ingest.sources]]
 name = "sec_companyfacts"
 tickers = ["AAPL", "MSFT"]

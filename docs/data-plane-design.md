@@ -65,6 +65,11 @@ fail_on_error = false
 [ingest.enrichment]
 enabled = true
 
+[ingest.training_data]
+enabled = true
+mixture_name = "public"
+sequence_length = 32
+
 [[ingest.sources]]
 name = "sec_companyfacts"
 tickers = ["AAPL", "MSFT"]
@@ -82,7 +87,7 @@ Supported source names:
 - `yahoo_prices`
 - `stooq_prices`
 
-The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, which quality gates and enrichment steps will run, where artifacts will be written, and which source-specific requirements apply.
+The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, which quality gates and enrichment steps will run, which trainable corpus/shards will be produced, where artifacts will be written, and which source-specific requirements apply.
 
 Config-driven ingestion should produce:
 
@@ -92,6 +97,8 @@ Config-driven ingestion should produce:
 - `metrics/data/quality.jsonl`.
 - `quarantine/quality/<run_id>.jsonl`.
 - `silver/enriched/company_snapshots.jsonl`.
+- `corpus/<mixture_name>/cpt.jsonl`.
+- `shards/<mixture_name>/cpt.jsonl`.
 
 ## Data Readiness
 
@@ -110,6 +117,20 @@ Initial enrichment:
 - join SEC entities, SEC fundamentals, and price coverage by ticker.
 - produce deterministic company snapshots with latest fundamental availability and price observation windows.
 - keep enrichment output as silver data with a manifest so it can be replayed.
+
+## Training Handoff
+
+After readiness passes, public enriched snapshots are converted into model-facing CPT corpus records and tokenized shards. This makes the Data Plane directly consumable by the Training Plane:
+
+```text
+reports/data-readiness.json
+silver/enriched/company_snapshots.jsonl
+  -> corpus/public/cpt.jsonl
+  -> shards/public/cpt.jsonl
+  -> CPTTrainer.train("shards/public/cpt.jsonl")
+```
+
+The MVP public CPT corpus textualizes company identity, latest fundamental availability, and price coverage. It is not yet a high-quality finance pretraining corpus, but it proves the data contract from real public ingestion to trainable model shards.
 
 #### Fixture Data
 

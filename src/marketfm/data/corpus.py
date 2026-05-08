@@ -14,6 +14,10 @@ class LeakageError(ValueError):
     """Raised when future evidence enters a model-visible artifact."""
 
 
+class ReadinessError(ValueError):
+    """Raised when public data is not marked ready for training."""
+
+
 @dataclass(frozen=True)
 class CorpusBuildResult:
     manifest_path: str
@@ -158,3 +162,69 @@ class CorpusBuilder:
             evidence_time = _parse_time(str(evidence[evidence_id]["timestamp"]))
             if evidence_time > boundary:
                 raise LeakageError(f"evidence {evidence_id} is after as_of_time {as_of_time}")
+
+
+class PublicCorpusBuilder:
+    """Build trainable corpus records from readiness-passed public data."""
+
+    def __init__(self, store: LocalObjectStore) -> None:
+        self.store = store
+        self.paths = ArtifactPaths()
+
+    def build(self, mixture_name: str = "public") -> CorpusBuildResult:
+        readiness = self.store.read_json("reports/data-readiness.json")
+        if not readiness.get("training_ready"):
+            raise ReadinessError("public data readiness report is not training_ready")
+
+        snapshots = self.store.read_jsonl("silver/enriched/company_snapshots.jsonl")
+        cpt_records = [self._snapshot_to_cpt(mixture_name, snapshot) for snapshot in snapshots]
+        cpt_path = self.paths.corpus(mixture_name, "cpt")
+        self.store.write_jsonl(cpt_path, [asdict(record) for record in cpt_records])
+
+        manifest = Manifest(
+            manifest_id=f"{mixture_name}-public-corpus",
+            artifact_type="corpus",
+            paths=[cpt_path],
+            metadata={
+                "mixture_name": mixture_name,
+                "source": "public_readiness_enriched_snapshots",
+                "cpt_records": str(len(cpt_records)),
+                "readiness_quality_score": str(readiness.get("quality_score", "")),
+            },
+        )
+        manifest_path = self.paths.manifest("corpus", f"{mixture_name}-public-corpus")
+        self.store.write_manifest(manifest_path, manifest)
+        return CorpusBuildResult(manifest_path=manifest_path, counts={"cpt": len(cpt_records)})
+
+    def _snapshot_to_cpt(self, mixture_name: str, snapshot: dict[str, object]) -> CorpusRecord:
+        ticker = str(snapshot["ticker"])
+        as_of_time = _as_of_time(snapshot)
+        text = (
+            f"Company: {snapshot['company_name']} ({ticker}).\n"
+            f"Latest fundamental available as of: {snapshot.get('latest_fundamental_as_of_time') or 'unknown'}.\n"
+            f"Observed price window: {snapshot.get('price_start') or 'unknown'} to {snapshot.get('price_end') or 'unknown'} "
+            f"with {snapshot.get('price_observations', 0)} observations.\n"
+            "This record is generated from public SEC fundamentals and public historical prices for finance-domain CPT."
+        )
+        return CorpusRecord(
+            corpus_id=f"public-cpt-{ticker}",
+            task_type="cpt_text",
+            mixture_name=mixture_name,
+            entity_id=str(snapshot["entity_id"]),
+            ticker=ticker,
+            as_of_time=as_of_time,
+            text=text,
+            source_ids=[str(source_id) for source_id in snapshot.get("source_ids", [])],
+            evidence_ids=[],
+            quality_score=1.0,
+        )
+
+
+def _as_of_time(snapshot: dict[str, object]) -> str:
+    latest = snapshot.get("latest_fundamental_as_of_time")
+    if latest:
+        return str(latest)
+    price_end = snapshot.get("price_end")
+    if price_end:
+        return f"{price_end}T00:00:00Z"
+    raise ReadinessError(f"snapshot {snapshot.get('snapshot_id', '')} has no training as_of_time")
