@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from marketfm.store import ArtifactPaths, LocalObjectStore
+from marketfm.core.store import ArtifactPaths, LocalObjectStore
 
 
 class ReasoningValidationError(ValueError):

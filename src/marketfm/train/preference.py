@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from marketfm.schemas import Manifest, SchemaValidationError
-from marketfm.store import ArtifactPaths, LocalObjectStore
+from marketfm.core.schemas import Manifest, SchemaValidationError
+from marketfm.core.store import ArtifactPaths, LocalObjectStore
 
 
 @dataclass(frozen=True)

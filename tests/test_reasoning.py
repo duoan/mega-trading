@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.ingest import FixtureIngestor
+from marketfm.data.ingest import FixtureIngestor
 from marketfm.reasoning import EvidenceCatalog, EvidencePackBuilder, ReasoningRuntime, ReasoningValidationError
-from marketfm.store import LocalObjectStore
+from marketfm.core.store import LocalObjectStore
 
 
 def _prepared_store(tmp: str) -> LocalObjectStore:

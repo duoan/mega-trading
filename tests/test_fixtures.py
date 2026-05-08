@@ -1,6 +1,6 @@
 import unittest
 
-from marketfm.fixtures import load_fixture_bundle
+from marketfm.data.fixtures import load_fixture_bundle
 
 
 class FixtureTests(unittest.TestCase):

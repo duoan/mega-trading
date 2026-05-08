@@ -19,6 +19,7 @@ make demo
 - [Feasibility Analysis](docs/feasibility-analysis.md): deep feasibility study covering public data, related work, system design, model training, evaluation, risks, and the recommended MVP.
 - [Agent Purpose](docs/agent-purpose.md): purpose and operating contract for the long-term value investing reasoning agent.
 - [High-Level Design](docs/high-level-design.md): system architecture, component boundaries, data flow, training flow, deployment design, artifact contracts, and MVP scope.
+- [Project Structure](docs/project-structure.md): source tree conventions that map code packages to data, training, reasoning, evaluation, and operations planes.
 - [Training Systems Alignment](docs/training-systems-alignment.md): mapping from the AI Infrastructure Engineer JD to project design choices, training efficiency metrics, checkpointing, failure modes, and learning-per-compute goals.
 
 ### Module Designs

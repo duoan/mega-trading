@@ -1,8 +1,8 @@
 import unittest
 
-from marketfm.config import DataMixtureConfig, MixtureSource
-from marketfm.hashing import stable_hash
-from marketfm.schemas import (
+from marketfm.core.config import DataMixtureConfig, MixtureSource
+from marketfm.core.hashing import stable_hash
+from marketfm.core.schemas import (
     CorpusRecord,
     DocumentRecord,
     EvidenceRecord,

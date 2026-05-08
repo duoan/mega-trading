@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from marketfm.public.prices import YahooChartClient, YahooPriceIngestor
-from marketfm.public.sec import SecClient, SecCompanyFactsIngestor
-from marketfm.store import LocalObjectStore
+from marketfm.core.store import LocalObjectStore
+from marketfm.data.public.prices import YahooChartClient, YahooPriceIngestor
+from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
 
 
 def build_parser() -> argparse.ArgumentParser:

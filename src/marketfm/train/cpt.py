@@ -10,9 +10,9 @@ import math
 from dataclasses import dataclass
 from time import perf_counter
 
-from marketfm.hashing import stable_hash
-from marketfm.schemas import Manifest
-from marketfm.store import ArtifactPaths, LocalObjectStore
+from marketfm.core.hashing import stable_hash
+from marketfm.core.schemas import Manifest
+from marketfm.core.store import ArtifactPaths, LocalObjectStore
 
 
 @dataclass(frozen=True)

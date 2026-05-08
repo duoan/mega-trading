@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.public.sec import SecClient, SecCompanyFactsIngestor
-from marketfm.store import LocalObjectStore
+from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
+from marketfm.core.store import LocalObjectStore
 
 
 class SecClientTests(unittest.TestCase):

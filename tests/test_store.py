@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.schemas import Manifest
-from marketfm.store import ArtifactPaths, ArtifactNotFoundError, LocalObjectStore
+from marketfm.core.schemas import Manifest
+from marketfm.core.store import ArtifactPaths, ArtifactNotFoundError, LocalObjectStore
 
 
 class StoreTests(unittest.TestCase):
