@@ -7,8 +7,9 @@ from pathlib import Path
 
 from marketfm.core.store import LocalObjectStore
 from marketfm.data.ingest import PriceIngestRequest, TickerIngestRequest
+from marketfm.data.ingest_config import IngestPipelineConfig, IngestSourceConfig, load_ingest_config
 from marketfm.data.lance_store import LanceTableStore
-from marketfm.data.public.prices import YahooChartClient, YahooPriceIngestor
+from marketfm.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
 from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
 
 
@@ -23,6 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the package version and exit",
     )
     subparsers = parser.add_subparsers(dest="command")
+    ingest = subparsers.add_parser("ingest", help="run config-driven data ingestion")
+    ingest.add_argument("--config", required=True, help="path to ingest TOML config")
     ingest_public = subparsers.add_parser("ingest-public", help="ingest public SEC fundamentals and Yahoo prices")
     ingest_public.add_argument("--tickers", required=True, help="comma-separated ticker symbols")
     ingest_public.add_argument("--start", required=True, help="price start date YYYY-MM-DD")
@@ -39,15 +42,41 @@ def main(argv: list[str] | None = None) -> int:
         from marketfm import __version__
 
         print(__version__)
+    elif args.command == "ingest":
+        config = load_ingest_config(Path(args.config))
+        _run_ingest_config(config)
     elif args.command == "ingest-public":
         tickers = [ticker.strip().upper() for ticker in args.tickers.split(",") if ticker.strip()]
-        store = LocalObjectStore(Path(args.out))
-        table_store = LanceTableStore(Path(args.out) / "lancedb")
-        SecCompanyFactsIngestor(store, SecClient(user_agent=args.sec_user_agent), table_store=table_store).ingest(
-            TickerIngestRequest(tickers=tuple(tickers))
+        config = IngestPipelineConfig(
+            output_dir=args.out,
+            sec_user_agent=args.sec_user_agent,
+            sources=(
+                IngestSourceConfig(name="sec_companyfacts", tickers=tuple(tickers)),
+                IngestSourceConfig(name="yahoo_prices", tickers=tuple(tickers), start=args.start, end=args.end),
+            ),
         )
-        YahooPriceIngestor(store, YahooChartClient(), table_store=table_store).ingest(
-            PriceIngestRequest(tickers=tuple(tickers), start=args.start, end=args.end)
-        )
-        print(f"wrote public artifacts for {','.join(tickers)} to {args.out}")
+        _run_ingest_config(config)
     return 0
+
+
+def _run_ingest_config(config: IngestPipelineConfig) -> None:
+    store = LocalObjectStore(Path(config.output_dir))
+    table_store = LanceTableStore(Path(config.output_dir) / "lancedb")
+    for source in config.enabled_sources():
+        if source.name == "sec_companyfacts":
+            if not config.sec_user_agent:
+                raise ValueError("sec_companyfacts requires ingest.sec_user_agent")
+            SecCompanyFactsIngestor(store, SecClient(user_agent=config.sec_user_agent), table_store=table_store).ingest(
+                TickerIngestRequest(tickers=source.tickers)
+            )
+        elif source.name == "yahoo_prices":
+            YahooPriceIngestor(store, YahooChartClient(), table_store=table_store).ingest(
+                PriceIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
+            )
+        elif source.name == "stooq_prices":
+            StooqPriceIngestor(store, StooqClient(), table_store=table_store).ingest(
+                PriceIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
+            )
+        else:
+            raise ValueError(f"unsupported ingest source: {source.name}")
+    print(f"wrote configured ingest artifacts to {config.output_dir}")

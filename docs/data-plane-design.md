@@ -47,6 +47,36 @@ The Data Plane is not a feature engineering notebook. It is the system of record
 
 ### Required MVP Sources
 
+## Config-Driven Ingestion API
+
+Ingestion is configuration-driven. The CLI, future schedulers, and ops workflows should run from an ingest config instead of encoding source-specific arguments in orchestration code.
+
+Example:
+
+```toml
+[ingest]
+output_dir = ".marketfm/public"
+sec_user_agent = "MarketFM Forge your-email@example.com"
+
+[[ingest.sources]]
+name = "sec_companyfacts"
+tickers = ["AAPL", "MSFT"]
+
+[[ingest.sources]]
+name = "yahoo_prices"
+tickers = ["AAPL", "MSFT"]
+start = "2024-01-01"
+end = "2024-03-31"
+```
+
+Supported source names:
+
+- `sec_companyfacts`
+- `yahoo_prices`
+- `stooq_prices`
+
+The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, where artifacts will be written, and which source-specific requirements apply.
+
 #### Fixture Data
 
 Purpose:

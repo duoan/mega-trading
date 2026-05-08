@@ -17,6 +17,12 @@ make demo
 Public ingestion writes both replayable JSONL/manifests and LanceDB silver tables under the output directory:
 
 ```bash
+uv run marketfm ingest --config configs/ingest-public.toml
+```
+
+The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
+
+```bash
 uv run marketfm ingest-public \
   --tickers AAPL,MSFT \
   --start 2024-01-01 \

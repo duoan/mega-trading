@@ -73,6 +73,56 @@ class CliTests(unittest.TestCase):
             self.assertTrue((Path(tmp) / "silver/entities/sec.jsonl").exists())
             self.assertTrue((Path(tmp) / "silver/prices/stooq.jsonl").exists())
 
+    def test_ingest_command_runs_from_config(self) -> None:
+        class FakeSecIngestor:
+            def __init__(self, store, client, table_store=None):
+                self.store = store
+
+            def ingest(self, request):
+                self.store.write_jsonl("silver/entities/sec.jsonl", [{"ticker": request.tickers[0]}])
+
+        class FakePriceIngestor:
+            def __init__(self, store, client, table_store=None):
+                self.store = store
+
+            def ingest(self, request):
+                self.store.write_jsonl(
+                    "silver/prices/yahoo.jsonl",
+                    [{"ticker": request.tickers[0], "date": request.start, "end": request.end}],
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "ingest.toml"
+            output_dir = Path(tmp) / "out"
+            config_path.write_text(
+                f"""
+[ingest]
+output_dir = "{output_dir}"
+sec_user_agent = "MarketFM test@example.com"
+
+[[ingest.sources]]
+name = "sec_companyfacts"
+tickers = ["AAPL"]
+
+[[ingest.sources]]
+name = "yahoo_prices"
+tickers = ["AAPL"]
+start = "2023-01-01"
+end = "2023-01-31"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch("marketfm.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
+                "marketfm.cli.YahooPriceIngestor", FakePriceIngestor
+            ):
+                exit_code = main(["ingest", "--config", str(config_path)])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((output_dir / "silver/entities/sec.jsonl").exists())
+            self.assertTrue((output_dir / "silver/prices/yahoo.jsonl").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
