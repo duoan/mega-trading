@@ -1,6 +1,9 @@
 import io
+import tempfile
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
+from unittest.mock import patch
 
 from marketfm.cli import build_parser, main
 
@@ -27,6 +30,45 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("0.1.0", output.getvalue())
+
+    def test_ingest_public_command_writes_artifacts(self) -> None:
+        class FakeSecIngestor:
+            def __init__(self, store, client):
+                self.store = store
+
+            def ingest(self, tickers):
+                self.store.write_jsonl("silver/entities/sec.jsonl", [{"ticker": tickers[0]}])
+
+        class FakePriceIngestor:
+            def __init__(self, store, client):
+                self.store = store
+
+            def ingest(self, tickers, start, end):
+                self.store.write_jsonl("silver/prices/stooq.jsonl", [{"ticker": tickers[0], "date": start, "end": end}])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("marketfm.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
+                "marketfm.cli.StooqPriceIngestor", FakePriceIngestor
+            ):
+                exit_code = main(
+                    [
+                        "ingest-public",
+                        "--tickers",
+                        "AAPL",
+                        "--start",
+                        "2023-01-01",
+                        "--end",
+                        "2023-01-31",
+                        "--out",
+                        tmp,
+                        "--sec-user-agent",
+                        "MarketFM test@example.com",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((Path(tmp) / "silver/entities/sec.jsonl").exists())
+            self.assertTrue((Path(tmp) / "silver/prices/stooq.jsonl").exists())
 
 
 if __name__ == "__main__":
