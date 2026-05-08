@@ -47,6 +47,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(paths.bronze("fixture", "entities"), "bronze/fixture/entities.jsonl")
         self.assertEqual(paths.manifest("ingest", "fixture"), "manifests/ingest/fixture.json")
         self.assertEqual(paths.run("metrics"), "runs/demo/metrics.jsonl")
+        self.assertEqual(paths.run("checkpoint.json"), "runs/demo/checkpoint.json")
 
 
 if __name__ == "__main__":

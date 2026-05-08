@@ -31,7 +31,8 @@ class ArtifactPaths:
         return f"manifests/{family}/{manifest_id}.json"
 
     def run(self, name: str) -> str:
-        return f"runs/{self.run_id}/{name}.jsonl"
+        suffix = "" if Path(name).suffix else ".jsonl"
+        return f"runs/{self.run_id}/{name}{suffix}"
 
 
 class LocalObjectStore:
