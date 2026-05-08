@@ -18,10 +18,12 @@ Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normaliz
 
 ```bash
 uv run mega-trading ingest --config configs/ingest-public.toml
-uv run mega-trading train-trading-foundation-model --data-dir .mega-trading/public --mixture public --run-id public-tfm --steps 10
+uv run mega-trading train run.run_id=public-tfm training.max_steps=10
 ```
 
-The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training corpus settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
+Training uses Hydra config from `configs/train/default.yaml`, so ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
+
+The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training sample settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
 
 ```bash
 uv run mega-trading ingest-public \

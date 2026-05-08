@@ -146,8 +146,8 @@ Key commands:
 
 - `mega-trading ingest`
   - Fetch or load public financial data.
-- `mega-trading train-trading-foundation-model`
-  - Train the multi-stream TradingFoundationModel.
+- `mega-trading train`
+  - Train the multi-stream TradingFoundationModel from Hydra config and overrides.
 - `mega-trading reason`
   - Generate evidence-grounded investment theses.
 - `mega-trading eval`

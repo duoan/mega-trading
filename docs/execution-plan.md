@@ -63,5 +63,5 @@ Development rules:
 ## Current MVP Success Criteria
 
 - `uv run mega-trading ingest --config configs/ingest-public.toml` produces readiness, enrichment, samples, and stream shards.
-- `uv run mega-trading train-trading-foundation-model --data-dir .mega-trading/public --mixture public --steps 100` trains and writes metrics/checkpoint artifacts.
+- `uv run mega-trading train training.max_steps=100` trains from Hydra config and writes metrics/checkpoint artifacts.
 - No text-only training artifacts are produced by default.

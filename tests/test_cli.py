@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from mega_trading.cli import build_parser, main
+from mega_trading.cli import build_parser, load_train_config, main
 
 
 class CliTests(unittest.TestCase):
@@ -270,26 +270,31 @@ end = "2023-01-31"
             self.assertTrue((output_dir / "stage=04_corpus/mixture=public/samples.jsonl").exists())
             self.assertTrue((output_dir / "stage=05_shards/mixture=public/samples.jsonl").exists())
 
-    def test_train_trading_foundation_model_command_writes_run_artifacts(self) -> None:
+    def test_train_config_applies_hydra_overrides(self) -> None:
+        config = load_train_config(
+            Path("configs/train"),
+            "default",
+            ["run.run_id=ablation-a", "training.max_steps=3", "model.hidden_dim=16"],
+        )
+
+        self.assertEqual(config.run.run_id, "ablation-a")
+        self.assertEqual(config.training.max_steps, 3)
+        self.assertEqual(config.model.hidden_dim, 16)
+
+    def test_train_command_writes_run_artifacts_from_hydra_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_stream_shard(root)
 
             exit_code = main(
                 [
-                    "train-trading-foundation-model",
-                    "--data-dir",
-                    str(root),
-                    "--mixture",
-                    "public",
-                    "--run-id",
-                    "tfm-cli",
-                    "--steps",
-                    "2",
-                    "--hidden-dim",
-                    "8",
-                    "--batch-size",
-                    "2",
+                    "train",
+                    f"data.data_dir={root}",
+                    "data.mixture=public",
+                    "run.run_id=tfm-cli",
+                    "training.max_steps=2",
+                    "model.hidden_dim=8",
+                    "training.batch_size=2",
                 ]
             )
 

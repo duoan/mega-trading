@@ -1,0 +1,22 @@
+defaults:
+  - _self_
+
+data:
+  data_dir: .mega-trading/public
+  mixture: public
+
+run:
+  run_id: trading-foundation-model
+
+model:
+  hidden_dim: 32
+  price_window_size: null
+  fundamental_size: null
+  evidence_size: null
+
+training:
+  max_steps: 10
+  batch_size: 8
+  learning_rate: 0.001
+  seed: 7
+  device: cpu

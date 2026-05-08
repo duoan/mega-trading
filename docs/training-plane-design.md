@@ -61,13 +61,18 @@ Future runs should add calibration, rank correlation, data-loader wait time, che
 Local CPU training is the reviewer-friendly smoke path:
 
 ```bash
-uv run mega-trading train-trading-foundation-model \
-  --data-dir .mega-trading/public \
-  --mixture public \
-  --run-id public-tfm \
-  --steps 100 \
-  --hidden-dim 64 \
-  --batch-size 16
+uv run mega-trading train \
+  run.run_id=public-tfm \
+  training.max_steps=100 \
+  model.hidden_dim=64 \
+  training.batch_size=16
+```
+
+Training config lives in `configs/train/default.yaml`. Ablations should use Hydra overrides so runs remain reproducible and easy to compare:
+
+```bash
+uv run mega-trading train model.hidden_dim=32 training.learning_rate=0.001
+uv run mega-trading train model.hidden_dim=64 training.learning_rate=0.0005
 ```
 
 Modal or Kubernetes jobs should call the same trainer with the same shard contract, only changing device, batch size, worker count, and checkpoint storage.

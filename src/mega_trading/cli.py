@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from hydra import compose, initialize_config_dir
+from omegaconf import DictConfig, OmegaConf
+
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.enrich import DataEnricher
 from mega_trading.data.ingest import PriceIngestRequest, TickerIngestRequest
@@ -39,13 +42,14 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_public.add_argument("--end", required=True, help="price end date YYYY-MM-DD")
     ingest_public.add_argument("--out", default=".mega-trading/public", help="artifact output directory")
     ingest_public.add_argument("--sec-user-agent", required=True, help="SEC-compliant User-Agent, including contact email")
-    train_tfm = subparsers.add_parser("train-trading-foundation-model", help="run TradingFoundationModel training")
-    train_tfm.add_argument("--data-dir", default=".mega-trading/public", help="artifact root containing stream shards")
-    train_tfm.add_argument("--mixture", default="public", help="mixture name to train from")
-    train_tfm.add_argument("--run-id", default="trading-foundation-model", help="training run id")
-    train_tfm.add_argument("--steps", type=int, default=10, help="number of training steps")
-    train_tfm.add_argument("--hidden-dim", type=int, default=32, help="model hidden dimension")
-    train_tfm.add_argument("--batch-size", type=int, default=8, help="training batch size")
+    train = subparsers.add_parser("train", help="run TradingFoundationModel training from Hydra config")
+    train.add_argument(
+        "--config-dir",
+        default="configs/train",
+        help="Hydra config directory for training ablations",
+    )
+    train.add_argument("--config-name", default="default", help="Hydra config name")
+    train.add_argument("overrides", nargs="*", help="Hydra overrides such as training.max_steps=100 model.hidden_dim=64")
     return parser
 
 
@@ -70,20 +74,44 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
         _run_ingest_config(config)
-    elif args.command == "train-trading-foundation-model":
-        store = LocalObjectStore(Path(args.data_dir))
-        shard_path = f"stage=05_shards/mixture={args.mixture}/samples.jsonl"
-        TradingFoundationTrainer(
-            store,
-            TradingFoundationTrainConfig(
-                run_id=args.run_id,
-                max_steps=args.steps,
-                hidden_dim=args.hidden_dim,
-                batch_size=args.batch_size,
-            ),
-        ).train(shard_path)
-        print(f"wrote TradingFoundationModel training artifacts to {args.data_dir}/runs/{args.run_id}")
+    elif args.command == "train":
+        config = load_train_config(Path(args.config_dir), args.config_name, list(args.overrides))
+        result = _run_train_config(config)
+        print(f"wrote TradingFoundationModel training artifacts to {config.data.data_dir}/runs/{config.run.run_id}")
+        print(f"manifest: {result.manifest_path}")
     return 0
+
+
+def load_train_config(config_dir: Path, config_name: str, overrides: list[str]) -> DictConfig:
+    config_root = config_dir if config_dir.is_absolute() else Path.cwd() / config_dir
+    with initialize_config_dir(config_dir=str(config_root), version_base=None):
+        config = compose(config_name=config_name, overrides=overrides)
+    OmegaConf.resolve(config)
+    return config
+
+
+def _run_train_config(config: DictConfig):
+    store = LocalObjectStore(Path(str(config.data.data_dir)))
+    shard_path = f"stage=05_shards/mixture={config.data.mixture}/samples.jsonl"
+    train_config = TradingFoundationTrainConfig(
+        run_id=str(config.run.run_id),
+        max_steps=int(config.training.max_steps),
+        hidden_dim=int(config.model.hidden_dim),
+        batch_size=int(config.training.batch_size),
+        learning_rate=float(config.training.learning_rate),
+        price_window_size=_optional_int(config.model.price_window_size),
+        fundamental_size=_optional_int(config.model.fundamental_size),
+        evidence_size=_optional_int(config.model.evidence_size),
+        seed=int(config.training.seed),
+        device=str(config.training.device),
+    )
+    return TradingFoundationTrainer(store, train_config).train(shard_path)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    return int(value)
 
 
 def _run_ingest_config(config: IngestPipelineConfig) -> None:
