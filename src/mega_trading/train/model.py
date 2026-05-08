@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from marketfm.train.config import RETURN_LABELS, RISK_LABELS
+from mega_trading.train.config import RETURN_LABELS, RISK_LABELS
 
 
 class TradingFoundationModel(nn.Module):

@@ -6,9 +6,9 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
 
-from marketfm.core.config import DataMixtureConfig
-from marketfm.core.schemas import CorpusRecord, Manifest
-from marketfm.core.store import ArtifactNotFoundError, ArtifactPaths, LocalObjectStore
+from mega_trading.core.config import DataMixtureConfig
+from mega_trading.core.schemas import CorpusRecord, Manifest
+from mega_trading.core.store import ArtifactNotFoundError, ArtifactPaths, LocalObjectStore
 
 
 class LeakageError(ValueError):

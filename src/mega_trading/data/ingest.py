@@ -6,10 +6,10 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from typing import Generic, TypeVar
 
-from marketfm.core.schemas import Manifest
-from marketfm.core.store import ArtifactPaths, LocalObjectStore
-from marketfm.data.fixtures import load_fixture_bundle
-from marketfm.data.lance_store import LanceTableStore, LanceTables
+from mega_trading.core.schemas import Manifest
+from mega_trading.core.store import ArtifactPaths, LocalObjectStore
+from mega_trading.data.fixtures import load_fixture_bundle
+from mega_trading.data.lance_store import LanceTableStore, LanceTables
 
 
 @dataclass(frozen=True)

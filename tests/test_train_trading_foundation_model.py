@@ -4,11 +4,11 @@ from pathlib import Path
 
 import torch
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.train.config import TradingFoundationTrainConfig
-from marketfm.train.dataset import TradingFoundationDataset
-from marketfm.train.model import TradingFoundationModel
-from marketfm.train.trainer import TradingFoundationTrainer
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.train.config import TradingFoundationTrainConfig
+from mega_trading.train.dataset import TradingFoundationDataset
+from mega_trading.train.model import TradingFoundationModel
+from mega_trading.train.trainer import TradingFoundationTrainer
 
 
 class TradingFoundationModelTests(unittest.TestCase):

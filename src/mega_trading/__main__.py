@@ -1,4 +1,4 @@
-from marketfm.cli import main
+from mega_trading.cli import main
 
 
 if __name__ == "__main__":

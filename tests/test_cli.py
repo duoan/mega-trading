@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from marketfm.cli import build_parser, main
+from mega_trading.cli import build_parser, main
 
 
 class CliTests(unittest.TestCase):
@@ -77,7 +77,7 @@ class CliTests(unittest.TestCase):
                         "metadata": {},
                     },
                 )
-                from marketfm.data.ingest import IngestResult
+                from mega_trading.data.ingest import IngestResult
 
                 return IngestResult(
                     raw_manifest_path="manifests/ingest/sec-companyfacts-raw.json",
@@ -130,7 +130,7 @@ class CliTests(unittest.TestCase):
                         "metadata": {},
                     },
                 )
-                from marketfm.data.ingest import IngestResult
+                from mega_trading.data.ingest import IngestResult
 
                 return IngestResult(
                     raw_manifest_path="manifests/ingest/yahoo-daily-raw.json",
@@ -140,8 +140,8 @@ class CliTests(unittest.TestCase):
                 )
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("marketfm.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
-                "marketfm.cli.YahooPriceIngestor", FakePriceIngestor
+            with patch("mega_trading.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
+                "mega_trading.cli.YahooPriceIngestor", FakePriceIngestor
             ):
                 exit_code = main(
                     [
@@ -189,7 +189,7 @@ class CliTests(unittest.TestCase):
                         "metadata": {},
                     },
                 )
-                from marketfm.data.ingest import IngestResult
+                from mega_trading.data.ingest import IngestResult
 
                 return IngestResult(
                     raw_manifest_path="manifests/ingest/sec-companyfacts-raw.json",
@@ -225,7 +225,7 @@ class CliTests(unittest.TestCase):
                         "metadata": {},
                     },
                 )
-                from marketfm.data.ingest import IngestResult
+                from mega_trading.data.ingest import IngestResult
 
                 return IngestResult(
                     raw_manifest_path="manifests/ingest/yahoo-daily-raw.json",
@@ -257,8 +257,8 @@ end = "2023-01-31"
                 encoding="utf-8",
             )
 
-            with patch("marketfm.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
-                "marketfm.cli.YahooPriceIngestor", FakePriceIngestor
+            with patch("mega_trading.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
+                "mega_trading.cli.YahooPriceIngestor", FakePriceIngestor
             ):
                 exit_code = main(["ingest", "--config", str(config_path)])
 

@@ -18,7 +18,7 @@ dependencies = [
 dev = []
 
 [project.scripts]
-mega-trading = "marketfm.cli:main"
+mega-trading = "mega_trading.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

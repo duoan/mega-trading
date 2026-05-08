@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from marketfm.core.schemas import Manifest
-from marketfm.core.store import ArtifactNotFoundError, LocalObjectStore
+from mega_trading.core.schemas import Manifest
+from mega_trading.core.store import ArtifactNotFoundError, LocalObjectStore
 
 
 @dataclass(frozen=True)

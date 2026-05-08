@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from marketfm.core.schemas import (
+from mega_trading.core.schemas import (
     DocumentRecord,
     EntityRecord,
     EvidenceRecord,

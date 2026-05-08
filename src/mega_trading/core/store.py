@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from marketfm.core.schemas import Manifest
+from mega_trading.core.schemas import Manifest
 
 
 class ArtifactNotFoundError(FileNotFoundError):

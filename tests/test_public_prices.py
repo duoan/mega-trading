@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.ingest import PriceIngestRequest
-from marketfm.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.ingest import PriceIngestRequest
+from mega_trading.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
 
 
 class StooqPriceTests(unittest.TestCase):

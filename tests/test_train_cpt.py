@@ -2,12 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.config import DataMixtureConfig, MixtureSource
-from marketfm.data.corpus import CorpusBuilder
-from marketfm.data.ingest import FixtureIngestor
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.tokenize import ShardBuilder
-from marketfm.train.cpt import CPTTrainer, TrainConfig
+from mega_trading.core.config import DataMixtureConfig, MixtureSource
+from mega_trading.data.corpus import CorpusBuilder
+from mega_trading.data.ingest import FixtureIngestor
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.tokenize import ShardBuilder
+from mega_trading.train.cpt import CPTTrainer, TrainConfig
 
 
 def _prepared_store(tmp: str) -> LocalObjectStore:

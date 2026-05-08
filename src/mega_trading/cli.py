@@ -5,20 +5,20 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.enrich import DataEnricher
-from marketfm.data.corpus import PublicCorpusBuilder
-from marketfm.data.ingest import PriceIngestRequest, TickerIngestRequest
-from marketfm.data.ingest_config import IngestPipelineConfig, IngestSourceConfig, load_ingest_config
-from marketfm.data.labels import LabelConfig
-from marketfm.data.lance_store import LanceTableStore
-from marketfm.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
-from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
-from marketfm.data.quality import DataQualityChecker
-from marketfm.data.samples import MultiStreamSampleBuilder
-from marketfm.data.tokenize import ShardBuilder, StreamShardBuilder
-from marketfm.train.config import TradingFoundationTrainConfig
-from marketfm.train.trainer import TradingFoundationTrainer
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.enrich import DataEnricher
+from mega_trading.data.corpus import PublicCorpusBuilder
+from mega_trading.data.ingest import PriceIngestRequest, TickerIngestRequest
+from mega_trading.data.ingest_config import IngestPipelineConfig, IngestSourceConfig, load_ingest_config
+from mega_trading.data.labels import LabelConfig
+from mega_trading.data.lance_store import LanceTableStore
+from mega_trading.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
+from mega_trading.data.public.sec import SecClient, SecCompanyFactsIngestor
+from mega_trading.data.quality import DataQualityChecker
+from mega_trading.data.samples import MultiStreamSampleBuilder
+from mega_trading.data.tokenize import ShardBuilder, StreamShardBuilder
+from mega_trading.train.config import TradingFoundationTrainConfig
+from mega_trading.train.trainer import TradingFoundationTrainer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,10 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     ingest_public.add_argument("--tickers", required=True, help="comma-separated ticker symbols")
     ingest_public.add_argument("--start", required=True, help="price start date YYYY-MM-DD")
     ingest_public.add_argument("--end", required=True, help="price end date YYYY-MM-DD")
-    ingest_public.add_argument("--out", default=".marketfm/public", help="artifact output directory")
+    ingest_public.add_argument("--out", default=".mega-trading/public", help="artifact output directory")
     ingest_public.add_argument("--sec-user-agent", required=True, help="SEC-compliant User-Agent, including contact email")
     train_tfm = subparsers.add_parser("train-trading-foundation-model", help="run TradingFoundationModel training")
-    train_tfm.add_argument("--data-dir", default=".marketfm/public", help="artifact root containing stream shards")
+    train_tfm.add_argument("--data-dir", default=".mega-trading/public", help="artifact root containing stream shards")
     train_tfm.add_argument("--mixture", default="public", help="mixture name to train from")
     train_tfm.add_argument("--run-id", default="trading-foundation-model", help="training run id")
     train_tfm.add_argument("--steps", type=int, default=10, help="number of training steps")
@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.version:
-        from marketfm import __version__
+        from mega_trading import __version__
 
         print(__version__)
     elif args.command == "ingest":

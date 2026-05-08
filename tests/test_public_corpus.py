@@ -2,11 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.corpus import PublicCorpusBuilder, ReadinessError
-from marketfm.data.tokenize import ShardBuilder
-from marketfm.train.cpt import CPTTrainer, TrainConfig
-from marketfm.train.sft import SFTExampleFormatter, SFTTrainer, SFTTrainConfig
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.corpus import PublicCorpusBuilder, ReadinessError
+from mega_trading.data.tokenize import ShardBuilder
+from mega_trading.train.cpt import CPTTrainer, TrainConfig
+from mega_trading.train.sft import SFTExampleFormatter, SFTTrainer, SFTTrainConfig
 
 
 class PublicCorpusTests(unittest.TestCase):

@@ -429,7 +429,7 @@ sequenceDiagram
     participant Train as Trainer
     participant Eval as Evaluator
 
-    User->>CLI: marketfm demo
+    User->>CLI: mega_trading demo
     CLI->>Ingest: fetch fixture and public data
     Ingest->>Store: write stage=01_raw records
     Ingest->>Store: write ingest manifest

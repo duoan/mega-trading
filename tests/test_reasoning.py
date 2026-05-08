@@ -2,10 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.ingest import FixtureIngestor
-from marketfm.data.lance_store import LanceTableStore
-from marketfm.reasoning import EvidenceCatalog, EvidencePackBuilder, LanceEvidenceCatalog, ReasoningRuntime, ReasoningValidationError
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.ingest import FixtureIngestor
+from mega_trading.data.lance_store import LanceTableStore
+from mega_trading.reasoning import EvidenceCatalog, EvidencePackBuilder, LanceEvidenceCatalog, ReasoningRuntime, ReasoningValidationError
 
 
 def _prepared_store(tmp: str) -> LocalObjectStore:

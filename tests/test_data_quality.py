@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.schemas import Manifest
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.quality import DataQualityChecker
+from mega_trading.core.schemas import Manifest
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.quality import DataQualityChecker
 
 
 class DataQualityTests(unittest.TestCase):

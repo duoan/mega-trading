@@ -10,11 +10,11 @@ from urllib.request import Request, urlopen
 
 import certifi
 
-from marketfm.core.hashing import stable_hash
-from marketfm.core.schemas import EntityRecord, FundamentalRecord, Manifest
-from marketfm.core.store import ArtifactPaths, LocalObjectStore
-from marketfm.data.ingest import Ingestor, IngestResult, TickerIngestRequest
-from marketfm.data.lance_store import LanceTableStore, LanceTables
+from mega_trading.core.hashing import stable_hash
+from mega_trading.core.schemas import EntityRecord, FundamentalRecord, Manifest
+from mega_trading.core.store import ArtifactPaths, LocalObjectStore
+from mega_trading.data.ingest import Ingestor, IngestResult, TickerIngestRequest
+from mega_trading.data.lance_store import LanceTableStore, LanceTables
 
 FetchJson = Callable[[str, str], dict]
 

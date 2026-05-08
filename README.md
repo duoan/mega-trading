@@ -18,7 +18,7 @@ Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normaliz
 
 ```bash
 uv run mega-trading ingest --config configs/ingest-public.toml
-uv run mega-trading train-trading-foundation-model --data-dir .marketfm/public --mixture public --run-id public-tfm --steps 10
+uv run mega-trading train-trading-foundation-model --data-dir .mega-trading/public --mixture public --run-id public-tfm --steps 10
 ```
 
 The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training corpus settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
@@ -30,7 +30,7 @@ uv run mega-trading ingest-public \
   --tickers AAPL,MSFT \
   --start 2024-01-01 \
   --end 2024-03-31 \
-  --out .marketfm/public \
+  --out .mega-trading/public \
   --sec-user-agent "your-name your-email@example.com"
 ```
 

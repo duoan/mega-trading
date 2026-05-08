@@ -2,11 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.config import DataMixtureConfig, MixtureSource
-from marketfm.data.corpus import CorpusBuilder
-from marketfm.data.ingest import FixtureIngestor
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.tokenize import MalformedCorpusError, ShardBuilder, SimpleTokenizer, StreamShardBuilder
+from mega_trading.core.config import DataMixtureConfig, MixtureSource
+from mega_trading.data.corpus import CorpusBuilder
+from mega_trading.data.ingest import FixtureIngestor
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.tokenize import MalformedCorpusError, ShardBuilder, SimpleTokenizer, StreamShardBuilder
 
 
 class TokenizeTests(unittest.TestCase):

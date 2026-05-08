@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.data.ingest_config import IngestPipelineConfig, load_ingest_config
+from mega_trading.data.ingest_config import IngestPipelineConfig, load_ingest_config
 
 
 class IngestConfigTests(unittest.TestCase):
@@ -12,7 +12,7 @@ class IngestConfigTests(unittest.TestCase):
             config_path.write_text(
                 """
 [ingest]
-output_dir = ".marketfm/public"
+output_dir = ".mega-trading/public"
 sec_user_agent = "Mega-Trading test@example.com"
 
 [[ingest.sources]]
@@ -31,7 +31,7 @@ end = "2024-03-31"
 
             config = load_ingest_config(config_path)
 
-            self.assertEqual(config.output_dir, ".marketfm/public")
+            self.assertEqual(config.output_dir, ".mega-trading/public")
             self.assertEqual(config.sec_user_agent, "Mega-Trading test@example.com")
             self.assertEqual(config.sources[0].name, "sec_companyfacts")
             self.assertEqual(config.sources[1].tickers, ("AAPL", "MSFT"))
@@ -45,7 +45,7 @@ end = "2024-03-31"
         with self.assertRaises(ValueError):
             IngestPipelineConfig.from_dict(
                 {
-                    "output_dir": ".marketfm/public",
+                    "output_dir": ".mega-trading/public",
                     "sources": [{"name": "yahoo_prices", "tickers": ["AAPL"]}],
                 }
             )
@@ -56,7 +56,7 @@ end = "2024-03-31"
             config_path.write_text(
                 """
 [ingest]
-output_dir = ".marketfm/public"
+output_dir = ".mega-trading/public"
 
 [ingest.quality]
 enabled = true

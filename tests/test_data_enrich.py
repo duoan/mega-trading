@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.enrich import DataEnricher
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.enrich import DataEnricher
 
 
 class DataEnrichmentTests(unittest.TestCase):

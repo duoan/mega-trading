@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from marketfm.core.hashing import stable_hash
+from mega_trading.core.hashing import stable_hash
 
 
 RETURN_LABELS = ("underperform", "neutral", "outperform")

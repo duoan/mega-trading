@@ -55,7 +55,7 @@ Example:
 
 ```toml
 [ingest]
-output_dir = ".marketfm/public"
+output_dir = ".mega-trading/public"
 sec_user_agent = "Mega-Trading your-email@example.com"
 
 [ingest.quality]

@@ -8,11 +8,11 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from marketfm.core.schemas import Manifest
-from marketfm.core.store import ArtifactPaths, LocalObjectStore
-from marketfm.train.config import TradingFoundationTrainConfig, TradingFoundationTrainResult
-from marketfm.train.dataset import TradingFoundationDataset, infer_stream_sizes
-from marketfm.train.model import TradingFoundationModel
+from mega_trading.core.schemas import Manifest
+from mega_trading.core.store import ArtifactPaths, LocalObjectStore
+from mega_trading.train.config import TradingFoundationTrainConfig, TradingFoundationTrainResult
+from mega_trading.train.dataset import TradingFoundationDataset, infer_stream_sizes
+from mega_trading.train.model import TradingFoundationModel
 
 
 class TradingFoundationTrainer:

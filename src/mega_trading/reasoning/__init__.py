@@ -1,6 +1,6 @@
 """Reasoning plane modules."""
 
-from marketfm.reasoning.runtime import (
+from mega_trading.reasoning.runtime import (
     EvidenceCatalog,
     EvidencePack,
     EvidencePackBuilder,

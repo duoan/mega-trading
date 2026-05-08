@@ -13,10 +13,10 @@ from urllib.request import Request, urlopen
 
 import certifi
 
-from marketfm.core.schemas import Manifest, PriceRecord
-from marketfm.core.store import ArtifactPaths, LocalObjectStore
-from marketfm.data.ingest import Ingestor, IngestResult, PriceIngestRequest
-from marketfm.data.lance_store import LanceTableStore, LanceTables
+from mega_trading.core.schemas import Manifest, PriceRecord
+from mega_trading.core.store import ArtifactPaths, LocalObjectStore
+from mega_trading.data.ingest import Ingestor, IngestResult, PriceIngestRequest
+from mega_trading.data.lance_store import LanceTableStore, LanceTables
 
 FetchText = Callable[[str], str]
 FetchJson = Callable[[str], dict]

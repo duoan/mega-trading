@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from marketfm.core.hashing import stable_hash
-from marketfm.core.schemas import SchemaValidationError
+from mega_trading.core.hashing import stable_hash
+from mega_trading.core.schemas import SchemaValidationError
 
 
 @dataclass(frozen=True)

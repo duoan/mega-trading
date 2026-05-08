@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from marketfm.core.store import ArtifactPaths, LocalObjectStore
-from marketfm.data.lance_store import LanceTableStore, LanceTables
+from mega_trading.core.store import ArtifactPaths, LocalObjectStore
+from mega_trading.data.lance_store import LanceTableStore, LanceTables
 
 
 class ReasoningValidationError(ValueError):

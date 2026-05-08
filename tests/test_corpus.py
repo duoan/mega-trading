@@ -2,10 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.config import DataMixtureConfig, MixtureSource
-from marketfm.data.corpus import CorpusBuilder, LeakageError
-from marketfm.data.ingest import FixtureIngestor
-from marketfm.core.store import LocalObjectStore
+from mega_trading.core.config import DataMixtureConfig, MixtureSource
+from mega_trading.data.corpus import CorpusBuilder, LeakageError
+from mega_trading.data.ingest import FixtureIngestor
+from mega_trading.core.store import LocalObjectStore
 
 
 class CorpusBuilderTests(unittest.TestCase):

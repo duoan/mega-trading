@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.labels import LabelConfig
-from marketfm.data.samples import MultiStreamSampleBuilder
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.labels import LabelConfig
+from mega_trading.data.samples import MultiStreamSampleBuilder
 
 
 class MultiStreamSampleBuilderTests(unittest.TestCase):

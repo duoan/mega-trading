@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 from torch.utils.data import Dataset
 
-from marketfm.train.config import RETURN_TO_ID, RISK_TO_ID
+from mega_trading.train.config import RETURN_TO_ID, RISK_TO_ID
 
 
 class TradingFoundationDataset(Dataset[dict[str, torch.Tensor]]):

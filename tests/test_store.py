@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.schemas import Manifest
-from marketfm.core.store import ArtifactPaths, ArtifactNotFoundError, LocalObjectStore
+from mega_trading.core.schemas import Manifest
+from mega_trading.core.store import ArtifactPaths, ArtifactNotFoundError, LocalObjectStore
 
 
 class StoreTests(unittest.TestCase):

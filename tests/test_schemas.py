@@ -1,8 +1,8 @@
 import unittest
 
-from marketfm.core.config import DataMixtureConfig, MixtureSource
-from marketfm.core.hashing import stable_hash
-from marketfm.core.schemas import (
+from mega_trading.core.config import DataMixtureConfig, MixtureSource
+from mega_trading.core.hashing import stable_hash
+from mega_trading.core.schemas import (
     CorpusRecord,
     DocumentRecord,
     EvidenceRecord,

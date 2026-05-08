@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
-from marketfm.core.hashing import stable_hash
+from mega_trading.core.hashing import stable_hash
 
 
 class SchemaValidationError(ValueError):

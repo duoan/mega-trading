@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.data.ingest import FixtureIngestor
-from marketfm.data.lance_store import LanceTableStore, LanceTables
-from marketfm.core.store import LocalObjectStore
+from mega_trading.data.ingest import FixtureIngestor
+from mega_trading.data.lance_store import LanceTableStore, LanceTables
+from mega_trading.core.store import LocalObjectStore
 
 
 class LanceStoreTests(unittest.TestCase):

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from marketfm.core.schemas import Manifest
-from marketfm.core.store import ArtifactNotFoundError, ArtifactPaths, LocalObjectStore
-from marketfm.data.labels import ForwardLabelGenerator, LabelConfig
+from mega_trading.core.schemas import Manifest
+from mega_trading.core.store import ArtifactNotFoundError, ArtifactPaths, LocalObjectStore
+from mega_trading.data.labels import ForwardLabelGenerator, LabelConfig
 
 
 @dataclass(frozen=True)

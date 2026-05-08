@@ -2,9 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.ingest import TickerIngestRequest
-from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.ingest import TickerIngestRequest
+from mega_trading.data.public.sec import SecClient, SecCompanyFactsIngestor
 
 
 class SecClientTests(unittest.TestCase):

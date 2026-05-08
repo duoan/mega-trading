@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from marketfm.core.schemas import Manifest, SchemaValidationError
-from marketfm.core.store import ArtifactPaths, LocalObjectStore
+from mega_trading.core.schemas import Manifest, SchemaValidationError
+from mega_trading.core.store import ArtifactPaths, LocalObjectStore
 
 
 @dataclass(frozen=True)

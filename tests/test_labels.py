@@ -1,6 +1,6 @@
 import unittest
 
-from marketfm.data.labels import LabelConfig, ForwardLabelGenerator
+from mega_trading.data.labels import LabelConfig, ForwardLabelGenerator
 
 
 class ForwardLabelGeneratorTests(unittest.TestCase):

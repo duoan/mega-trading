@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.core.store import LocalObjectStore
-from marketfm.data.ingest import FixtureIngestRequest, FixtureIngestor, Ingestor
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.data.ingest import FixtureIngestRequest, FixtureIngestor, Ingestor
 
 
 class IngestTests(unittest.TestCase):

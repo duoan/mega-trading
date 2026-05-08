@@ -397,8 +397,8 @@ MVP containers:
 Example commands:
 
 - `docker compose up`
-- `docker compose run marketfm marketfm demo`
-- `docker compose run marketfm marketfm ops-report --run-id demo`
+- `docker compose run mega_trading mega_trading demo`
+- `docker compose run mega_trading mega_trading ops-report --run-id demo`
 
 ## Kubernetes Design
 
