@@ -14,7 +14,7 @@ make test
 make demo
 ```
 
-Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, multi-stream prediction samples/shards, CPT support shards, and evidence-grounded SFT examples under the output directory:
+Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, and multi-stream prediction samples/shards under the output directory:
 
 ```bash
 uv run mega-trading ingest --config configs/ingest-public.toml
@@ -23,11 +23,9 @@ uv run mega-trading train-trading-foundation-model --data-dir .mega-trading/publ
 
 The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training corpus settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
 
-CPT records are domain-adaptation text: they teach the base model the local finance vocabulary and schema. Reasoning behavior comes from SFT records, which ask for an investment thesis as of a specific time and require the answer to cite normalized SEC fundamental and historical price evidence IDs.
-
 ```bash
 uv run mega-trading ingest-public \
-  --tickers AAPL,MSFT \
+  --tickers AAPL,AMZN \
   --start 2024-01-01 \
   --end 2024-03-31 \
   --out .mega-trading/public \
@@ -46,7 +44,7 @@ uv run mega-trading ingest-public \
 ### Module Designs
 
 - [Data Plane Design](docs/data-plane-design.md): ingestion, normalization, quality checks, leakage controls, corpus construction, lineage, and data health metrics.
-- [Training Plane Design](docs/training-plane-design.md): multi-stream supervised training, CPT/DAPT and SFT side paths, dataloading, checkpointing, Modal GPU jobs, training efficiency, and learning per unit of compute.
+- [Training Plane Design](docs/training-plane-design.md): multi-stream supervised training, dataloading, checkpointing, Modal GPU jobs, training efficiency, and learning per unit of compute.
 - [Reasoning And Evidence Design](docs/reasoning-evidence-design.md): evidence retrieval, `as_of_time` constraints, investment thesis output schema, citation validation, and reasoning lineage.
 - [Evaluation And Backtesting Design](docs/evaluation-backtesting-design.md): reasoning metrics, citation checks, temporal correctness, long-horizon backtesting, baselines, and leakage-aware reporting.
 - [Observability And Deployment Design](docs/observability-deployment-design.md): metrics, alarm-as-code, failure injection, ops reports, Docker, Kubernetes, Terraform/IaC, and Modal integration.
@@ -61,7 +59,6 @@ Within the 72-hour submission window, the goal is to build a credible end-to-end
 - Convert raw market documents, fundamentals, and prices into versioned multi-stream training examples with data quality checks, deduplication, entity mapping, label manifests, and replayable lineage.
 - Produce trainable shards for price windows, fundamental features, text/evidence tokens, forward-return labels, risk labels, and evidence-grounded explanation examples.
 - Demonstrate a small fusion model path over the same artifact contracts: modality encoders, cross-attention fusion, prediction heads, checkpointing, and metrics.
-- Keep CPT/SFT as supporting paths for domain text adaptation and explanation formatting, not as the only model architecture.
 - Build the model interface around prediction plus explanation: forward return bucket, risk/reward view, confidence, rationale, cited source IDs, and as-of timestamp.
 - Evaluate model outputs with long-horizon investing and portfolio backtesting metrics, not only NLP metrics.
 - Run local smoke tests quickly and provide Modal GPU entry points for scalable training.
@@ -76,7 +73,7 @@ If extended into a real Deeter-scale system, the prototype should evolve into a 
 - Scale ingestion across proprietary research feeds, filings, news, transcripts, macro releases, fundamentals, prices, ownership data, options, credit data, real estate data, and alternative datasets.
 - Maintain a governed market data lake with dataset versioning, entitlements, quality scoring, lineage, leakage controls, and reproducible corpus mixtures.
 - Support large-scale distributed training for multi-stream models with streaming shards, async prefetch, elastic workers, FSDP/DeepSpeed, checkpoint orchestration, and automated failure recovery.
-- Enable rapid research iteration across pretraining, supervised fine-tuning, RL/preference optimization, evaluations, ablations, and model/data mixture experiments.
+- Enable rapid research iteration across supervised model training, evaluations, ablations, and model/data experiments.
 - Build a robust evaluation stack for investment reasoning, evidence grounding, hallucination risk, business quality analysis, valuation reasoning, temporal robustness, and downstream portfolio research signals.
 - Support traceable model reasoning where every prediction can be audited back to source documents, source timestamps, market data windows, retrieval queries, feature snapshots, and model/data versions.
 - Integrate realistic backtesting workflows that account for transaction costs, slippage, turnover, exposure, liquidity constraints, and time-aware data leakage prevention.

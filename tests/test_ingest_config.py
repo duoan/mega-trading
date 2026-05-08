@@ -17,11 +17,11 @@ sec_user_agent = "Mega-Trading test@example.com"
 
 [[ingest.sources]]
 name = "sec_companyfacts"
-tickers = ["AAPL", "MSFT"]
+tickers = ["AAPL", "AMZN"]
 
 [[ingest.sources]]
 name = "yahoo_prices"
-tickers = ["AAPL", "MSFT"]
+tickers = ["AAPL", "AMZN"]
 start = "2024-01-01"
 end = "2024-03-31"
 """.strip()
@@ -34,7 +34,7 @@ end = "2024-03-31"
             self.assertEqual(config.output_dir, ".mega-trading/public")
             self.assertEqual(config.sec_user_agent, "Mega-Trading test@example.com")
             self.assertEqual(config.sources[0].name, "sec_companyfacts")
-            self.assertEqual(config.sources[1].tickers, ("AAPL", "MSFT"))
+            self.assertEqual(config.sources[1].tickers, ("AAPL", "AMZN"))
             self.assertEqual(config.sources[1].start, "2024-01-01")
             self.assertTrue(config.quality_enabled)
             self.assertTrue(config.enrichment_enabled)

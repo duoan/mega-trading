@@ -7,7 +7,6 @@ from pathlib import Path
 
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.enrich import DataEnricher
-from mega_trading.data.corpus import PublicCorpusBuilder
 from mega_trading.data.ingest import PriceIngestRequest, TickerIngestRequest
 from mega_trading.data.ingest_config import IngestPipelineConfig, IngestSourceConfig, load_ingest_config
 from mega_trading.data.labels import LabelConfig
@@ -16,7 +15,7 @@ from mega_trading.data.public.prices import StooqClient, StooqPriceIngestor, Yah
 from mega_trading.data.public.sec import SecClient, SecCompanyFactsIngestor
 from mega_trading.data.quality import DataQualityChecker
 from mega_trading.data.samples import MultiStreamSampleBuilder
-from mega_trading.data.tokenize import ShardBuilder, StreamShardBuilder
+from mega_trading.data.tokenize import StreamShardBuilder
 from mega_trading.train.config import TradingFoundationTrainConfig
 from mega_trading.train.trainer import TradingFoundationTrainer
 
@@ -120,7 +119,6 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
     if config.enrichment_enabled and quality_passed:
         DataEnricher(store).run(run_id="configured-ingest")
     if config.training_data_enabled and quality_passed:
-        PublicCorpusBuilder(store).build(mixture_name=config.training_mixture_name)
         MultiStreamSampleBuilder(
             store,
             LabelConfig(
@@ -130,5 +128,4 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
             ),
         ).build(mixture_name=config.training_mixture_name, run_id="configured-ingest")
         StreamShardBuilder(store).build(config.training_mixture_name)
-        ShardBuilder(store, sequence_length=config.training_sequence_length).build(config.training_mixture_name, "cpt")
     print(f"wrote configured ingest artifacts to {config.output_dir}")

@@ -33,9 +33,6 @@ src/mega_trading/
     dataset.py           # Stream shard dataset
     model.py             # TradingFoundationModel architecture
     trainer.py           # TradingFoundationModel trainer
-    cpt.py               # CPT/DAPT smoke trainer
-    sft.py               # Explanation SFT smoke path
-    preference.py        # Explanation preference/DPO-style smoke path
 
   reasoning/             # Reasoning plane
     runtime.py           # Evidence retrieval, pack building, thesis output
@@ -52,7 +49,7 @@ New production code should import from the plane-specific packages, for example:
 - `mega_trading.core.schemas`
 - `mega_trading.data.corpus`
 - `mega_trading.data.public.sec`
-- `mega_trading.train.cpt`
+- `mega_trading.train.trainer`
 - `mega_trading.reasoning.runtime`
 
 ## Rules

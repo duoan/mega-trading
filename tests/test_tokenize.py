@@ -2,11 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mega_trading.core.config import DataMixtureConfig, MixtureSource
-from mega_trading.data.corpus import CorpusBuilder
-from mega_trading.data.ingest import FixtureIngestor
 from mega_trading.core.store import LocalObjectStore
-from mega_trading.data.tokenize import MalformedCorpusError, ShardBuilder, SimpleTokenizer, StreamShardBuilder
+from mega_trading.data.tokenize import MalformedSampleError, SimpleTokenizer, StreamShardBuilder
 
 
 class TokenizeTests(unittest.TestCase):
@@ -15,40 +12,6 @@ class TokenizeTests(unittest.TestCase):
 
         self.assertEqual(tokenizer.encode("ACME revenue increased."), tokenizer.encode("ACME revenue increased."))
         self.assertEqual(tokenizer.decode(tokenizer.encode("ACME margin improved.")), "acme margin improved.")
-
-    def test_shard_builder_writes_manifest_with_lineage(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LocalObjectStore(Path(tmp))
-            FixtureIngestor(store).ingest()
-            CorpusBuilder(store).build(DataMixtureConfig("demo", [MixtureSource("filings", 1.0, "cpt_text")]))
-
-            result = ShardBuilder(store, sequence_length=8).build("demo", "cpt")
-            rows = store.read_jsonl(result.shard_path)
-            manifest = store.read_manifest(result.manifest_path)
-
-            self.assertGreater(len(rows), 0)
-            self.assertEqual(manifest.metadata["tokenizer"], "simple-v1")
-            self.assertEqual(manifest.metadata["sequence_length"], "8")
-            self.assertIn("cpt-doc-acme-2022-10k", rows[0]["source_corpus_ids"])
-
-    def test_sequence_packing_tracks_efficiency(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LocalObjectStore(Path(tmp))
-            FixtureIngestor(store).ingest()
-            CorpusBuilder(store).build(DataMixtureConfig("demo", [MixtureSource("filings", 1.0, "cpt_text")]))
-
-            result = ShardBuilder(store, sequence_length=16).build("demo", "cpt")
-
-            self.assertGreater(result.packing_efficiency, 0.0)
-            self.assertLessEqual(result.packing_efficiency, 1.0)
-
-    def test_malformed_corpus_record_fails_cleanly(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LocalObjectStore(Path(tmp))
-            store.write_jsonl("stage=04_corpus/mixture=demo/cpt.jsonl", [{"corpus_id": "bad"}])
-
-            with self.assertRaises(MalformedCorpusError):
-                ShardBuilder(store, sequence_length=8).build("demo", "cpt")
 
     def test_stream_shard_builder_writes_compact_model_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -66,6 +29,14 @@ class TokenizeTests(unittest.TestCase):
             self.assertEqual(rows[0]["price_returns"], [0.0, 0.1])
             self.assertEqual(rows[0]["fundamental_values"], [100.0])
             self.assertEqual(manifest.metadata["artifact"], "multi_stream_samples")
+
+    def test_malformed_sample_fails_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalObjectStore(Path(tmp))
+            store.write_jsonl("stage=04_corpus/mixture=public/samples.jsonl", [{"sample_id": "bad"}])
+
+            with self.assertRaises(MalformedSampleError):
+                StreamShardBuilder(store).build("public")
 
 
 def _sample() -> dict[str, object]:

@@ -66,8 +66,6 @@ class FixtureIngestor(Ingestor[FixtureIngestRequest]):
             "fundamentals": self.paths.raw("fixture", "fundamentals"),
             "prices": self.paths.raw("fixture", "prices"),
             "evidence": self.paths.raw("fixture", "evidence"),
-            "qa_examples": self.paths.raw("fixture", "qa_examples"),
-            "preference_pairs": self.paths.raw("fixture", "preference_pairs"),
         }
 
         self.store.write_jsonl(raw_paths["entities"], [asdict(row) for row in bundle.entities])
@@ -75,8 +73,6 @@ class FixtureIngestor(Ingestor[FixtureIngestRequest]):
         self.store.write_jsonl(raw_paths["fundamentals"], [asdict(row) for row in bundle.fundamentals])
         self.store.write_jsonl(raw_paths["prices"], [asdict(row) for row in bundle.prices])
         self.store.write_jsonl(raw_paths["evidence"], [asdict(row) for row in bundle.evidence])
-        self.store.write_jsonl(raw_paths["qa_examples"], [asdict(row) for row in bundle.qa_examples])
-        self.store.write_jsonl(raw_paths["preference_pairs"], [asdict(row) for row in bundle.preference_pairs])
 
         normalized_paths = {
             "entities": self.paths.normalized("entities", "fixture"),
@@ -84,8 +80,6 @@ class FixtureIngestor(Ingestor[FixtureIngestRequest]):
             "fundamentals": self.paths.normalized("fundamentals", "fixture"),
             "prices": self.paths.normalized("prices", "fixture"),
             "evidence": self.paths.normalized("evidence", "fixture"),
-            "qa_examples": self.paths.normalized("qa", "fixture"),
-            "preference_pairs": self.paths.normalized("preference", "fixture"),
         }
 
         # Fixture records are already normalized typed schemas. Live adapters will
@@ -114,8 +108,6 @@ class FixtureIngestor(Ingestor[FixtureIngestRequest]):
             "fundamentals": len(bundle.fundamentals),
             "prices": len(bundle.prices),
             "evidence": len(bundle.evidence),
-            "qa_examples": len(bundle.qa_examples),
-            "preference_pairs": len(bundle.preference_pairs),
         }
         quality_summary = {
             "duplicate_records": 0,

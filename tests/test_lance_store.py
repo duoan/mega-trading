@@ -29,7 +29,7 @@ class LanceStoreTests(unittest.TestCase):
         tables = LanceTables()
 
         self.assertEqual(tables.normalized("fundamentals", "sec"), "stage_02_normalized_fundamentals_sec")
-        self.assertEqual(tables.corpus("demo", "cpt"), "stage_04_corpus_demo_cpt")
+        self.assertEqual(tables.corpus("demo", "samples"), "stage_04_corpus_demo_samples")
 
     def test_fixture_ingestor_writes_normalized_lance_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

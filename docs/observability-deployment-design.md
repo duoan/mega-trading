@@ -96,7 +96,7 @@ Example:
   "timestamp": "2026-05-08T17:00:00Z",
   "run_id": "demo-run",
   "component": "trainer",
-  "stage": "sft",
+  "stage": "trading_foundation_model",
   "metric_name": "tokens_per_second",
   "metric_value": 1842.5,
   "unit": "tokens/s",
@@ -472,7 +472,7 @@ Modal handles GPU jobs.
 
 - build or reuse training image.
 - mount or fetch shard artifacts.
-- run CPT/SFT/DPO stages.
+- run TradingFoundationModel training stages.
 - write checkpoints and metrics.
 - return run summary.
 

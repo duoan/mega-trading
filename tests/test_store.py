@@ -46,8 +46,8 @@ class StoreTests(unittest.TestCase):
 
         self.assertEqual(paths.raw("fixture", "entities"), "stage=01_raw/source=fixture/entities.jsonl")
         self.assertEqual(paths.normalized("entities", "fixture"), "stage=02_normalized/family=entities/source=fixture.jsonl")
-        self.assertEqual(paths.corpus("demo", "cpt"), "stage=04_corpus/mixture=demo/cpt.jsonl")
-        self.assertEqual(paths.shard("demo", "cpt"), "stage=05_shards/mixture=demo/cpt.jsonl")
+        self.assertEqual(paths.corpus("demo", "samples"), "stage=04_corpus/mixture=demo/samples.jsonl")
+        self.assertEqual(paths.shard("demo", "samples"), "stage=05_shards/mixture=demo/samples.jsonl")
         self.assertEqual(paths.manifest("ingest", "fixture"), "manifests/ingest/fixture.json")
         self.assertEqual(paths.run("metrics"), "runs/demo/metrics.jsonl")
         self.assertEqual(paths.run("checkpoint.json"), "runs/demo/checkpoint.json")

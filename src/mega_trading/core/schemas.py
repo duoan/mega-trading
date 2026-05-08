@@ -142,29 +142,6 @@ class EvidenceRecord:
 
 
 @dataclass(frozen=True)
-class CorpusRecord:
-    corpus_id: str
-    task_type: str
-    mixture_name: str
-    entity_id: str
-    ticker: str
-    as_of_time: str
-    text: str
-    source_ids: list[str]
-    evidence_ids: list[str]
-    quality_score: float
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        for name in ("corpus_id", "task_type", "mixture_name", "entity_id", "ticker", "text"):
-            _require(getattr(self, name), name)
-        _validate_datetime(self.as_of_time, "as_of_time")
-        _require(self.source_ids, "source_ids")
-        if not 0.0 <= self.quality_score <= 1.0:
-            raise SchemaValidationError("quality_score must be between 0 and 1")
-
-
-@dataclass(frozen=True)
 class Manifest:
     manifest_id: str
     artifact_type: str

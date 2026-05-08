@@ -4,7 +4,7 @@
 
 Mega-Trading is not a pure LLM project and not a next-tick trading model. The model target is a multi-stream foundation model of trading for long-term investment research. Infrastructure and model architecture are designed together: the data plane decides what information is visible at `as_of_time`, the model consumes that information through modality-aware encoders, and the evaluation plane measures whether predictions and explanations are useful without leaking future data.
 
-The key thesis is that finance data is not naturally a single text sequence. Prices are time series, fundamentals are structured point-in-time facts, filings and news are text evidence, and labels come from future market outcomes. A credible model should preserve those structures instead of forcing everything into weak CPT text.
+The key thesis is that finance data is not naturally a single text sequence. Prices are time series, fundamentals are structured point-in-time facts, filings and news are text evidence, and labels come from future market outcomes. A credible model should preserve those structures instead of forcing everything into weak text summaries.
 
 ## Architecture
 
@@ -34,7 +34,7 @@ Explanation layer
   cites evidence, summarizes drivers, states uncertainty
 ```
 
-The core predictor is the fusion model. The LLM-style explanation layer is downstream: it explains model-visible signals and retrieved evidence, but it is not expected to discover market structure from text-only CPT.
+The core predictor is the fusion model. The explanation layer is downstream: it explains model-visible signals and retrieved evidence, but it is not expected to discover market structure from text-only artifacts.
 
 ## Inputs
 
@@ -109,13 +109,11 @@ Auxiliary tasks improve representation quality and auditability:
 
 - masked reconstruction of price/fundamental tokens.
 - contrastive alignment between text evidence and structured facts.
-- explanation SFT over model-visible evidence and prediction outputs.
+- evidence-grounded explanation checks over model-visible evidence and prediction outputs.
 
-### Role Of CPT And SFT
+### Role Of Explanations
 
-CPT/DAPT is a support path, not the core market model. It teaches finance vocabulary and schema to a text encoder or explanation model.
-
-SFT is also a support path. It teaches the explanation layer to produce structured, cited, temporally valid rationales from evidence and prediction outputs.
+Explanations are a product layer, not the primary training target in the MVP. They should cite model-visible evidence and stay faithful to prediction outputs.
 
 The main model capability comes from multi-stream supervised training and careful labels.
 
@@ -170,5 +168,5 @@ Infrastructure metrics:
 - Predicting the next tick.
 - Claiming tradable alpha from public MVP data.
 - Replacing all structured market data with text.
-- Treating LLM CPT as sufficient for financial reasoning.
+- Treating text-only training as sufficient for financial reasoning.
 - Optimizing a production portfolio.

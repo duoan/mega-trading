@@ -329,7 +329,7 @@ Baselines are mandatory for interpretability.
 - momentum ranking.
 - simple value ranking if fundamentals are available.
 - prompt-only base model.
-- SFT model without DPO.
+- explanation-only baseline.
 
 ### Baseline Rules
 
@@ -343,7 +343,7 @@ Baselines are mandatory for interpretability.
 Baselines answer:
 
 - Did training improve reasoning format?
-- Did DPO improve evidence discipline?
+- Did evidence retrieval improve explanation discipline?
 - Is model ranking better than random?
 - Is model ranking better than simple public factors?
 
@@ -476,8 +476,8 @@ Optional endpoints:
 
 ### Should Have
 
-- prompt-only versus SFT comparison.
-- SFT versus DPO comparison.
+- prompt-only versus model-grounded comparison.
+- price-only versus multi-stream comparison.
 - transaction cost sensitivity.
 - precision@k.
 - drawdown and turnover.
@@ -523,7 +523,7 @@ Optional endpoints:
 - Should the default portfolio be long-only top-k or long/short spread?
 - How should simple value baseline be computed when fundamentals are sparse?
 - Should citation support use deterministic rules only in MVP?
-- Should FinanceBench be part of SFT, eval, or both?
+- Should FinanceBench-style data be part of evaluation, retrieval, or both?
 - Should backtest reports be generated for every training run or only selected model versions?
 
 ## Success Criteria

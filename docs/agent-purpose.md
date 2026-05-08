@@ -95,7 +95,7 @@ The agent should return a structured investment research object:
     }
   ],
   "lineage": {
-    "model_version": "mega_trading-sft-dpo-demo",
+    "model_version": "mega-trading-demo",
     "data_mixture_version": "mixture-v1",
     "shard_ids": ["shard-0001"],
     "prompt_version": "investment-thesis-v1",
@@ -180,6 +180,6 @@ In the long term, the agent should become a research copilot for a finance found
 
 - It continuously consumes newly available filings, earnings calls, fundamentals, news, and macro data.
 - It updates training corpora and evaluation sets with strict lineage.
-- It supports rapid experiments across CPT, SFT, preference optimization, retrieval, and scoring.
+- It supports rapid experiments across retrieval, scoring, model training, and evaluation.
 - It surfaces investment theses with evidence, uncertainty, and historical evaluation.
 - It helps researchers and portfolio managers move faster without sacrificing auditability or rigor.

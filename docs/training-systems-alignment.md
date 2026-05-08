@@ -24,7 +24,7 @@ The multi-stream finance model provides the domain. The training system and mode
 
 Project response:
 
-- Provide training entry points for multi-stream supervised training plus CPT/DAPT, SFT, and preference support paths.
+- Provide training entry points for multi-stream supervised training.
 - Keep training stages config-driven so model requirements can be translated into system configurations.
 - Support local CPU smoke tests and Modal GPU jobs through the same artifact contracts.
 - Design the training loop so it can later scale to FSDP/DeepSpeed/Ray without rewriting data contracts.
@@ -246,7 +246,7 @@ The model is the domain workload. The infrastructure is the evaluation signal fo
 
 The training-system-specific deliverables should be:
 
-- `configs/train/*.yaml` for CPT, SFT, and DPO stages.
+- `configs/train/*.yaml` for model training jobs.
 - A local training loop that emits training metrics.
 - A Modal GPU training entry point.
 - Tokenized packed shards with manifests.

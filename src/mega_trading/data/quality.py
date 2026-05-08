@@ -173,11 +173,7 @@ def _id_fields(path: str) -> tuple[str, ...]:
         return ("evidence_id",)
     if "family=documents" in path:
         return ("document_id",)
-    if "family=qa" in path:
-        return ("example_id",)
-    if "family=preference" in path:
-        return ("pair_id",)
-    return ("entity_id", "fundamental_id", "price_id", "evidence_id", "document_id", "example_id", "pair_id")
+    return ("entity_id", "fundamental_id", "price_id", "evidence_id", "document_id")
 
 
 def _valid_date(value: str) -> bool:

@@ -19,7 +19,7 @@ The design is intentionally end-to-end. The model is not an afterthought behind 
 ### Product Goals
 
 - Build a multi-input market foundation model for long-term investment research.
-- Preserve the structure of finance data: price series, fundamentals, text evidence, labels, and lineage should not be collapsed into weak text-only CPT.
+- Preserve the structure of finance data: price series, fundamentals, text evidence, labels, and lineage should not be collapsed into weak text-only summaries.
 - Produce forward return/risk predictions with evidence-grounded explanations, not opaque short-term predictions.
 - Evaluate model outputs with prediction metrics, explanation metrics, and long-horizon finance metrics.
 - Preserve source lineage so every answer can be audited back to data, model, and config.
@@ -78,7 +78,7 @@ The researcher interacts with the system through a CLI, API, and generated repor
 Mega-Trading is organized into five major planes:
 
 - **Data plane**: ingestion, normalization, quality, label generation, multi-stream sample construction, and tokenization.
-- **Training plane**: multi-stream supervised training, CPT/DAPT and SFT support paths, checkpointing, and metrics.
+- **Training plane**: multi-stream supervised training, checkpointing, and metrics.
 - **Reasoning plane**: retrieval, evidence packaging, prediction explanation, and structured thesis generation.
 - **Evaluation plane**: reasoning evaluation, long-horizon backtesting, leakage checks, and baselines.
 - **Operations plane**: metrics, alarms, runbooks, deployment, failure injection, and end-to-end efficiency tracking.
@@ -98,7 +98,7 @@ flowchart TB
         Encoders[Modality encoders]
         Fusion[Fusion transformer]
         Heads[Prediction heads]
-        Explain[Explanation SFT path]
+        Explain[Evidence-grounded explanation layer]
         Checkpoint[Checkpoint manager]
     end
 
@@ -129,12 +129,11 @@ flowchart TB
     Checkpoint --> Agent
     Agent --> ReasonEval
     Agent --> Backtest
-    Corpus --> Leakage
+    Samples --> Leakage
     Backtest --> Reports
     ReasonEval --> Reports
     Metrics --> Alarms
     Deploy --> Ingest
-    Deploy --> CPT
 ```
 
 ## Component Design
@@ -147,16 +146,8 @@ Key commands:
 
 - `mega-trading ingest`
   - Fetch or load public financial data.
-- `mega-trading build-corpus`
-  - Convert normalized records into foundation-model corpus records.
-- `mega-trading tokenize`
-  - Tokenize and pack corpus records into shards.
-- `mega-trading train cpt`
-  - Run continual/domain-adaptive pretraining.
-- `mega-trading train sft`
-  - Run supervised fine-tuning.
-- `mega-trading train dpo`
-  - Run preference tuning.
+- `mega-trading train-trading-foundation-model`
+  - Train the multi-stream TradingFoundationModel.
 - `mega-trading reason`
   - Generate evidence-grounded investment theses.
 - `mega-trading eval`
@@ -214,82 +205,62 @@ Quality checks should include:
 
 Invalid records should be quarantined instead of silently dropped.
 
-### Corpus Builder
+### Sample Builder
 
-The corpus builder creates foundation-model training text from normalized records.
+The sample builder creates foundation-model training examples from normalized records.
 
-Corpus types:
+Sample contents:
 
-- Filing sections.
-- Fundamentals summaries.
-- Earnings-call snippets.
-- Evidence-grounded QA.
-- Investment-thesis SFT examples.
-- Preference-pair examples.
+- trailing price windows.
+- point-in-time fundamentals.
+- visible evidence snippets.
+- forward-return and risk labels.
 
-Every corpus record must include:
+Every sample record must include:
 
-- `corpus_id`
+- `sample_id`
 - `source_ids`
 - `ticker`
 - `company`
-- `document_type`
 - `as_of_time`
-- `text`
-- `task_type`
+- `price_window`
+- `fundamental_facts`
+- `text_evidence`
+- `labels`
 - `mixture_name`
 - `quality_score`
 - `metadata`
 
-Corpus mixtures are config-driven. A mixture may combine filings, earnings QA, FinanceBench-style evidence QA, and synthetic thesis examples with explicit weights.
+Sample mixtures are config-driven. A mixture may combine tickers, date ranges, input windows, and label horizons with explicit config.
 
 ### Tokenizer And Shard Builder
 
-The shard builder turns corpus records into packed language-model training examples.
+The shard builder turns sample records into compact stream shards for model training.
 
 Responsibilities:
 
-- Load tokenizer config.
 - Tokenize text/evidence records.
-- Pack text sequences to improve language-model support paths.
 - Package price windows, fundamental facts, and labels into stream-specific shards.
 - Preserve sample boundaries and source IDs.
 - Write shard files and shard manifests.
-- Track sequence packing efficiency.
 - Support streaming reads during training.
 
 Shard manifests should include:
 
-- Tokenizer name and version.
-- Sequence length.
 - Number of examples.
-- Number of tokens.
-- Source corpus IDs.
+- Source sample IDs.
 - Content hash.
-- Mixture config hash.
 - Creation timestamp.
 
 ### Training Orchestrator
 
 The training orchestrator launches local smoke tests and Modal GPU jobs.
 
-Training stages:
+Training stage:
 
 - **Multi-stream supervised training**
   - Train modality encoders and a fusion transformer over price, fundamental, and text/evidence streams.
   - Metric: forward-return bucket quality, risk prediction quality, calibration, examples/sec, and data-loader wait ratio.
-
-- **CPT/DAPT**
-  - Continue pretraining on finance-domain text for text encoders or explanation models.
-  - Metric: held-out finance perplexity and tokens/sec.
-
-- **SFT**
-  - Fine-tune the explanation layer on evidence-grounded investment reasoning examples.
-  - Metric: schema compliance, citation inclusion, explanation faithfulness.
-
-- **DPO/preference**
-  - Align explanations toward grounded, cautious, temporally valid reasoning.
-  - Metric: preference win rate, unsupported-claim reduction, temporal correctness.
 
 The orchestrator should share core components across stages:
 
@@ -461,7 +432,7 @@ flowchart LR
     Explain --> Eval["Prediction, reasoning, and backtest eval"]
 ```
 
-The fusion path is the core model path. Tiny GPT/CPT and small causal-LM SFT remain useful support paths for validating text infrastructure and explanation formatting, but they are not the primary claim of market reasoning capability.
+The multi-stream path is the core model path. Text-only artifacts are intentionally excluded from the MVP training pipeline so the project stays focused on market prediction samples.
 
 ## Artifact Contracts
 
@@ -479,16 +450,14 @@ Required fields:
 - `status`
 - `errors`
 
-### Corpus Manifest
+### Sample Manifest
 
 Required fields:
 
-- `corpus_version`
+- `sample_version`
 - `mixture_name`
-- `mixture_config_hash`
 - `source_manifest_ids`
 - `record_count`
-- `token_estimate`
 - `as_of_min`
 - `as_of_max`
 - `quality_summary`
@@ -498,13 +467,11 @@ Required fields:
 Required fields:
 
 - `shard_id`
-- `corpus_version`
-- `tokenizer`
-- `sequence_length`
-- `num_sequences`
-- `num_tokens`
+- `sample_version`
+- `stream_contract`
+- `num_samples`
 - `content_hash`
-- `source_corpus_ids`
+- `source_sample_ids`
 
 ### Training Run Manifest
 
@@ -566,8 +533,8 @@ The local path must be deterministic and runnable without private credentials.
 Kubernetes should host the data/control plane:
 
 - Ingest worker Deployment or CronJob.
-- Corpus builder Job.
-- Tokenizer Job.
+- Sample builder Job.
+- Stream shard builder Job.
 - Training launcher Job.
 - API Deployment.
 - ConfigMaps for non-secret configs.
@@ -579,9 +546,7 @@ Kubernetes should host the data/control plane:
 
 Modal should host GPU training jobs:
 
-- CPT job.
-- SFT job.
-- DPO job.
+- TradingFoundationModel training job.
 
 Modal jobs should read from and write to the same artifact contracts as local jobs. The local CPU path remains the reviewer-friendly fallback.
 
@@ -605,7 +570,6 @@ Terraform and Kubernetes manifests should define:
 - Multi-stream sample builder with `as_of_time`, source IDs, price windows, fundamentals, evidence tokens, and labels.
 - Stream shards for price, fundamental, text/evidence, and label tensors.
 - Tiny fusion model smoke test with prediction heads.
-- CPT/SFT support paths for text adaptation and explanation formatting.
 - Evidence-grounded prediction and explanation output contract.
 - 3/6/12-month forward-return evaluation for a small universe or fixture.
 - Metrics and ops report.
@@ -637,7 +601,7 @@ The prototype should scale along clear dimensions:
 - More data sources: proprietary research, paid fundamentals, transcripts, macro, credit, options, real estate.
 - More compute: Modal to internal GPU clusters, Ray, EKS, FSDP/DeepSpeed.
 - Better samples: higher-quality extraction, deduplication, entity resolution, richer price/fundamental/text windows, and leakage controls.
-- Better training: larger fusion models, longer windows, richer labels, stronger encoders, better SFT data, and richer preference labels.
+- Better training: larger fusion models, longer windows, richer labels, and stronger encoders.
 - Better evaluation: walk-forward experiments, broader universes, factor controls, regime splits.
 - Better operations: SLOs, incident workflows, cost dashboards, and model/data governance.
 
@@ -664,7 +628,6 @@ Kubernetes and IaC should show deployability, but the implementation should prio
 - Which tiny fusion architecture should be the default: MLP+cross-attention, shallow transformer encoders, or a tabular/time-series transformer?
 - Should the initial universe be hand-picked large-cap companies or dynamically selected from S&P 500 fixtures?
 - Which forward-return horizon should be the first supervised target: 20D, 60D, 120D, or 12-month?
-- How much of the preference stage should be real training versus a lightweight explanation preference-loss smoke test?
 - Should retrieval be simple lexical search in the MVP, or should a vector index be included?
 - Which backtesting horizon should be the headline metric: 3-month, 6-month, or 12-month?
 
@@ -677,12 +640,10 @@ Kubernetes and IaC should show deployability, but the implementation should prio
 5. Implement label generation and multi-stream sample builder.
 6. Implement tokenizer and stream shard builder.
 7. Implement tiny fusion model smoke test.
-8. Implement CPT/SFT support paths for text and explanations.
-9. Implement preference path for explanation quality.
-10. Implement evaluation and backtesting.
-11. Implement metrics, alarms, and ops report.
-12. Add Docker, K8s, IaC, Modal entry points.
-13. Polish README and demo output.
+8. Implement evaluation and backtesting.
+9. Implement metrics, alarms, and ops report.
+10. Add Docker, K8s, IaC, Modal entry points.
+11. Polish README and demo output.
 
 ## Success Criteria
 
@@ -691,7 +652,7 @@ The high-level design is successful if a reviewer can understand:
 - What problem the system solves.
 - Why it is not just a FinGPT clone.
 - How public data becomes training signal.
-- How the model is trained through CPT, SFT, and preference tuning.
+- How the model is trained from multi-stream samples.
 - How outputs are audited back to evidence.
 - How long-horizon evaluation is performed without obvious leakage.
 - How the system is operated, monitored, and deployed.

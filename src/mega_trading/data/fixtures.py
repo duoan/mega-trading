@@ -14,33 +14,12 @@ from mega_trading.core.schemas import (
 
 
 @dataclass(frozen=True)
-class QAExample:
-    example_id: str
-    question: str
-    answer: str
-    evidence_ids: list[str]
-    as_of_time: str
-
-
-@dataclass(frozen=True)
-class PreferencePair:
-    pair_id: str
-    prompt: str
-    chosen: str
-    rejected: str
-    evidence_ids: list[str]
-    as_of_time: str
-
-
-@dataclass(frozen=True)
 class FixtureBundle:
     entities: list[EntityRecord]
     documents: list[DocumentRecord]
     fundamentals: list[FundamentalRecord]
     prices: list[PriceRecord]
     evidence: list[EvidenceRecord]
-    qa_examples: list[QAExample]
-    preference_pairs: list[PreferencePair]
     bad_records: list[dict[str, str]]
 
 
@@ -212,42 +191,6 @@ def load_fixture_bundle() -> FixtureBundle:
         ),
     ]
 
-    qa_examples = [
-        QAExample(
-            example_id="qa-acme-margin",
-            question="What evidence supports ACME's business quality as of 2023-02-15?",
-            answer="ACME expanded recurring service revenue and improved operating margin.",
-            evidence_ids=["ev-acme-margin"],
-            as_of_time="2023-02-15T16:30:00Z",
-        ),
-        QAExample(
-            example_id="qa-nova-risk",
-            question="What evidence weakens NOVA's investment thesis as of 2023-03-01?",
-            answer="NOVA reported slowing same-store sales and higher inventory markdowns.",
-            evidence_ids=["ev-nova-sales"],
-            as_of_time="2023-03-01T16:30:00Z",
-        ),
-    ]
-
-    preference_pairs = [
-        PreferencePair(
-            pair_id="pref-acme-cited",
-            prompt="Write an ACME investment thesis using the provided evidence.",
-            chosen="ACME looks attractive because recurring revenue and margins improved [ev-acme-margin].",
-            rejected="ACME will definitely outperform because it is a great company.",
-            evidence_ids=["ev-acme-margin"],
-            as_of_time="2023-02-15T16:30:00Z",
-        ),
-        PreferencePair(
-            pair_id="pref-nova-cautious",
-            prompt="Write a NOVA investment thesis using the provided evidence.",
-            chosen="NOVA requires caution because sales slowed and markdowns increased [ev-nova-sales].",
-            rejected="NOVA is a strong buy because its future turnaround is guaranteed.",
-            evidence_ids=["ev-nova-sales"],
-            as_of_time="2023-03-01T16:30:00Z",
-        ),
-    ]
-
     bad_records = [
         {"record_id": "bad-stale-news", "reason": "stale_feed"},
         {"record_id": "bad-future-evidence", "reason": "future_leakage"},
@@ -260,7 +203,5 @@ def load_fixture_bundle() -> FixtureBundle:
         fundamentals=fundamentals,
         prices=prices,
         evidence=evidence,
-        qa_examples=qa_examples,
-        preference_pairs=preference_pairs,
         bad_records=bad_records,
     )

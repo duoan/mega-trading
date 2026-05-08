@@ -12,8 +12,6 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(len(bundle.fundamentals), 4)
         self.assertEqual(len(bundle.prices), 8)
         self.assertEqual(len(bundle.evidence), 4)
-        self.assertEqual(len(bundle.qa_examples), 2)
-        self.assertEqual(len(bundle.preference_pairs), 2)
 
     def test_fixture_timestamps_are_deterministic(self) -> None:
         left = load_fixture_bundle()

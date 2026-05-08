@@ -421,7 +421,7 @@ Optional endpoints:
 - citation coverage metrics.
 - simple support checking for fixture examples.
 - prompt-only baseline output.
-- SFT/DPO model output comparison.
+- model output comparison.
 
 ### Can Defer
 

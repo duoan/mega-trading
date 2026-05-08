@@ -19,10 +19,10 @@ return_threshold = 0.02
 
 [[ingest.sources]]
 name = "sec_companyfacts"
-tickers = ["AAPL", "MSFT"]
+tickers = ["AAPL", "AMZN"]
 
 [[ingest.sources]]
 name = "yahoo_prices"
-tickers = ["AAPL", "MSFT"]
+tickers = ["AAPL", "AMZN"]
 start = "2024-01-01"
 end = "2024-03-31"

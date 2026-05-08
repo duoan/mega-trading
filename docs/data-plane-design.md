@@ -11,7 +11,7 @@ This module owns the path from source systems to model-ready corpora:
 - Normalize records into typed schemas.
 - Enforce quality checks and time-aware leakage controls.
 - Build model-facing samples with source lineage, price windows, fundamentals, text/evidence, and labels.
-- Produce stream shards for supervised fusion-model training plus tokenizable records for CPT/DAPT, SFT, and preference support paths.
+- Produce stream shards for supervised TradingFoundationModel training.
 - Emit data health metrics and alarms.
 
 The Data Plane is not a feature engineering notebook. It is the system of record for what the model was allowed to see, what future labels were generated after the as-of boundary, and which sample contract each model consumed.
@@ -75,11 +75,11 @@ return_threshold = 0.02
 
 [[ingest.sources]]
 name = "sec_companyfacts"
-tickers = ["AAPL", "MSFT"]
+tickers = ["AAPL", "AMZN"]
 
 [[ingest.sources]]
 name = "yahoo_prices"
-tickers = ["AAPL", "MSFT"]
+tickers = ["AAPL", "AMZN"]
 start = "2024-01-01"
 end = "2024-03-31"
 ```
@@ -90,7 +90,7 @@ Supported source names:
 - `yahoo_prices`
 - `stooq_prices`
 
-The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, which quality gates and enrichment steps will run, which trainable corpus/shards will be produced, where artifacts will be written, and which source-specific requirements apply.
+The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, which quality gates and enrichment steps will run, which trainable samples/shards will be produced, where artifacts will be written, and which source-specific requirements apply.
 
 Config-driven ingestion should produce:
 
@@ -100,11 +100,8 @@ Config-driven ingestion should produce:
 - `metrics/data/quality.jsonl`.
 - `quarantine/quality/<run_id>.jsonl`.
 - `stage=03_enriched/company_snapshots.jsonl`.
-- `stage=04_corpus/mixture=<mixture_name>/cpt.jsonl`.
-- `stage=04_corpus/mixture=<mixture_name>/sft.jsonl`.
 - `stage=04_corpus/mixture=<mixture_name>/samples.jsonl` for multi-stream prediction examples.
 - `stage=05_shards/mixture=<mixture_name>/samples.jsonl`.
-- `stage=05_shards/mixture=<mixture_name>/cpt.jsonl`.
 
 ## Data Readiness
 
@@ -126,20 +123,17 @@ Initial enrichment:
 
 ## Training Handoff
 
-After readiness passes, public enriched snapshots are converted into model-facing corpus records today, and should evolve into multi-stream prediction samples next. This makes the Data Plane directly consumable by the Training Plane:
+After readiness passes, public enriched snapshots are converted into multi-stream prediction samples. This makes the Data Plane directly consumable by the Training Plane:
 
 ```text
 reports/data-readiness.json
 stage=03_enriched/company_snapshots.jsonl
-  -> stage=04_corpus/mixture=public/cpt.jsonl
-  -> stage=04_corpus/mixture=public/sft.jsonl
   -> stage=04_corpus/mixture=public/samples.jsonl
   -> stage=05_shards/mixture=public/samples.jsonl
-  -> stage=05_shards/mixture=public/cpt.jsonl
   -> TradingFoundationTrainer.train("stage=05_shards/mixture=public/samples.jsonl")
 ```
 
-The MVP public CPT/SFT corpus proves the first data contract from real public ingestion to trainable artifacts. The next model-facing contract is stronger: each sample should preserve separate price, fundamental, and text/evidence streams with forward-return and risk labels. That contract is what enables a fusion model to learn market structure instead of asking a text-only LLM to infer everything from weak summaries.
+The model-facing contract preserves separate price, fundamental, and text/evidence streams with forward-return and risk labels. That contract is what enables the model to learn market structure instead of asking a text-only system to infer everything from weak summaries.
 
 The initial sample builder uses observation counts rather than market calendars: `input_window_observations` controls the trailing price window and `horizon_observations` controls the future label window. This keeps the MVP deterministic across sparse fixtures and public daily prices while preserving the no-future-input invariant.
 
@@ -156,8 +150,7 @@ Contents:
 - Filing excerpts.
 - Fundamental facts.
 - Price history.
-- Evidence QA examples.
-- Preference examples.
+- Evidence snippets.
 - Known bad records for alarm/failure injection.
 
 #### SEC EDGAR
@@ -239,7 +232,6 @@ Useful fields:
 
 Use cases:
 
-- SFT examples.
 - reasoning evaluation.
 - citation accuracy checks.
 
@@ -253,9 +245,7 @@ Purpose:
 
 Use cases:
 
-- SFT examples.
 - reasoning eval.
-- preference pair generation.
 
 #### Earnings Call Datasets
 
@@ -289,8 +279,8 @@ Important clarification:
 
 The Data Plane uses two complementary storage layers:
 
-- Object-store artifacts hold raw payloads, manifests, quarantine records, corpus files, training shards, and replayable audit trails. The same paths should work locally, in MinIO, or in S3.
-- LanceDB tables hold normalized records and retrieval-ready corpus/evidence records for fast local querying, future vector search, and reasoning-time evidence lookup.
+- Object-store artifacts hold raw payloads, manifests, quarantine records, samples, training shards, and replayable audit trails. The same paths should work locally, in MinIO, or in S3.
+- LanceDB tables hold normalized records and retrieval-ready evidence records for fast local querying, future vector search, and reasoning-time evidence lookup.
 
 LanceDB is the primary table/index layer, not the only source of truth. Raw staged artifacts and manifests remain in the object store so every table can be regenerated and audited.
 
@@ -304,7 +294,6 @@ data/
     family=documents/
     family=fundamentals/
     family=prices/
-    family=qa/
     family=events/
     family=entities/
   stage=03_enriched/
@@ -318,7 +307,7 @@ data/
   manifests/
     ingest/
     normalization/
-    corpus/
+    samples/
     quality/
   quarantine/
     invalid_schema/
@@ -340,7 +329,7 @@ Initial LanceDB table naming:
 - `stage_02_normalized_fundamentals_<source>`
 - `stage_02_normalized_prices_<source>`
 - `stage_02_normalized_evidence_<source>`
-- `stage_04_corpus_<mixture>_<name>`
+- `stage_04_corpus_<mixture>_samples`
 
 ## Artifact Stages
 
@@ -386,23 +375,21 @@ Normalized record families:
 - `EventRecord`
 - `EvidenceRecord`
 
-### Stage 04 Corpus
+### Stage 04 Samples
 
-Stage 04 stores model-facing text records.
+Stage 04 stores model-facing multi-stream sample records.
 
 Rules:
 
-- Every corpus record must have provenance.
-- Every corpus record must have `as_of_time`.
-- Corpus mixtures must be versioned.
-- Records should be suitable for tokenization, retrieval, and SFT.
+- Every sample must have provenance.
+- Every sample must have `as_of_time`.
+- Sample mixtures must be versioned.
+- Records should be suitable for stream packing and supervised training.
 
-Corpus families:
+Sample families:
 
-- CPT/DAPT corpus.
-- SFT instruction corpus.
-- Preference pair corpus.
-- Evidence retrieval corpus.
+- price/fundamental/evidence inputs.
+- forward-return and risk labels.
 
 ## Core Schemas
 
@@ -518,33 +505,27 @@ Required fields:
 - `section`
 - `content_hash`
 
-### CorpusRecord
+### SampleRecord
 
 Purpose:
 
-- Model-facing text unit for training or retrieval.
+- Model-facing multi-stream unit for supervised training.
 
 Required fields:
 
-- `corpus_id`
-- `task_type`
+- `sample_id`
 - `mixture_name`
 - `entity_id`
 - `ticker`
 - `as_of_time`
-- `text`
+- `price_window`
+- `fundamental_facts`
+- `text_evidence`
+- `labels`
 - `source_ids`
 - `evidence_ids`
 - `quality_score`
 - `metadata`
-
-Task types:
-
-- `cpt_text`
-- `sft_instruction`
-- `preference_chosen`
-- `preference_rejected`
-- `retrieval_evidence`
 
 ## Ingestion Adapters
 
@@ -608,16 +589,14 @@ Fields:
 - `quarantine_counts_by_reason`
 - `quality_summary`
 
-### CorpusManifest
+### SampleManifest
 
 Fields:
 
-- `corpus_version`
+- `sample_version`
 - `mixture_name`
-- `mixture_config_hash`
 - `source_manifest_ids`
 - `record_count`
-- `token_estimate`
 - `as_of_min`
 - `as_of_max`
 - `quality_summary`
@@ -646,7 +625,7 @@ Fields:
 
 ### Quality Scores
 
-Each normalized document or corpus record can receive a quality score based on:
+Each normalized document or sample record can receive a quality score based on:
 
 - source reliability.
 - timestamp confidence.
@@ -667,7 +646,7 @@ Rules:
 - All model-visible data must satisfy `record.as_of_time <= example.as_of_time`.
 - Future return labels are stored separately from model input records.
 - Backtesting labels are generated after reasoning outputs are frozen.
-- Corpus builder should support train/eval time windows.
+- Sample builder should support train/eval time windows.
 - Records with ambiguous availability should be flagged.
 
 Leakage report fields:
@@ -684,55 +663,18 @@ Policy:
 - Quarantine for ambiguous records in demo mode.
 - Allow configurable policy for research experiments.
 
-## Corpus Construction
-
-### CPT/DAPT Corpus
+## Sample Construction
 
 Goal:
 
-- Adapt model to financial language.
+- Build point-in-time examples that preserve price windows, visible fundamentals, visible evidence, and future labels without leakage.
 
-Sources:
+Sample generation rules:
 
-- filing sections.
-- fundamentals summaries.
-- earnings call snippets.
-- news snippets.
-
-Record format:
-
-- plain text with metadata sidecar.
-
-### SFT Corpus
-
-Goal:
-
-- Teach evidence-grounded investment reasoning.
-
-Sources:
-
-- FinanceBench QA.
-- FinQA/TAT-QA-style examples.
-- synthetic thesis examples from filings and fundamentals.
-
-Record format:
-
-- instruction.
-- input evidence pack.
-- target structured answer.
-
-### Preference Corpus
-
-Goal:
-
-- Align model toward cautious, cited, temporally valid reasoning.
-
-Pair generation rules:
-
-- Chosen cites evidence; rejected does not.
-- Chosen respects `as_of_time`; rejected uses future evidence.
-- Chosen states uncertainty; rejected overclaims.
-- Chosen separates durable fundamentals from noise; rejected gives shallow sentiment.
+- Inputs end at or before `as_of_time`.
+- Label windows begin strictly after `as_of_time`.
+- Source IDs from prices, fundamentals, and evidence stay attached to each sample.
+- Missing or ambiguous inputs are excluded or quarantined rather than silently imputed.
 
 ## CLI And API
 
@@ -741,11 +683,10 @@ Pair generation rules:
 Primary commands:
 
 - `mega-trading ingest --source fixtures`
-- `mega-trading ingest --source sec --tickers AAPL,MSFT --forms 10-K,10-Q`
-- `mega-trading ingest --source prices --tickers AAPL,MSFT --start 2018-01-01 --end 2024-12-31`
+- `mega-trading ingest --source sec --tickers AAPL,AMZN --forms 10-K,10-Q`
+- `mega-trading ingest --source prices --tickers AAPL,AMZN --start 2018-01-01 --end 2024-12-31`
 - `mega-trading normalize --manifest <ingest_manifest>`
-- `mega-trading build-corpus --mixture configs/data/mixture.yaml`
-- `mega-trading data-quality --corpus-version <version>`
+- `mega-trading data-quality --run-id <run_id>`
 - `mega-trading leakage-check --as-of <date>`
 
 ### API
@@ -754,8 +695,8 @@ Optional endpoints:
 
 - `POST /data/ingest`
 - `GET /data/ingest/{manifest_id}`
-- `POST /data/corpus`
-- `GET /data/corpus/{corpus_version}`
+- `POST /data/samples`
+- `GET /data/samples/{sample_version}`
 - `GET /data/quality/{run_id}`
 
 ## Metrics And Alarms
@@ -771,9 +712,8 @@ Optional endpoints:
 - `entity_mapping_coverage`
 - `missing_price_coverage`
 - `missing_fundamental_coverage`
-- `corpus_records_total`
-- `corpus_token_estimate`
-- `corpus_build_seconds`
+- `sample_records_total`
+- `sample_build_seconds`
 - `leakage_violations_total`
 
 ### Alarms
@@ -784,7 +724,7 @@ Optional endpoints:
 - Quarantine rate spikes.
 - Price coverage is missing for evaluation universe.
 - Leakage violations detected.
-- Corpus build time regresses.
+- Sample build time regresses.
 
 ## MVP Scope
 
@@ -794,11 +734,10 @@ Optional endpoints:
 - SEC company/ticker mapping fixture or live fetch.
 - SEC companyfacts ingestion for a small universe.
 - Price history ingestion for the same universe.
-- FinanceBench-style evidence QA fixture.
+- Evidence fixture.
 - Stage-based raw/normalized/enriched/corpus/shard layout.
 - Core schemas and manifests.
-- Corpus builder for CPT and SFT.
-- Basic preference pair generation.
+- Multi-stream sample builder.
 - Data quality report.
 - Leakage check report.
 
@@ -808,7 +747,7 @@ Optional endpoints:
 - Live `yfinance` or Stooq price adapter.
 - FinanceBench open-source loader.
 - Simple GDELT/RSS freshness adapter.
-- Config-driven corpus mixtures.
+- Config-driven sample mixtures.
 
 ### Can Defer
 
