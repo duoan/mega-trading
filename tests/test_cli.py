@@ -48,7 +48,7 @@ class CliTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             with patch("marketfm.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
-                "marketfm.cli.StooqPriceIngestor", FakePriceIngestor
+                "marketfm.cli.YahooPriceIngestor", FakePriceIngestor
             ):
                 exit_code = main(
                     [
