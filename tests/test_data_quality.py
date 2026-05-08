@@ -68,6 +68,52 @@ class DataQualityTests(unittest.TestCase):
             self.assertFalse(result.passed)
             self.assertEqual(quarantined[0]["reason"], "duplicate_id")
 
+    def test_quality_checker_uses_family_specific_record_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalObjectStore(Path(tmp))
+            store.write_jsonl(
+                "silver/fundamentals/sec.jsonl",
+                [
+                    {
+                        "fundamental_id": "f1",
+                        "entity_id": "sec-1",
+                        "ticker": "AAPL",
+                        "concept": "Revenue",
+                        "value": 100.0,
+                        "unit": "USD",
+                        "period_end": "2024-01-31",
+                        "accepted_at": "2024-02-01T00:00:00Z",
+                        "as_of_time": "2024-02-01T00:00:00Z",
+                        "source_ids": ["f1"],
+                    },
+                    {
+                        "fundamental_id": "f2",
+                        "entity_id": "sec-1",
+                        "ticker": "AAPL",
+                        "concept": "Revenue",
+                        "value": 200.0,
+                        "unit": "USD",
+                        "period_end": "2024-02-29",
+                        "accepted_at": "2024-03-01T00:00:00Z",
+                        "as_of_time": "2024-03-01T00:00:00Z",
+                        "source_ids": ["f2"],
+                    },
+                ],
+            )
+            manifest_path = "manifests/normalization/sec-companyfacts-normalized.json"
+            store.write_manifest(
+                manifest_path,
+                Manifest(
+                    manifest_id="sec-companyfacts-normalized",
+                    artifact_type="silver",
+                    paths=["silver/fundamentals/sec.jsonl"],
+                ),
+            )
+
+            result = DataQualityChecker(store).run([manifest_path], run_id="unit")
+
+            self.assertTrue(result.passed)
+
     def test_quality_checker_fails_on_bad_price_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))

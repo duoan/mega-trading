@@ -102,6 +102,51 @@ class SecClientTests(unittest.TestCase):
             self.assertEqual(fundamentals[0]["as_of_time"], "2023-11-03T00:00:00Z")
             self.assertEqual(manifest.metadata["source"], "sec_companyfacts")
 
+    def test_sec_companyfacts_ingestor_generates_unique_ids_for_overlapping_facts(self) -> None:
+        def fetch_json(url: str, _user_agent: str) -> dict:
+            if url.endswith("/company_tickers.json"):
+                return {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+            return {
+                "facts": {
+                    "us-gaap": {
+                        "Revenues": {
+                            "label": "Revenue",
+                            "units": {
+                                "USD": [
+                                    {
+                                        "val": 100,
+                                        "start": "2023-01-01",
+                                        "end": "2023-09-30",
+                                        "filed": "2023-11-03",
+                                        "form": "10-K",
+                                        "fy": 2023,
+                                        "fp": "FY",
+                                    },
+                                    {
+                                        "val": 25,
+                                        "start": "2023-07-01",
+                                        "end": "2023-09-30",
+                                        "filed": "2023-11-03",
+                                        "form": "10-K",
+                                        "fy": 2023,
+                                        "fp": "Q4",
+                                    },
+                                ]
+                            },
+                        }
+                    }
+                }
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalObjectStore(Path(tmp))
+            client = SecClient(user_agent="MarketFM test@example.com", fetch_json=fetch_json)
+
+            SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
+            fundamentals = store.read_jsonl("silver/fundamentals/sec.jsonl")
+
+            self.assertEqual(len({row["fundamental_id"] for row in fundamentals}), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

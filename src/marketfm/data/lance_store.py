@@ -52,6 +52,8 @@ class LanceTableStore:
 
     def table_names(self) -> list[str]:
         result = self.db.list_tables()
+        if hasattr(result, "tables"):
+            return list(result.tables)
         if hasattr(result, "table_names"):
             return list(result.table_names)
         return list(result)

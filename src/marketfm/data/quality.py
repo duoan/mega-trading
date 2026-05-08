@@ -36,7 +36,7 @@ class DataQualityChecker:
             for index, row in enumerate(self.store.read_jsonl(path)):
                 total_records += 1
                 reasons = self._reasons(path, row)
-                record_id = _record_id(row)
+                record_id = _record_id(path, row)
                 if record_id:
                     if record_id in seen_ids:
                         reasons.append("duplicate_id")
@@ -154,12 +154,30 @@ def _required_fields(path: str) -> tuple[str, ...]:
     return ()
 
 
-def _record_id(row: dict[str, Any]) -> str | None:
-    for field in ("entity_id", "fundamental_id", "price_id", "evidence_id", "document_id", "example_id", "pair_id"):
+def _record_id(path: str, row: dict[str, Any]) -> str | None:
+    for field in _id_fields(path):
         value = row.get(field)
         if value:
             return str(value)
     return None
+
+
+def _id_fields(path: str) -> tuple[str, ...]:
+    if "/entities/" in path:
+        return ("entity_id",)
+    if "/fundamentals/" in path:
+        return ("fundamental_id",)
+    if "/prices/" in path:
+        return ("price_id",)
+    if "/evidence/" in path:
+        return ("evidence_id",)
+    if "/documents/" in path:
+        return ("document_id",)
+    if "/qa/" in path:
+        return ("example_id",)
+    if "/preference/" in path:
+        return ("pair_id",)
+    return ("entity_id", "fundamental_id", "price_id", "evidence_id", "document_id", "example_id", "pair_id")
 
 
 def _valid_date(value: str) -> bool:

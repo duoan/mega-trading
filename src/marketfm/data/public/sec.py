@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 
 import certifi
 
+from marketfm.core.hashing import stable_hash
 from marketfm.core.schemas import EntityRecord, FundamentalRecord, Manifest
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
 from marketfm.data.ingest import Ingestor, IngestResult, TickerIngestRequest
@@ -133,9 +134,10 @@ def _fundamentals_from_companyfacts(entity: dict[str, str], payload: dict, conce
                 accepted_at = f"{filed}T00:00:00Z"
                 period_end = str(fact["end"])
                 form = str(fact.get("form", "unknown"))
+                fact_id = _fundamental_id(entity, concept, unit, fact)
                 records.append(
                     FundamentalRecord(
-                        fundamental_id=f"sec-{entity['ticker']}-{concept}-{period_end}-{filed}",
+                        fundamental_id=fact_id,
                         entity_id=f"sec-{entity['cik']}",
                         ticker=entity["ticker"],
                         concept=label,
@@ -144,10 +146,29 @@ def _fundamentals_from_companyfacts(entity: dict[str, str], payload: dict, conce
                         period_end=period_end,
                         accepted_at=accepted_at,
                         as_of_time=accepted_at,
-                        source_ids=[f"sec:companyfacts:{entity['cik']}:{concept}:{period_end}:{form}"],
+                        source_ids=[f"sec:companyfacts:{entity['cik']}:{concept}:{period_end}:{form}:{fact_id}"],
                     )
                 )
     return records
+
+
+def _fundamental_id(entity: dict[str, str], concept: str, unit: str, fact: dict) -> str:
+    identity = {
+        "ticker": entity["ticker"],
+        "cik": entity["cik"],
+        "concept": concept,
+        "unit": unit,
+        "value": fact.get("val"),
+        "start": fact.get("start"),
+        "end": fact.get("end"),
+        "filed": fact.get("filed"),
+        "form": fact.get("form"),
+        "fy": fact.get("fy"),
+        "fp": fact.get("fp"),
+        "frame": fact.get("frame"),
+        "accn": fact.get("accn"),
+    }
+    return f"sec-{entity['ticker']}-{stable_hash(identity)[:16]}"
 
 
 def _fetch_json(url: str, user_agent: str) -> dict:

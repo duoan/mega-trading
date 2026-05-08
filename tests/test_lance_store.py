@@ -16,6 +16,15 @@ class LanceStoreTests(unittest.TestCase):
 
             self.assertEqual(store.read_rows("silver_entities_fixture"), [{"entity_id": "one", "ticker": "ONE"}])
 
+    def test_write_table_overwrites_existing_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LanceTableStore(Path(tmp))
+
+            store.write_table("silver_entities_fixture", [{"entity_id": "one", "ticker": "ONE"}])
+            store.write_table("silver_entities_fixture", [{"entity_id": "two", "ticker": "TWO"}])
+
+            self.assertEqual(store.read_rows("silver_entities_fixture"), [{"entity_id": "two", "ticker": "TWO"}])
+
     def test_lance_table_names_are_stable(self) -> None:
         tables = LanceTables()
 
