@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import csv
+import ssl
 from dataclasses import asdict
 from io import StringIO
 from typing import Callable
 from urllib.request import urlopen
+
+import certifi
 
 from marketfm.ingest import IngestResult
 from marketfm.schemas import Manifest, PriceRecord
@@ -110,5 +113,6 @@ class StooqPriceIngestor:
 
 
 def _fetch_text(url: str) -> str:
-    with urlopen(url, timeout=30) as response:
+    context = ssl.create_default_context(cafile=certifi.where())
+    with urlopen(url, timeout=30, context=context) as response:
         return response.read().decode("utf-8")

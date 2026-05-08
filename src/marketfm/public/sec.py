@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import ssl
 from dataclasses import asdict
 from typing import Callable
 from urllib.request import Request, urlopen
+
+import certifi
 
 from marketfm.ingest import IngestResult
 from marketfm.schemas import EntityRecord, FundamentalRecord, Manifest
@@ -140,5 +143,6 @@ def _fundamentals_from_companyfacts(entity: dict[str, str], payload: dict, conce
 
 def _fetch_json(url: str, user_agent: str) -> dict:
     request = Request(url, headers={"User-Agent": user_agent, "Accept": "application/json"})
-    with urlopen(request, timeout=30) as response:
+    context = ssl.create_default_context(cafile=certifi.where())
+    with urlopen(request, timeout=30, context=context) as response:
         return json.loads(response.read().decode("utf-8"))
