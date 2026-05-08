@@ -2,6 +2,13 @@
 output_dir = ".marketfm/public"
 sec_user_agent = "MarketFM Forge your-email@example.com"
 
+[ingest.quality]
+enabled = true
+fail_on_error = false
+
+[ingest.enrichment]
+enabled = true
+
 [[ingest.sources]]
 name = "sec_companyfacts"
 tickers = ["AAPL", "MSFT"]

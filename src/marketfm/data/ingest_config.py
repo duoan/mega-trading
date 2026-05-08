@@ -30,6 +30,9 @@ class IngestPipelineConfig:
     output_dir: str
     sources: tuple[IngestSourceConfig, ...]
     sec_user_agent: str | None = None
+    quality_enabled: bool = True
+    quality_fail_on_error: bool = False
+    enrichment_enabled: bool = True
 
     def __post_init__(self) -> None:
         if not self.output_dir:
@@ -40,10 +43,19 @@ class IngestPipelineConfig:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "IngestPipelineConfig":
         sources = tuple(_source_from_dict(source) for source in value.get("sources", []))
+        quality = value.get("quality", {})
+        if not isinstance(quality, dict):
+            quality = {}
+        enrichment = value.get("enrichment", {})
+        if not isinstance(enrichment, dict):
+            enrichment = {}
         return cls(
             output_dir=str(value.get("output_dir", "")),
             sec_user_agent=_optional_string(value.get("sec_user_agent")),
             sources=sources,
+            quality_enabled=bool(quality.get("enabled", True)),
+            quality_fail_on_error=bool(quality.get("fail_on_error", False)),
+            enrichment_enabled=bool(enrichment.get("enabled", True)),
         )
 
     def enabled_sources(self) -> tuple[IngestSourceConfig, ...]:

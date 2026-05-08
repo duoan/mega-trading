@@ -6,11 +6,13 @@ import argparse
 from pathlib import Path
 
 from marketfm.core.store import LocalObjectStore
+from marketfm.data.enrich import DataEnricher
 from marketfm.data.ingest import PriceIngestRequest, TickerIngestRequest
 from marketfm.data.ingest_config import IngestPipelineConfig, IngestSourceConfig, load_ingest_config
 from marketfm.data.lance_store import LanceTableStore
 from marketfm.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
 from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
+from marketfm.data.quality import DataQualityChecker
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,21 +64,33 @@ def main(argv: list[str] | None = None) -> int:
 def _run_ingest_config(config: IngestPipelineConfig) -> None:
     store = LocalObjectStore(Path(config.output_dir))
     table_store = LanceTableStore(Path(config.output_dir) / "lancedb")
+    normalization_manifests: list[str] = []
     for source in config.enabled_sources():
         if source.name == "sec_companyfacts":
             if not config.sec_user_agent:
                 raise ValueError("sec_companyfacts requires ingest.sec_user_agent")
-            SecCompanyFactsIngestor(store, SecClient(user_agent=config.sec_user_agent), table_store=table_store).ingest(
+            result = SecCompanyFactsIngestor(store, SecClient(user_agent=config.sec_user_agent), table_store=table_store).ingest(
                 TickerIngestRequest(tickers=source.tickers)
             )
         elif source.name == "yahoo_prices":
-            YahooPriceIngestor(store, YahooChartClient(), table_store=table_store).ingest(
+            result = YahooPriceIngestor(store, YahooChartClient(), table_store=table_store).ingest(
                 PriceIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
             )
         elif source.name == "stooq_prices":
-            StooqPriceIngestor(store, StooqClient(), table_store=table_store).ingest(
+            result = StooqPriceIngestor(store, StooqClient(), table_store=table_store).ingest(
                 PriceIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
             )
         else:
             raise ValueError(f"unsupported ingest source: {source.name}")
+        normalization_manifests.append(result.normalization_manifest_path)
+    quality_passed = True
+    if config.quality_enabled:
+        quality_result = DataQualityChecker(store).run(
+            normalization_manifests,
+            run_id="configured-ingest",
+            fail_on_error=config.quality_fail_on_error,
+        )
+        quality_passed = quality_result.passed
+    if config.enrichment_enabled and quality_passed:
+        DataEnricher(store).run(run_id="configured-ingest")
     print(f"wrote configured ingest artifacts to {config.output_dir}")

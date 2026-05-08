@@ -37,7 +37,51 @@ class CliTests(unittest.TestCase):
                 self.store = store
 
             def ingest(self, request):
-                self.store.write_jsonl("silver/entities/sec.jsonl", [{"ticker": request.tickers[0]}])
+                self.store.write_jsonl(
+                    "silver/entities/sec.jsonl",
+                    [
+                        {
+                            "entity_id": "sec-1",
+                            "ticker": request.tickers[0],
+                            "company_name": "Apple Inc.",
+                            "source_ids": ["sec:company_tickers:1"],
+                        }
+                    ],
+                )
+                self.store.write_jsonl(
+                    "silver/fundamentals/sec.jsonl",
+                    [
+                        {
+                            "fundamental_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
+                            "entity_id": "sec-1",
+                            "ticker": request.tickers[0],
+                            "concept": "Revenue",
+                            "value": 100.0,
+                            "unit": "USD",
+                            "period_end": "2022-12-31",
+                            "accepted_at": "2023-02-01T00:00:00Z",
+                            "as_of_time": "2023-02-01T00:00:00Z",
+                            "source_ids": ["sec:f1"],
+                        }
+                    ],
+                )
+                self.store.write_json(
+                    "manifests/normalization/sec-companyfacts-normalized.json",
+                    {
+                        "manifest_id": "sec-companyfacts-normalized",
+                        "artifact_type": "silver",
+                        "paths": ["silver/entities/sec.jsonl", "silver/fundamentals/sec.jsonl"],
+                        "metadata": {},
+                    },
+                )
+                from marketfm.data.ingest import IngestResult
+
+                return IngestResult(
+                    bronze_manifest_path="manifests/ingest/sec-companyfacts-bronze.json",
+                    normalization_manifest_path="manifests/normalization/sec-companyfacts-normalized.json",
+                    normalized_counts={"entities": 1},
+                    quality_summary={"duplicate_records": 0, "quarantined_records": 0},
+                )
 
         class FakePriceIngestor:
             def __init__(self, store, client, table_store=None):
@@ -46,7 +90,50 @@ class CliTests(unittest.TestCase):
             def ingest(self, request):
                 self.store.write_jsonl(
                     "silver/prices/stooq.jsonl",
-                    [{"ticker": request.tickers[0], "date": request.start, "end": request.end}],
+                    [
+                        {
+                            "price_id": "yahoo-AAPL-2023-01-03",
+                            "ticker": request.tickers[0],
+                            "date": request.start,
+                            "adjusted_close": 105.0,
+                            "provider": "yahoo",
+                            "source_ids": ["yahoo-AAPL-2023-01-03"],
+                        }
+                    ],
+                )
+                self.store.write_jsonl(
+                    "silver/fundamentals/sec.jsonl",
+                    [
+                        {
+                            "fundamental_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
+                            "entity_id": "sec-1",
+                            "ticker": request.tickers[0],
+                            "concept": "Revenue",
+                            "value": 100.0,
+                            "unit": "USD",
+                            "period_end": "2022-12-31",
+                            "accepted_at": "2023-02-01T00:00:00Z",
+                            "as_of_time": "2023-02-01T00:00:00Z",
+                            "source_ids": ["sec:f1"],
+                        }
+                    ],
+                )
+                self.store.write_json(
+                    "manifests/normalization/yahoo-daily-normalized.json",
+                    {
+                        "manifest_id": "yahoo-daily-normalized",
+                        "artifact_type": "silver",
+                        "paths": ["silver/prices/stooq.jsonl"],
+                        "metadata": {},
+                    },
+                )
+                from marketfm.data.ingest import IngestResult
+
+                return IngestResult(
+                    bronze_manifest_path="manifests/ingest/yahoo-daily-bronze.json",
+                    normalization_manifest_path="manifests/normalization/yahoo-daily-normalized.json",
+                    normalized_counts={"prices": 1},
+                    quality_summary={"duplicate_records": 0, "quarantined_records": 0},
                 )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,7 +166,34 @@ class CliTests(unittest.TestCase):
                 self.store = store
 
             def ingest(self, request):
-                self.store.write_jsonl("silver/entities/sec.jsonl", [{"ticker": request.tickers[0]}])
+                self.store.write_jsonl(
+                    "silver/entities/sec.jsonl",
+                    [
+                        {
+                            "entity_id": "sec-1",
+                            "ticker": request.tickers[0],
+                            "company_name": "Apple Inc.",
+                            "source_ids": ["sec:company_tickers:1"],
+                        }
+                    ],
+                )
+                self.store.write_json(
+                    "manifests/normalization/sec-companyfacts-normalized.json",
+                    {
+                        "manifest_id": "sec-companyfacts-normalized",
+                        "artifact_type": "silver",
+                        "paths": ["silver/entities/sec.jsonl"],
+                        "metadata": {},
+                    },
+                )
+                from marketfm.data.ingest import IngestResult
+
+                return IngestResult(
+                    bronze_manifest_path="manifests/ingest/sec-companyfacts-bronze.json",
+                    normalization_manifest_path="manifests/normalization/sec-companyfacts-normalized.json",
+                    normalized_counts={"entities": 1},
+                    quality_summary={"duplicate_records": 0, "quarantined_records": 0},
+                )
 
         class FakePriceIngestor:
             def __init__(self, store, client, table_store=None):
@@ -88,7 +202,33 @@ class CliTests(unittest.TestCase):
             def ingest(self, request):
                 self.store.write_jsonl(
                     "silver/prices/yahoo.jsonl",
-                    [{"ticker": request.tickers[0], "date": request.start, "end": request.end}],
+                    [
+                        {
+                            "price_id": "yahoo-AAPL-2023-01-03",
+                            "ticker": request.tickers[0],
+                            "date": request.start,
+                            "adjusted_close": 105.0,
+                            "provider": "yahoo",
+                            "source_ids": ["yahoo-AAPL-2023-01-03"],
+                        }
+                    ],
+                )
+                self.store.write_json(
+                    "manifests/normalization/yahoo-daily-normalized.json",
+                    {
+                        "manifest_id": "yahoo-daily-normalized",
+                        "artifact_type": "silver",
+                        "paths": ["silver/prices/yahoo.jsonl"],
+                        "metadata": {},
+                    },
+                )
+                from marketfm.data.ingest import IngestResult
+
+                return IngestResult(
+                    bronze_manifest_path="manifests/ingest/yahoo-daily-bronze.json",
+                    normalization_manifest_path="manifests/normalization/yahoo-daily-normalized.json",
+                    normalized_counts={"prices": 1},
+                    quality_summary={"duplicate_records": 0, "quarantined_records": 0},
                 )
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -122,6 +262,8 @@ end = "2023-01-31"
             self.assertEqual(exit_code, 0)
             self.assertTrue((output_dir / "silver/entities/sec.jsonl").exists())
             self.assertTrue((output_dir / "silver/prices/yahoo.jsonl").exists())
+            self.assertTrue((output_dir / "reports/data-readiness.json").exists())
+            self.assertTrue((output_dir / "silver/enriched/company_snapshots.jsonl").exists())
 
 
 if __name__ == "__main__":

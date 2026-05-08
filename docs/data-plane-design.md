@@ -58,6 +58,13 @@ Example:
 output_dir = ".marketfm/public"
 sec_user_agent = "MarketFM Forge your-email@example.com"
 
+[ingest.quality]
+enabled = true
+fail_on_error = false
+
+[ingest.enrichment]
+enabled = true
+
 [[ingest.sources]]
 name = "sec_companyfacts"
 tickers = ["AAPL", "MSFT"]
@@ -75,7 +82,34 @@ Supported source names:
 - `yahoo_prices`
 - `stooq_prices`
 
-The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, where artifacts will be written, and which source-specific requirements apply.
+The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, which quality gates and enrichment steps will run, where artifacts will be written, and which source-specific requirements apply.
+
+Config-driven ingestion should produce:
+
+- bronze and silver artifacts.
+- LanceDB silver tables.
+- `reports/data-readiness.json`.
+- `metrics/data/quality.jsonl`.
+- `quarantine/quality/<run_id>.jsonl`.
+- `silver/enriched/company_snapshots.jsonl`.
+
+## Data Readiness
+
+Silver records are not considered training-ready just because ingestion succeeded. The Data Plane must first run quality gates and write a readiness report.
+
+Initial quality gates:
+
+- required field checks by record family.
+- duplicate record ID detection.
+- price sanity checks.
+- date and datetime parsing.
+- evidence timestamp versus `as_of_time` leakage checks.
+
+Initial enrichment:
+
+- join SEC entities, SEC fundamentals, and price coverage by ticker.
+- produce deterministic company snapshots with latest fundamental availability and price observation windows.
+- keep enrichment output as silver data with a manifest so it can be replayed.
 
 #### Fixture Data
 

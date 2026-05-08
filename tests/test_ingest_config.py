@@ -36,6 +36,8 @@ end = "2024-03-31"
             self.assertEqual(config.sources[0].name, "sec_companyfacts")
             self.assertEqual(config.sources[1].tickers, ("AAPL", "MSFT"))
             self.assertEqual(config.sources[1].start, "2024-01-01")
+            self.assertTrue(config.quality_enabled)
+            self.assertTrue(config.enrichment_enabled)
 
     def test_rejects_price_source_without_date_window(self) -> None:
         with self.assertRaises(ValueError):
@@ -45,6 +47,37 @@ end = "2024-03-31"
                     "sources": [{"name": "yahoo_prices", "tickers": ["AAPL"]}],
                 }
             )
+
+    def test_loads_quality_options(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "ingest.toml"
+            config_path.write_text(
+                """
+[ingest]
+output_dir = ".marketfm/public"
+
+[ingest.quality]
+enabled = true
+fail_on_error = true
+
+[ingest.enrichment]
+enabled = false
+
+[[ingest.sources]]
+name = "yahoo_prices"
+tickers = ["AAPL"]
+start = "2024-01-01"
+end = "2024-01-31"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config = load_ingest_config(config_path)
+
+            self.assertTrue(config.quality_enabled)
+            self.assertTrue(config.quality_fail_on_error)
+            self.assertFalse(config.enrichment_enabled)
 
 
 if __name__ == "__main__":
