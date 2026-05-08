@@ -41,7 +41,7 @@ class ReasoningTests(unittest.TestCase):
             self.assertIn("[ev-acme-margin]", pack.prompt)
             self.assertEqual(pack.evidence_ids, ["ev-acme-margin", "ev-acme-risk"])
 
-    def test_lance_evidence_catalog_reads_silver_table(self) -> None:
+    def test_lance_evidence_catalog_reads_normalized_table(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             _, table_store = _prepared_lance_store(tmp)
             catalog = LanceEvidenceCatalog(table_store)

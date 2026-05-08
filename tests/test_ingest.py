@@ -7,15 +7,15 @@ from marketfm.data.ingest import FixtureIngestRequest, FixtureIngestor, Ingestor
 
 
 class IngestTests(unittest.TestCase):
-    def test_fixture_ingest_writes_bronze_manifest(self) -> None:
+    def test_fixture_ingest_writes_raw_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             result = FixtureIngestor(store).ingest(FixtureIngestRequest())
 
-            manifest = store.read_manifest(result.bronze_manifest_path)
+            manifest = store.read_manifest(result.raw_manifest_path)
 
-            self.assertEqual(manifest.artifact_type, "bronze")
-            self.assertIn("bronze/fixture/entities.jsonl", manifest.paths)
+            self.assertEqual(manifest.artifact_type, "raw")
+            self.assertIn("stage=01_raw/source=fixture/entities.jsonl", manifest.paths)
             self.assertEqual(manifest.metadata["source"], "fixture")
 
     def test_fixture_ingestor_implements_ingestor_interface(self) -> None:
@@ -32,9 +32,9 @@ class IngestTests(unittest.TestCase):
             store = LocalObjectStore(Path(tmp))
             result = FixtureIngestor(store).ingest()
 
-            entities = store.read_jsonl("silver/entities/fixture.jsonl")
-            documents = store.read_jsonl("silver/documents/fixture.jsonl")
-            fundamentals = store.read_jsonl("silver/fundamentals/fixture.jsonl")
+            entities = store.read_jsonl("stage=02_normalized/family=entities/source=fixture.jsonl")
+            documents = store.read_jsonl("stage=02_normalized/family=documents/source=fixture.jsonl")
+            fundamentals = store.read_jsonl("stage=02_normalized/family=fundamentals/source=fixture.jsonl")
 
             self.assertEqual(len(entities), 2)
             self.assertEqual(documents[0]["ticker"], "ACME")

@@ -18,14 +18,20 @@ class ArtifactNotFoundError(FileNotFoundError):
 class ArtifactPaths:
     run_id: str = "demo"
 
-    def bronze(self, source: str, name: str) -> str:
-        return f"bronze/{source}/{name}.jsonl"
+    def raw(self, source: str, name: str) -> str:
+        return f"stage=01_raw/source={source}/{name}.jsonl"
 
-    def silver(self, family: str, name: str) -> str:
-        return f"silver/{family}/{name}.jsonl"
+    def normalized(self, family: str, name: str) -> str:
+        return f"stage=02_normalized/family={family}/source={name}.jsonl"
+
+    def enriched(self, name: str) -> str:
+        return f"stage=03_enriched/{name}.jsonl"
 
     def corpus(self, mixture: str, name: str) -> str:
-        return f"corpus/{mixture}/{name}.jsonl"
+        return f"stage=04_corpus/mixture={mixture}/{name}.jsonl"
+
+    def shard(self, mixture: str, name: str) -> str:
+        return f"stage=05_shards/mixture={mixture}/{name}.jsonl"
 
     def manifest(self, family: str, manifest_id: str) -> str:
         return f"manifests/{family}/{manifest_id}.json"

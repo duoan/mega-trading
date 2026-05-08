@@ -38,7 +38,7 @@ class CliTests(unittest.TestCase):
 
             def ingest(self, request):
                 self.store.write_jsonl(
-                    "silver/entities/sec.jsonl",
+                    "stage=02_normalized/family=entities/source=sec.jsonl",
                     [
                         {
                             "entity_id": "sec-1",
@@ -49,7 +49,7 @@ class CliTests(unittest.TestCase):
                     ],
                 )
                 self.store.write_jsonl(
-                    "silver/fundamentals/sec.jsonl",
+                    "stage=02_normalized/family=fundamentals/source=sec.jsonl",
                     [
                         {
                             "fundamental_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
@@ -69,15 +69,18 @@ class CliTests(unittest.TestCase):
                     "manifests/normalization/sec-companyfacts-normalized.json",
                     {
                         "manifest_id": "sec-companyfacts-normalized",
-                        "artifact_type": "silver",
-                        "paths": ["silver/entities/sec.jsonl", "silver/fundamentals/sec.jsonl"],
+                        "artifact_type": "normalized",
+                        "paths": [
+                            "stage=02_normalized/family=entities/source=sec.jsonl",
+                            "stage=02_normalized/family=fundamentals/source=sec.jsonl",
+                        ],
                         "metadata": {},
                     },
                 )
                 from marketfm.data.ingest import IngestResult
 
                 return IngestResult(
-                    bronze_manifest_path="manifests/ingest/sec-companyfacts-bronze.json",
+                    raw_manifest_path="manifests/ingest/sec-companyfacts-raw.json",
                     normalization_manifest_path="manifests/normalization/sec-companyfacts-normalized.json",
                     normalized_counts={"entities": 1},
                     quality_summary={"duplicate_records": 0, "quarantined_records": 0},
@@ -89,7 +92,7 @@ class CliTests(unittest.TestCase):
 
             def ingest(self, request):
                 self.store.write_jsonl(
-                    "silver/prices/stooq.jsonl",
+                    "stage=02_normalized/family=prices/source=stooq.jsonl",
                     [
                         {
                             "price_id": "yahoo-AAPL-2023-01-03",
@@ -102,7 +105,7 @@ class CliTests(unittest.TestCase):
                     ],
                 )
                 self.store.write_jsonl(
-                    "silver/fundamentals/sec.jsonl",
+                    "stage=02_normalized/family=fundamentals/source=sec.jsonl",
                     [
                         {
                             "fundamental_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
@@ -122,15 +125,15 @@ class CliTests(unittest.TestCase):
                     "manifests/normalization/yahoo-daily-normalized.json",
                     {
                         "manifest_id": "yahoo-daily-normalized",
-                        "artifact_type": "silver",
-                        "paths": ["silver/prices/stooq.jsonl"],
+                        "artifact_type": "normalized",
+                        "paths": ["stage=02_normalized/family=prices/source=stooq.jsonl"],
                         "metadata": {},
                     },
                 )
                 from marketfm.data.ingest import IngestResult
 
                 return IngestResult(
-                    bronze_manifest_path="manifests/ingest/yahoo-daily-bronze.json",
+                    raw_manifest_path="manifests/ingest/yahoo-daily-raw.json",
                     normalization_manifest_path="manifests/normalization/yahoo-daily-normalized.json",
                     normalized_counts={"prices": 1},
                     quality_summary={"duplicate_records": 0, "quarantined_records": 0},
@@ -157,8 +160,8 @@ class CliTests(unittest.TestCase):
                 )
 
             self.assertEqual(exit_code, 0)
-            self.assertTrue((Path(tmp) / "silver/entities/sec.jsonl").exists())
-            self.assertTrue((Path(tmp) / "silver/prices/stooq.jsonl").exists())
+            self.assertTrue((Path(tmp) / "stage=02_normalized/family=entities/source=sec.jsonl").exists())
+            self.assertTrue((Path(tmp) / "stage=02_normalized/family=prices/source=stooq.jsonl").exists())
 
     def test_ingest_command_runs_from_config(self) -> None:
         class FakeSecIngestor:
@@ -167,7 +170,7 @@ class CliTests(unittest.TestCase):
 
             def ingest(self, request):
                 self.store.write_jsonl(
-                    "silver/entities/sec.jsonl",
+                    "stage=02_normalized/family=entities/source=sec.jsonl",
                     [
                         {
                             "entity_id": "sec-1",
@@ -181,15 +184,15 @@ class CliTests(unittest.TestCase):
                     "manifests/normalization/sec-companyfacts-normalized.json",
                     {
                         "manifest_id": "sec-companyfacts-normalized",
-                        "artifact_type": "silver",
-                        "paths": ["silver/entities/sec.jsonl"],
+                        "artifact_type": "normalized",
+                        "paths": ["stage=02_normalized/family=entities/source=sec.jsonl"],
                         "metadata": {},
                     },
                 )
                 from marketfm.data.ingest import IngestResult
 
                 return IngestResult(
-                    bronze_manifest_path="manifests/ingest/sec-companyfacts-bronze.json",
+                    raw_manifest_path="manifests/ingest/sec-companyfacts-raw.json",
                     normalization_manifest_path="manifests/normalization/sec-companyfacts-normalized.json",
                     normalized_counts={"entities": 1},
                     quality_summary={"duplicate_records": 0, "quarantined_records": 0},
@@ -201,7 +204,7 @@ class CliTests(unittest.TestCase):
 
             def ingest(self, request):
                 self.store.write_jsonl(
-                    "silver/prices/yahoo.jsonl",
+                    "stage=02_normalized/family=prices/source=yahoo.jsonl",
                     [
                         {
                             "price_id": "yahoo-AAPL-2023-01-03",
@@ -217,15 +220,15 @@ class CliTests(unittest.TestCase):
                     "manifests/normalization/yahoo-daily-normalized.json",
                     {
                         "manifest_id": "yahoo-daily-normalized",
-                        "artifact_type": "silver",
-                        "paths": ["silver/prices/yahoo.jsonl"],
+                        "artifact_type": "normalized",
+                        "paths": ["stage=02_normalized/family=prices/source=yahoo.jsonl"],
                         "metadata": {},
                     },
                 )
                 from marketfm.data.ingest import IngestResult
 
                 return IngestResult(
-                    bronze_manifest_path="manifests/ingest/yahoo-daily-bronze.json",
+                    raw_manifest_path="manifests/ingest/yahoo-daily-raw.json",
                     normalization_manifest_path="manifests/normalization/yahoo-daily-normalized.json",
                     normalized_counts={"prices": 1},
                     quality_summary={"duplicate_records": 0, "quarantined_records": 0},
@@ -260,12 +263,12 @@ end = "2023-01-31"
                 exit_code = main(["ingest", "--config", str(config_path)])
 
             self.assertEqual(exit_code, 0)
-            self.assertTrue((output_dir / "silver/entities/sec.jsonl").exists())
-            self.assertTrue((output_dir / "silver/prices/yahoo.jsonl").exists())
+            self.assertTrue((output_dir / "stage=02_normalized/family=entities/source=sec.jsonl").exists())
+            self.assertTrue((output_dir / "stage=02_normalized/family=prices/source=yahoo.jsonl").exists())
             self.assertTrue((output_dir / "reports/data-readiness.json").exists())
-            self.assertTrue((output_dir / "silver/enriched/company_snapshots.jsonl").exists())
-            self.assertTrue((output_dir / "corpus/public/cpt.jsonl").exists())
-            self.assertTrue((output_dir / "shards/public/cpt.jsonl").exists())
+            self.assertTrue((output_dir / "stage=03_enriched/company_snapshots.jsonl").exists())
+            self.assertTrue((output_dir / "stage=04_corpus/mixture=public/cpt.jsonl").exists())
+            self.assertTrue((output_dir / "stage=05_shards/mixture=public/cpt.jsonl").exists())
 
 
 if __name__ == "__main__":

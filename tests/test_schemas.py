@@ -76,13 +76,13 @@ class SchemaTests(unittest.TestCase):
         left = Manifest(
             manifest_id="manifest-1",
             artifact_type="corpus",
-            paths=["corpus/demo.jsonl"],
+            paths=["stage=04_corpus/mixture=demo/cpt.jsonl"],
             metadata={"b": 2, "a": 1},
         )
         right = Manifest(
             manifest_id="manifest-1",
             artifact_type="corpus",
-            paths=["corpus/demo.jsonl"],
+            paths=["stage=04_corpus/mixture=demo/cpt.jsonl"],
             metadata={"a": 1, "b": 2},
         )
 

@@ -111,7 +111,7 @@ Goal: write artifacts through a local object-store abstraction that can later ta
 Steps:
 
 1. Implement local object store interface.
-2. Add path conventions for bronze, silver, corpus, shards, runs, evals, and registry.
+2. Add path conventions for stage-based raw, normalized, enriched, corpus, shards, runs, evals, and registry.
 3. Add manifest writer and reader.
 
 Tests first:
@@ -137,7 +137,7 @@ Steps:
 
 Tests first:
 
-- fixture adapter writes bronze manifest.
+- fixture adapter writes raw-stage manifest.
 - normalized records match schemas.
 - invalid records go to quarantine.
 - duplicate records are detected.

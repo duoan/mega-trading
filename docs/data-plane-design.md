@@ -91,18 +91,18 @@ The config is the ingestion API contract: by reading it, an operator should know
 
 Config-driven ingestion should produce:
 
-- bronze and silver artifacts.
-- LanceDB silver tables.
+- `stage=01_raw/...` and `stage=02_normalized/...` artifacts.
+- LanceDB normalized tables.
 - `reports/data-readiness.json`.
 - `metrics/data/quality.jsonl`.
 - `quarantine/quality/<run_id>.jsonl`.
-- `silver/enriched/company_snapshots.jsonl`.
-- `corpus/<mixture_name>/cpt.jsonl`.
-- `shards/<mixture_name>/cpt.jsonl`.
+- `stage=03_enriched/company_snapshots.jsonl`.
+- `stage=04_corpus/mixture=<mixture_name>/cpt.jsonl`.
+- `stage=05_shards/mixture=<mixture_name>/cpt.jsonl`.
 
 ## Data Readiness
 
-Silver records are not considered training-ready just because ingestion succeeded. The Data Plane must first run quality gates and write a readiness report.
+Normalized records are not considered training-ready just because ingestion succeeded. The Data Plane must first run quality gates and write a readiness report.
 
 Initial quality gates:
 
@@ -116,7 +116,7 @@ Initial enrichment:
 
 - join SEC entities, SEC fundamentals, and price coverage by ticker.
 - produce deterministic company snapshots with latest fundamental availability and price observation windows.
-- keep enrichment output as silver data with a manifest so it can be replayed.
+- keep enrichment output as a staged artifact with a manifest so it can be replayed.
 
 ## Training Handoff
 
@@ -124,10 +124,10 @@ After readiness passes, public enriched snapshots are converted into model-facin
 
 ```text
 reports/data-readiness.json
-silver/enriched/company_snapshots.jsonl
-  -> corpus/public/cpt.jsonl
-  -> shards/public/cpt.jsonl
-  -> CPTTrainer.train("shards/public/cpt.jsonl")
+stage=03_enriched/company_snapshots.jsonl
+  -> stage=04_corpus/mixture=public/cpt.jsonl
+  -> stage=05_shards/mixture=public/cpt.jsonl
+  -> CPTTrainer.train("stage=05_shards/mixture=public/cpt.jsonl")
 ```
 
 The MVP public CPT corpus textualizes company identity, latest fundamental availability, and price coverage. It is not yet a high-quality finance pretraining corpus, but it proves the data contract from real public ingestion to trainable model shards.
@@ -279,30 +279,31 @@ Important clarification:
 The Data Plane uses two complementary storage layers:
 
 - Object-store artifacts hold raw payloads, manifests, quarantine records, corpus files, training shards, and replayable audit trails. The same paths should work locally, in MinIO, or in S3.
-- LanceDB tables hold normalized silver records and retrieval-ready corpus/evidence records for fast local querying, future vector search, and reasoning-time evidence lookup.
+- LanceDB tables hold normalized records and retrieval-ready corpus/evidence records for fast local querying, future vector search, and reasoning-time evidence lookup.
 
-LanceDB is the primary table/index layer, not the only source of truth. Bronze artifacts and manifests remain in the object store so every table can be regenerated and audited.
+LanceDB is the primary table/index layer, not the only source of truth. Raw staged artifacts and manifests remain in the object store so every table can be regenerated and audited.
 
 ```text
 data/
-  bronze/
-    sec/
-    prices/
-    financebench/
-    fixtures/
-    news/
-  silver/
-    documents/
-    fundamentals/
-    prices/
-    qa/
-    events/
-    entities/
-  corpus/
-    cpt/
-    sft/
-    preference/
-    evidence/
+  stage=01_raw/
+    source=sec/
+    source=yahoo/
+    source=fixture/
+  stage=02_normalized/
+    family=documents/
+    family=fundamentals/
+    family=prices/
+    family=qa/
+    family=events/
+    family=entities/
+  stage=03_enriched/
+    company_snapshots.jsonl
+  stage=04_corpus/
+    mixture=public/
+    mixture=fixture/
+  stage=05_shards/
+    mixture=public/
+    mixture=fixture/
   manifests/
     ingest/
     normalization/
@@ -316,25 +317,25 @@ data/
   metrics/
     data/
   lancedb/
-    silver_entities_sec.lance/
-    silver_fundamentals_sec.lance/
-    silver_prices_yahoo.lance/
-    silver_evidence_fixture.lance/
+    stage_02_normalized_entities_sec.lance/
+    stage_02_normalized_fundamentals_sec.lance/
+    stage_02_normalized_prices_yahoo.lance/
+    stage_02_normalized_evidence_fixture.lance/
 ```
 
 Initial LanceDB table naming:
 
-- `silver_entities_<source>`
-- `silver_fundamentals_<source>`
-- `silver_prices_<source>`
-- `silver_evidence_<source>`
-- `corpus_<mixture>_<name>`
+- `stage_02_normalized_entities_<source>`
+- `stage_02_normalized_fundamentals_<source>`
+- `stage_02_normalized_prices_<source>`
+- `stage_02_normalized_evidence_<source>`
+- `stage_04_corpus_<mixture>_<name>`
 
 ## Artifact Stages
 
-### Bronze
+### Stage 01 Raw
 
-Bronze stores raw source payloads with minimal transformation.
+Stage 01 stores raw source payloads with minimal transformation.
 
 Rules:
 
@@ -343,7 +344,7 @@ Rules:
 - Do not discard source records at this layer.
 - Raw records should be content-addressable or hash-tracked.
 
-Bronze record metadata:
+Raw record metadata:
 
 - `source`
 - `source_uri`
@@ -353,9 +354,9 @@ Bronze record metadata:
 - `content_hash`
 - `schema_version`
 
-### Silver
+### Stage 02 Normalized
 
-Silver stores normalized typed records.
+Stage 02 stores normalized typed records.
 
 Rules:
 
@@ -364,7 +365,7 @@ Rules:
 - Run validation and quality checks.
 - Quarantine invalid records.
 
-Silver record families:
+Normalized record families:
 
 - `EntityRecord`
 - `DocumentRecord`
@@ -374,9 +375,9 @@ Silver record families:
 - `EventRecord`
 - `EvidenceRecord`
 
-### Corpus
+### Stage 04 Corpus
 
-Corpus stores model-facing text records.
+Stage 04 stores model-facing text records.
 
 Rules:
 
@@ -545,14 +546,14 @@ class IngestAdapter:
     def fetch(self, request: IngestRequest) -> Iterable[RawRecord]:
         ...
 
-    def normalize(self, raw: RawRecord) -> Iterable[SilverRecord]:
+    def normalize(self, raw: RawRecord) -> Iterable[NormalizedRecord]:
         ...
 ```
 
 ### Adapter Responsibilities
 
 - Fetch data from source or fixture.
-- Write raw payloads to bronze.
+- Write raw payloads to `stage=01_raw`.
 - Emit ingest manifest.
 - Normalize to typed records.
 - Emit errors as structured records.
@@ -591,7 +592,7 @@ Fields:
 - `manifest_id`
 - `source_manifest_id`
 - `schema_version`
-- `silver_paths`
+- `normalized_paths`
 - `record_counts_by_type`
 - `quarantine_counts_by_reason`
 - `quality_summary`
@@ -783,7 +784,7 @@ Optional endpoints:
 - SEC companyfacts ingestion for a small universe.
 - Price history ingestion for the same universe.
 - FinanceBench-style evidence QA fixture.
-- Bronze/silver/corpus layout.
+- Stage-based raw/normalized/enriched/corpus/shard layout.
 - Core schemas and manifests.
 - Corpus builder for CPT and SFT.
 - Basic preference pair generation.

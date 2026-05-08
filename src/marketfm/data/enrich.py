@@ -21,9 +21,11 @@ class DataEnricher:
         self.store = store
 
     def run(self, run_id: str = "latest") -> DataEnrichmentResult:
-        entities = self._read_optional("silver/entities/sec.jsonl")
-        fundamentals = self._read_optional("silver/fundamentals/sec.jsonl")
-        prices = self._read_optional("silver/prices/yahoo.jsonl") + self._read_optional("silver/prices/stooq.jsonl")
+        entities = self._read_optional("stage=02_normalized/family=entities/source=sec.jsonl")
+        fundamentals = self._read_optional("stage=02_normalized/family=fundamentals/source=sec.jsonl")
+        prices = self._read_optional("stage=02_normalized/family=prices/source=yahoo.jsonl") + self._read_optional(
+            "stage=02_normalized/family=prices/source=stooq.jsonl"
+        )
 
         fundamentals_by_ticker = _group_by_ticker(fundamentals)
         prices_by_ticker = _group_by_ticker(prices)
@@ -49,7 +51,7 @@ class DataEnricher:
                 }
             )
 
-        snapshot_path = "silver/enriched/company_snapshots.jsonl"
+        snapshot_path = "stage=03_enriched/company_snapshots.jsonl"
         manifest_path = f"manifests/enrichment/{run_id}.json"
         self.store.write_jsonl(snapshot_path, snapshots)
         self.store.write_manifest(

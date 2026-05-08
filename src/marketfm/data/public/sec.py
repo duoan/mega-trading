@@ -75,34 +75,34 @@ class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
             )
             fundamentals.extend(_fundamentals_from_companyfacts(entity, facts, self.concepts))
 
-        bronze_path = self.paths.bronze("sec", "companyfacts")
-        entity_path = self.paths.silver("entities", "sec")
-        fundamental_path = self.paths.silver("fundamentals", "sec")
-        self.store.write_jsonl(bronze_path, raw_rows)
+        raw_path = self.paths.raw("sec", "companyfacts")
+        entity_path = self.paths.normalized("entities", "sec")
+        fundamental_path = self.paths.normalized("fundamentals", "sec")
+        self.store.write_jsonl(raw_path, raw_rows)
         entity_rows = [asdict(row) for row in entities]
         fundamental_rows = [asdict(row) for row in fundamentals]
         self.store.write_jsonl(entity_path, entity_rows)
         self.store.write_jsonl(fundamental_path, fundamental_rows)
         if self.table_store:
-            self.table_store.write_table(self.tables.silver("entities", "sec"), entity_rows)
-            self.table_store.write_table(self.tables.silver("fundamentals", "sec"), fundamental_rows)
+            self.table_store.write_table(self.tables.normalized("entities", "sec"), entity_rows)
+            self.table_store.write_table(self.tables.normalized("fundamentals", "sec"), fundamental_rows)
 
-        bronze_manifest = Manifest(
-            manifest_id="sec-companyfacts-bronze",
-            artifact_type="bronze",
-            paths=[bronze_path],
+        raw_manifest = Manifest(
+            manifest_id="sec-companyfacts-raw",
+            artifact_type="raw",
+            paths=[raw_path],
             metadata={"source": "sec_companyfacts", "tickers": ",".join(tickers), "record_count": str(len(raw_rows))},
         )
-        bronze_manifest_path = self.paths.manifest("ingest", "sec-companyfacts-bronze")
-        self.store.write_manifest(bronze_manifest_path, bronze_manifest)
+        raw_manifest_path = self.paths.manifest("ingest", "sec-companyfacts-raw")
+        self.store.write_manifest(raw_manifest_path, raw_manifest)
 
         normalization_manifest = Manifest(
             manifest_id="sec-companyfacts-normalized",
-            artifact_type="silver",
+            artifact_type="normalized",
             paths=[entity_path, fundamental_path],
             metadata={
                 "source": "sec_companyfacts",
-                "source_manifest_id": bronze_manifest.manifest_id,
+                "source_manifest_id": raw_manifest.manifest_id,
                 "entities": str(len(entities)),
                 "fundamentals": str(len(fundamentals)),
             },
@@ -111,7 +111,7 @@ class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
         self.store.write_manifest(normalization_manifest_path, normalization_manifest)
 
         return IngestResult(
-            bronze_manifest_path=bronze_manifest_path,
+            raw_manifest_path=raw_manifest_path,
             normalization_manifest_path=normalization_manifest_path,
             normalized_counts={"entities": len(entities), "fundamentals": len(fundamentals)},
             quality_summary={"quarantined_records": 0, "duplicate_records": 0},

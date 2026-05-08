@@ -34,10 +34,13 @@ class CorpusBuilder:
         self.paths = ArtifactPaths()
 
     def build(self, mixture: DataMixtureConfig) -> CorpusBuildResult:
-        documents = self.store.read_jsonl("silver/documents/fixture.jsonl")
-        qa_examples = self.store.read_jsonl("silver/qa/fixture.jsonl")
-        preference_pairs = self.store.read_jsonl("silver/preference/fixture.jsonl")
-        evidence = {row["evidence_id"]: row for row in self.store.read_jsonl("silver/evidence/fixture.jsonl")}
+        documents = self.store.read_jsonl("stage=02_normalized/family=documents/source=fixture.jsonl")
+        qa_examples = self.store.read_jsonl("stage=02_normalized/family=qa/source=fixture.jsonl")
+        preference_pairs = self.store.read_jsonl("stage=02_normalized/family=preference/source=fixture.jsonl")
+        evidence = {
+            row["evidence_id"]: row
+            for row in self.store.read_jsonl("stage=02_normalized/family=evidence/source=fixture.jsonl")
+        }
 
         cpt_records = self._build_cpt(mixture.name, documents)
         sft_records = self._build_sft(mixture.name, qa_examples, evidence)
@@ -176,7 +179,7 @@ class PublicCorpusBuilder:
         if not readiness.get("training_ready"):
             raise ReadinessError("public data readiness report is not training_ready")
 
-        snapshots = self.store.read_jsonl("silver/enriched/company_snapshots.jsonl")
+        snapshots = self.store.read_jsonl("stage=03_enriched/company_snapshots.jsonl")
         cpt_records = [self._snapshot_to_cpt(mixture_name, snapshot) for snapshot in snapshots]
         cpt_path = self.paths.corpus(mixture_name, "cpt")
         self.store.write_jsonl(cpt_path, [asdict(record) for record in cpt_records])

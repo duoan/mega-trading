@@ -86,30 +86,30 @@ class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
                     )
                 )
 
-        bronze_path = self.paths.bronze("stooq", "daily_prices")
-        silver_path = self.paths.silver("prices", "stooq")
-        self.store.write_jsonl(bronze_path, raw_rows)
+        raw_path = self.paths.raw("stooq", "daily_prices")
+        normalized_path = self.paths.normalized("prices", "stooq")
+        self.store.write_jsonl(raw_path, raw_rows)
         price_rows = [asdict(price) for price in prices]
-        self.store.write_jsonl(silver_path, price_rows)
+        self.store.write_jsonl(normalized_path, price_rows)
         if self.table_store:
-            self.table_store.write_table(self.tables.silver("prices", "stooq"), price_rows)
+            self.table_store.write_table(self.tables.normalized("prices", "stooq"), price_rows)
 
-        bronze_manifest = Manifest(
-            manifest_id="stooq-daily-bronze",
-            artifact_type="bronze",
-            paths=[bronze_path],
+        raw_manifest = Manifest(
+            manifest_id="stooq-daily-raw",
+            artifact_type="raw",
+            paths=[raw_path],
             metadata={"source": "stooq_daily", "tickers": ",".join(tickers), "record_count": str(len(raw_rows))},
         )
-        bronze_manifest_path = self.paths.manifest("ingest", "stooq-daily-bronze")
-        self.store.write_manifest(bronze_manifest_path, bronze_manifest)
+        raw_manifest_path = self.paths.manifest("ingest", "stooq-daily-raw")
+        self.store.write_manifest(raw_manifest_path, raw_manifest)
 
         normalization_manifest = Manifest(
             manifest_id="stooq-daily-normalized",
-            artifact_type="silver",
-            paths=[silver_path],
+            artifact_type="normalized",
+            paths=[normalized_path],
             metadata={
                 "source": "stooq_daily",
-                "source_manifest_id": bronze_manifest.manifest_id,
+                "source_manifest_id": raw_manifest.manifest_id,
                 "prices": str(len(prices)),
             },
         )
@@ -117,7 +117,7 @@ class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
         self.store.write_manifest(normalization_manifest_path, normalization_manifest)
 
         return IngestResult(
-            bronze_manifest_path=bronze_manifest_path,
+            raw_manifest_path=raw_manifest_path,
             normalization_manifest_path=normalization_manifest_path,
             normalized_counts={"prices": len(prices)},
             quality_summary={"quarantined_records": 0, "duplicate_records": 0},
@@ -201,30 +201,30 @@ class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
                     )
                 )
 
-        bronze_path = self.paths.bronze("yahoo", "daily_prices")
-        silver_path = self.paths.silver("prices", "yahoo")
-        self.store.write_jsonl(bronze_path, raw_rows)
+        raw_path = self.paths.raw("yahoo", "daily_prices")
+        normalized_path = self.paths.normalized("prices", "yahoo")
+        self.store.write_jsonl(raw_path, raw_rows)
         price_rows = [asdict(price) for price in prices]
-        self.store.write_jsonl(silver_path, price_rows)
+        self.store.write_jsonl(normalized_path, price_rows)
         if self.table_store:
-            self.table_store.write_table(self.tables.silver("prices", "yahoo"), price_rows)
+            self.table_store.write_table(self.tables.normalized("prices", "yahoo"), price_rows)
 
-        bronze_manifest = Manifest(
-            manifest_id="yahoo-daily-bronze",
-            artifact_type="bronze",
-            paths=[bronze_path],
+        raw_manifest = Manifest(
+            manifest_id="yahoo-daily-raw",
+            artifact_type="raw",
+            paths=[raw_path],
             metadata={"source": "yahoo_chart", "tickers": ",".join(tickers), "record_count": str(len(raw_rows))},
         )
-        bronze_manifest_path = self.paths.manifest("ingest", "yahoo-daily-bronze")
-        self.store.write_manifest(bronze_manifest_path, bronze_manifest)
+        raw_manifest_path = self.paths.manifest("ingest", "yahoo-daily-raw")
+        self.store.write_manifest(raw_manifest_path, raw_manifest)
 
         normalization_manifest = Manifest(
             manifest_id="yahoo-daily-normalized",
-            artifact_type="silver",
-            paths=[silver_path],
+            artifact_type="normalized",
+            paths=[normalized_path],
             metadata={
                 "source": "yahoo_chart",
-                "source_manifest_id": bronze_manifest.manifest_id,
+                "source_manifest_id": raw_manifest.manifest_id,
                 "prices": str(len(prices)),
             },
         )
@@ -232,7 +232,7 @@ class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
         self.store.write_manifest(normalization_manifest_path, normalization_manifest)
 
         return IngestResult(
-            bronze_manifest_path=bronze_manifest_path,
+            raw_manifest_path=raw_manifest_path,
             normalization_manifest_path=normalization_manifest_path,
             normalized_counts={"prices": len(prices)},
             quality_summary={"quarantined_records": 0, "duplicate_records": 0},

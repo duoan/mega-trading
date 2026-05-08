@@ -20,7 +20,7 @@ class SFTTrainerTests(unittest.TestCase):
     def test_sft_examples_format_with_evidence_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = _prepared_store(tmp)
-            examples = SFTExampleFormatter(store).load("corpus/demo/sft.jsonl")
+            examples = SFTExampleFormatter(store).load("stage=04_corpus/mixture=demo/sft.jsonl")
 
             self.assertEqual(len(examples), 2)
             self.assertIn("Evidence:", examples[0].target)
@@ -42,7 +42,7 @@ class SFTTrainerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = _prepared_store(tmp)
 
-            result = SFTTrainer(store, SFTTrainConfig(run_id="sft-test")).train("corpus/demo/sft.jsonl")
+            result = SFTTrainer(store, SFTTrainConfig(run_id="sft-test")).train("stage=04_corpus/mixture=demo/sft.jsonl")
             metrics = store.read_jsonl("runs/sft-test/metrics.jsonl")
             manifest = store.read_manifest(result.manifest_path)
 

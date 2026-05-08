@@ -11,11 +11,11 @@ class DataEnrichmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             store.write_jsonl(
-                "silver/entities/sec.jsonl",
+                "stage=02_normalized/family=entities/source=sec.jsonl",
                 [{"entity_id": "sec-1", "ticker": "AAPL", "company_name": "Apple Inc.", "source_ids": ["sec:1"]}],
             )
             store.write_jsonl(
-                "silver/fundamentals/sec.jsonl",
+                "stage=02_normalized/family=fundamentals/source=sec.jsonl",
                 [
                     {
                         "fundamental_id": "f1",
@@ -32,7 +32,7 @@ class DataEnrichmentTests(unittest.TestCase):
                 ],
             )
             store.write_jsonl(
-                "silver/prices/yahoo.jsonl",
+                "stage=02_normalized/family=prices/source=yahoo.jsonl",
                 [
                     {
                         "price_id": "p1",

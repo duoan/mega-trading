@@ -173,7 +173,7 @@ Initial adapters:
 - FinQA/TAT-QA-style financial reasoning examples.
 - Optional GDELT/RSS/news adapter for continuous updates.
 
-Each adapter writes raw records to `bronze/` and emits an ingestion manifest:
+Each adapter writes raw records to `stage=01_raw/` and emits an ingestion manifest:
 
 - Source name.
 - Fetch timestamp.
@@ -421,10 +421,10 @@ sequenceDiagram
 
     User->>CLI: marketfm demo
     CLI->>Ingest: fetch fixture and public data
-    Ingest->>Store: write bronze records
+    Ingest->>Store: write stage=01_raw records
     Ingest->>Store: write ingest manifest
     CLI->>Corpus: normalize and build corpus
-    Corpus->>Store: write silver records
+    Corpus->>Store: write stage=02_normalized records
     Corpus->>Store: write corpus records and mixture manifest
     CLI->>Tok: tokenize and pack
     Tok->>Store: write training shards and shard manifest

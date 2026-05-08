@@ -22,7 +22,7 @@ class PublicCorpusTests(unittest.TestCase):
             store = _prepared_public_store(tmp)
 
             result = PublicCorpusBuilder(store).build(mixture_name="public")
-            cpt = store.read_jsonl("corpus/public/cpt.jsonl")
+            cpt = store.read_jsonl("stage=04_corpus/mixture=public/cpt.jsonl")
 
             self.assertEqual(result.counts["cpt"], 1)
             self.assertIn("Apple Inc.", cpt[0]["text"])
@@ -44,7 +44,7 @@ def _prepared_public_store(tmp: str) -> LocalObjectStore:
     store = LocalObjectStore(Path(tmp))
     store.write_json("reports/data-readiness.json", {"training_ready": True, "quality_score": 1.0})
     store.write_jsonl(
-        "silver/enriched/company_snapshots.jsonl",
+        "stage=03_enriched/company_snapshots.jsonl",
         [
             {
                 "snapshot_id": "snapshot-AAPL",

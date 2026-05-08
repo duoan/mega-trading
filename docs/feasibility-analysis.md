@@ -158,19 +158,19 @@ MarketFM Forge should have three planes:
 
 Use an S3-compatible object layout that also works locally or with MinIO:
 
-- `bronze/`
+- `stage=01_raw/`
   - Raw fetched data.
   - Preserve exact source payloads and metadata.
 
-- `silver/`
+- `stage=02_normalized/`
   - Normalized documents, fundamentals, prices, and events.
   - Include schemas, entity IDs, ticker mapping, and quality scores.
 
-- `corpus/`
+- `stage=04_corpus/`
   - Foundation-model text corpora.
   - Include source references, `as_of_time`, document type, ticker, fiscal period, and mixture labels.
 
-- `shards/`
+- `stage=05_shards/`
   - Tokenized and packed training shards.
   - Include tokenizer config, sequence length, content hashes, and shard manifests.
 

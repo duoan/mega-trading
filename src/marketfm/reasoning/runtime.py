@@ -30,7 +30,7 @@ class EvidenceCatalog:
 
     def query(self, ticker: str, as_of_time: str, limit: int = 5) -> list[dict[str, Any]]:
         boundary = _parse_time(as_of_time)
-        rows = self.store.read_jsonl("silver/evidence/fixture.jsonl")
+        rows = self.store.read_jsonl("stage=02_normalized/family=evidence/source=fixture.jsonl")
         candidates = [
             row
             for row in rows
@@ -42,7 +42,7 @@ class EvidenceCatalog:
 class LanceEvidenceCatalog:
     def __init__(self, table_store: LanceTableStore, source: str = "fixture") -> None:
         self.table_store = table_store
-        self.table_name = LanceTables().silver("evidence", source)
+        self.table_name = LanceTables().normalized("evidence", source)
 
     def query(self, ticker: str, as_of_time: str, limit: int = 5) -> list[dict[str, Any]]:
         boundary = _parse_time(as_of_time)

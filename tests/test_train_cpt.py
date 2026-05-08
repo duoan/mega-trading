@@ -24,7 +24,7 @@ class CPTTrainerTests(unittest.TestCase):
             store = _prepared_store(tmp)
             trainer = CPTTrainer(store, TrainConfig(run_id="cpt-test", max_steps=3))
 
-            result = trainer.train("shards/demo/cpt.jsonl")
+            result = trainer.train("stage=05_shards/mixture=demo/cpt.jsonl")
             metrics = store.read_jsonl("runs/cpt-test/metrics.jsonl")
 
             self.assertEqual(result.steps, 3)
@@ -34,12 +34,12 @@ class CPTTrainerTests(unittest.TestCase):
     def test_checkpoint_save_and_resume_restore_step_count(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = _prepared_store(tmp)
-            first = CPTTrainer(store, TrainConfig(run_id="resume-test", max_steps=2)).train("shards/demo/cpt.jsonl")
+            first = CPTTrainer(store, TrainConfig(run_id="resume-test", max_steps=2)).train("stage=05_shards/mixture=demo/cpt.jsonl")
 
             resumed = CPTTrainer(
                 store,
                 TrainConfig(run_id="resume-test", max_steps=4, resume_from=first.checkpoint_path),
-            ).train("shards/demo/cpt.jsonl")
+            ).train("stage=05_shards/mixture=demo/cpt.jsonl")
 
             self.assertEqual(resumed.steps, 4)
             self.assertTrue(resumed.resume_used)
@@ -50,7 +50,7 @@ class CPTTrainerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = _prepared_store(tmp)
 
-            result = CPTTrainer(store, TrainConfig(run_id="manifest-test", max_steps=1)).train("shards/demo/cpt.jsonl")
+            result = CPTTrainer(store, TrainConfig(run_id="manifest-test", max_steps=1)).train("stage=05_shards/mixture=demo/cpt.jsonl")
             manifest = store.read_manifest(result.manifest_path)
 
             self.assertEqual(manifest.artifact_type, "training_run")

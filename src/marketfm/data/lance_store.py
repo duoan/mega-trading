@@ -17,11 +17,11 @@ import lancedb
 class LanceTables:
     """Stable table names for data-plane artifacts."""
 
-    def silver(self, family: str, source: str) -> str:
-        return _table_name("silver", family, source)
+    def normalized(self, family: str, source: str) -> str:
+        return _table_name("stage_02_normalized", family, source)
 
     def corpus(self, mixture: str, name: str) -> str:
-        return _table_name("corpus", mixture, name)
+        return _table_name("stage_04_corpus", mixture, name)
 
 
 class LanceTableStore:

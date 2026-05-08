@@ -87,7 +87,7 @@ sequenceDiagram
 
 ## Evidence Catalog
 
-The Evidence Catalog indexes model-visible source material. In the MVP, normalized evidence is stored in LanceDB tables such as `silver_evidence_fixture`; object-store JSONL remains the replay/audit path.
+The Evidence Catalog indexes model-visible source material. In the MVP, normalized evidence is stored in LanceDB tables such as `stage_02_normalized_evidence_fixture`; object-store JSONL remains the replay/audit path.
 
 Evidence sources:
 

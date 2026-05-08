@@ -20,7 +20,7 @@ class PreferenceTrainerTests(unittest.TestCase):
     def test_preference_pairs_preserve_chosen_rejected_and_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = _prepared_store(tmp)
-            pairs = PreferencePairLoader(store).load("corpus/demo/preference.jsonl")
+            pairs = PreferencePairLoader(store).load("stage=04_corpus/mixture=demo/preference.jsonl")
 
             self.assertEqual(len(pairs), 2)
             self.assertIn("[ev-acme-margin]", pairs[0].chosen)
@@ -30,7 +30,9 @@ class PreferenceTrainerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = _prepared_store(tmp)
 
-            result = PreferenceTrainer(store, PreferenceTrainConfig(run_id="pref-test")).train("corpus/demo/preference.jsonl")
+            result = PreferenceTrainer(store, PreferenceTrainConfig(run_id="pref-test")).train(
+                "stage=04_corpus/mixture=demo/preference.jsonl"
+            )
             metrics = store.read_jsonl("runs/pref-test/metrics.jsonl")
 
             self.assertEqual(result.pairs, 2)
@@ -42,7 +44,9 @@ class PreferenceTrainerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = _prepared_store(tmp)
 
-            result = PreferenceTrainer(store, PreferenceTrainConfig(run_id="pref-manifest")).train("corpus/demo/preference.jsonl")
+            result = PreferenceTrainer(store, PreferenceTrainConfig(run_id="pref-manifest")).train(
+                "stage=04_corpus/mixture=demo/preference.jsonl"
+            )
             manifest = store.read_manifest(result.manifest_path)
 
             self.assertEqual(manifest.artifact_type, "training_run")

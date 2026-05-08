@@ -8,11 +8,11 @@ from marketfm.data.quality import DataQualityChecker
 
 
 class DataQualityTests(unittest.TestCase):
-    def test_quality_checker_writes_readiness_report_for_valid_silver_records(self) -> None:
+    def test_quality_checker_writes_readiness_report_for_valid_normalized_records(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             store.write_jsonl(
-                "silver/prices/yahoo.jsonl",
+                "stage=02_normalized/family=prices/source=yahoo.jsonl",
                 [
                     {
                         "price_id": "yahoo-AAPL-2024-01-02",
@@ -29,8 +29,8 @@ class DataQualityTests(unittest.TestCase):
                 manifest_path,
                 Manifest(
                     manifest_id="yahoo-daily-normalized",
-                    artifact_type="silver",
-                    paths=["silver/prices/yahoo.jsonl"],
+                    artifact_type="normalized",
+                    paths=["stage=02_normalized/family=prices/source=yahoo.jsonl"],
                 ),
             )
 
@@ -46,7 +46,7 @@ class DataQualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             store.write_jsonl(
-                "silver/entities/sec.jsonl",
+                "stage=02_normalized/family=entities/source=sec.jsonl",
                 [
                     {"entity_id": "sec-1", "ticker": "AAPL", "company_name": "Apple Inc.", "source_ids": ["one"]},
                     {"entity_id": "sec-1", "ticker": "AAPL", "company_name": "Apple Inc.", "source_ids": ["two"]},
@@ -57,8 +57,8 @@ class DataQualityTests(unittest.TestCase):
                 manifest_path,
                 Manifest(
                     manifest_id="sec-companyfacts-normalized",
-                    artifact_type="silver",
-                    paths=["silver/entities/sec.jsonl"],
+                    artifact_type="normalized",
+                    paths=["stage=02_normalized/family=entities/source=sec.jsonl"],
                 ),
             )
 
@@ -72,7 +72,7 @@ class DataQualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             store.write_jsonl(
-                "silver/fundamentals/sec.jsonl",
+                "stage=02_normalized/family=fundamentals/source=sec.jsonl",
                 [
                     {
                         "fundamental_id": "f1",
@@ -105,8 +105,8 @@ class DataQualityTests(unittest.TestCase):
                 manifest_path,
                 Manifest(
                     manifest_id="sec-companyfacts-normalized",
-                    artifact_type="silver",
-                    paths=["silver/fundamentals/sec.jsonl"],
+                    artifact_type="normalized",
+                    paths=["stage=02_normalized/family=fundamentals/source=sec.jsonl"],
                 ),
             )
 
@@ -118,7 +118,7 @@ class DataQualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             store.write_jsonl(
-                "silver/prices/yahoo.jsonl",
+                "stage=02_normalized/family=prices/source=yahoo.jsonl",
                 [
                     {
                         "price_id": "bad-price",
@@ -135,8 +135,8 @@ class DataQualityTests(unittest.TestCase):
                 manifest_path,
                 Manifest(
                     manifest_id="yahoo-daily-normalized",
-                    artifact_type="silver",
-                    paths=["silver/prices/yahoo.jsonl"],
+                    artifact_type="normalized",
+                    paths=["stage=02_normalized/family=prices/source=yahoo.jsonl"],
                 ),
             )
 

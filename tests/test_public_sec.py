@@ -93,8 +93,8 @@ class SecClientTests(unittest.TestCase):
 
             result = SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
 
-            entities = store.read_jsonl("silver/entities/sec.jsonl")
-            fundamentals = store.read_jsonl("silver/fundamentals/sec.jsonl")
+            entities = store.read_jsonl("stage=02_normalized/family=entities/source=sec.jsonl")
+            fundamentals = store.read_jsonl("stage=02_normalized/family=fundamentals/source=sec.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)
 
             self.assertEqual(entities[0]["ticker"], "AAPL")
@@ -143,7 +143,7 @@ class SecClientTests(unittest.TestCase):
             client = SecClient(user_agent="MarketFM test@example.com", fetch_json=fetch_json)
 
             SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
-            fundamentals = store.read_jsonl("silver/fundamentals/sec.jsonl")
+            fundamentals = store.read_jsonl("stage=02_normalized/family=fundamentals/source=sec.jsonl")
 
             self.assertEqual(len({row["fundamental_id"] for row in fundamentals}), 2)
 

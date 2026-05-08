@@ -75,7 +75,7 @@ class ShardBuilder:
         tokenizer = SimpleTokenizer.fit(texts)
 
         packed_rows = self._pack(rows, tokenizer)
-        shard_path = f"shards/{mixture_name}/{corpus_name}.jsonl"
+        shard_path = self.paths.shard(mixture_name, corpus_name)
         self.store.write_jsonl(shard_path, packed_rows)
 
         num_tokens = sum(len(row["token_ids"]) for row in packed_rows)

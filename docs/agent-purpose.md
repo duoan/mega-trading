@@ -91,7 +91,7 @@ The agent should return a structured investment research object:
       "source_type": "10-K",
       "timestamp": "2024-02-15",
       "snippet": "Management discussion excerpt...",
-      "uri": "s3://marketfm/silver/filings/EXM/2023-10K.json"
+      "uri": "s3://marketfm/stage=02_normalized/family=filings/source=sec/EXM/2023-10K.json"
     }
   ],
   "lineage": {

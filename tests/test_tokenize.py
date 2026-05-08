@@ -45,7 +45,7 @@ class TokenizeTests(unittest.TestCase):
     def test_malformed_corpus_record_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            store.write_jsonl("corpus/demo/cpt.jsonl", [{"corpus_id": "bad"}])
+            store.write_jsonl("stage=04_corpus/mixture=demo/cpt.jsonl", [{"corpus_id": "bad"}])
 
             with self.assertRaises(MalformedCorpusError):
                 ShardBuilder(store, sequence_length=8).build("demo", "cpt")

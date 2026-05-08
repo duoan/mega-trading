@@ -27,11 +27,11 @@ class DataQualityChecker:
         self.store = store
 
     def run(self, normalization_manifest_paths: list[str], run_id: str = "latest", fail_on_error: bool = False) -> DataQualityResult:
-        silver_paths = self._silver_paths(normalization_manifest_paths)
+        normalized_paths = self._normalized_paths(normalization_manifest_paths)
         quarantine_rows: list[dict[str, Any]] = []
         total_records = 0
 
-        for path in silver_paths:
+        for path in normalized_paths:
             seen_ids: set[str] = set()
             for index, row in enumerate(self.store.read_jsonl(path)):
                 total_records += 1
@@ -79,7 +79,7 @@ class DataQualityChecker:
                 "run_id": run_id,
                 "passed": passed,
                 "training_ready": passed,
-                "checked_paths": silver_paths,
+                "checked_paths": normalized_paths,
                 "total_records": total_records,
                 "quarantined_records": len(quarantine_rows),
                 "quality_score": quality_score,
@@ -111,11 +111,11 @@ class DataQualityChecker:
             quarantined_records=len(quarantine_rows),
         )
 
-    def _silver_paths(self, manifest_paths: list[str]) -> list[str]:
+    def _normalized_paths(self, manifest_paths: list[str]) -> list[str]:
         paths: list[str] = []
         for manifest_path in manifest_paths:
             manifest = self.store.read_manifest(manifest_path)
-            paths.extend(path for path in manifest.paths if path.startswith("silver/") and path.endswith(".jsonl"))
+            paths.extend(path for path in manifest.paths if path.startswith("stage=02_normalized/") and path.endswith(".jsonl"))
         return paths
 
     def _reasons(self, path: str, row: dict[str, Any]) -> list[str]:
@@ -123,7 +123,7 @@ class DataQualityChecker:
         for field in _required_fields(path):
             if row.get(field) in (None, "", []):
                 reasons.append(f"missing_{field}")
-        if "/prices/" in path and float(row.get("adjusted_close") or 0.0) <= 0.0:
+        if "family=prices" in path and float(row.get("adjusted_close") or 0.0) <= 0.0:
             reasons.append("invalid_price")
         if "date" in row and not _valid_date(str(row["date"])):
             reasons.append("invalid_date")
@@ -141,15 +141,15 @@ class DataQualityError(ValueError):
 
 
 def _required_fields(path: str) -> tuple[str, ...]:
-    if "/entities/" in path:
+    if "family=entities" in path:
         return ("entity_id", "ticker", "company_name")
-    if "/fundamentals/" in path:
+    if "family=fundamentals" in path:
         return ("fundamental_id", "entity_id", "ticker", "concept", "period_end", "accepted_at", "as_of_time", "source_ids")
-    if "/prices/" in path:
+    if "family=prices" in path:
         return ("price_id", "ticker", "date", "adjusted_close", "provider", "source_ids")
-    if "/evidence/" in path:
+    if "family=evidence" in path:
         return ("evidence_id", "entity_id", "ticker", "source_type", "document_id", "timestamp", "as_of_time", "text", "uri")
-    if "/documents/" in path:
+    if "family=documents" in path:
         return ("document_id", "entity_id", "ticker", "source_type", "text", "source_uri", "as_of_time", "source_ids")
     return ()
 
@@ -163,19 +163,19 @@ def _record_id(path: str, row: dict[str, Any]) -> str | None:
 
 
 def _id_fields(path: str) -> tuple[str, ...]:
-    if "/entities/" in path:
+    if "family=entities" in path:
         return ("entity_id",)
-    if "/fundamentals/" in path:
+    if "family=fundamentals" in path:
         return ("fundamental_id",)
-    if "/prices/" in path:
+    if "family=prices" in path:
         return ("price_id",)
-    if "/evidence/" in path:
+    if "family=evidence" in path:
         return ("evidence_id",)
-    if "/documents/" in path:
+    if "family=documents" in path:
         return ("document_id",)
-    if "/qa/" in path:
+    if "family=qa" in path:
         return ("example_id",)
-    if "/preference/" in path:
+    if "family=preference" in path:
         return ("pair_id",)
     return ("entity_id", "fundamental_id", "price_id", "evidence_id", "document_id", "example_id", "pair_id")
 

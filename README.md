@@ -14,7 +14,7 @@ make test
 make demo
 ```
 
-Public ingestion writes replayable JSONL/manifests, LanceDB silver tables, a data-readiness report, deterministic enrichment artifacts, and trainable CPT shards under the output directory:
+Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, and trainable CPT shards under the output directory:
 
 ```bash
 uv run marketfm ingest --config configs/ingest-public.toml

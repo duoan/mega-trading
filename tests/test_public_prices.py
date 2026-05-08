@@ -31,7 +31,7 @@ class StooqPriceTests(unittest.TestCase):
             result = StooqPriceIngestor(store, client).ingest(
                 PriceIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
             )
-            prices = store.read_jsonl("silver/prices/stooq.jsonl")
+            prices = store.read_jsonl("stage=02_normalized/family=prices/source=stooq.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)
 
             self.assertEqual(len(prices), 1)
@@ -103,7 +103,7 @@ class YahooPriceTests(unittest.TestCase):
             result = YahooPriceIngestor(store, YahooChartClient(fetch_json=fetch_json)).ingest(
                 PriceIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
             )
-            prices = store.read_jsonl("silver/prices/yahoo.jsonl")
+            prices = store.read_jsonl("stage=02_normalized/family=prices/source=yahoo.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)
 
             self.assertEqual(len(prices), 1)
