@@ -15,7 +15,7 @@ import certifi
 
 from marketfm.core.schemas import Manifest, PriceRecord
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
-from marketfm.data.ingest import IngestResult
+from marketfm.data.ingest import Ingestor, IngestResult, PriceIngestRequest
 from marketfm.data.lance_store import LanceTableStore, LanceTables
 
 FetchText = Callable[[str], str]
@@ -51,7 +51,7 @@ class StooqClient:
         return rows
 
 
-class StooqPriceIngestor:
+class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
     def __init__(self, store: LocalObjectStore, client: StooqClient, table_store: LanceTableStore | None = None) -> None:
         self.store = store
         self.client = client
@@ -59,7 +59,10 @@ class StooqPriceIngestor:
         self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
-    def ingest(self, tickers: list[str], start: str, end: str) -> IngestResult:
+    def ingest(self, request: PriceIngestRequest) -> IngestResult:
+        tickers = list(request.tickers)
+        start = request.start
+        end = request.end
         raw_rows: list[dict[str, object]] = []
         prices: list[PriceRecord] = []
         for ticker in tickers:
@@ -163,7 +166,7 @@ class YahooChartClient:
         return rows
 
 
-class YahooPriceIngestor:
+class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
     def __init__(self, store: LocalObjectStore, client: YahooChartClient, table_store: LanceTableStore | None = None) -> None:
         self.store = store
         self.client = client
@@ -171,7 +174,10 @@ class YahooPriceIngestor:
         self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
-    def ingest(self, tickers: list[str], start: str, end: str) -> IngestResult:
+    def ingest(self, request: PriceIngestRequest) -> IngestResult:
+        tickers = list(request.tickers)
+        start = request.start
+        end = request.end
         raw_rows: list[dict[str, object]] = []
         prices: list[PriceRecord] = []
         for ticker in tickers:

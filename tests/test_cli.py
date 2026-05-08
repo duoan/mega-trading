@@ -36,15 +36,18 @@ class CliTests(unittest.TestCase):
             def __init__(self, store, client, table_store=None):
                 self.store = store
 
-            def ingest(self, tickers):
-                self.store.write_jsonl("silver/entities/sec.jsonl", [{"ticker": tickers[0]}])
+            def ingest(self, request):
+                self.store.write_jsonl("silver/entities/sec.jsonl", [{"ticker": request.tickers[0]}])
 
         class FakePriceIngestor:
             def __init__(self, store, client, table_store=None):
                 self.store = store
 
-            def ingest(self, tickers, start, end):
-                self.store.write_jsonl("silver/prices/stooq.jsonl", [{"ticker": tickers[0], "date": start, "end": end}])
+            def ingest(self, request):
+                self.store.write_jsonl(
+                    "silver/prices/stooq.jsonl",
+                    [{"ticker": request.tickers[0], "date": request.start, "end": request.end}],
+                )
 
         with tempfile.TemporaryDirectory() as tmp:
             with patch("marketfm.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(

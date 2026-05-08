@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
+from typing import Generic, TypeVar
 
 from marketfm.core.schemas import Manifest
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
@@ -18,7 +20,35 @@ class IngestResult:
     quality_summary: dict[str, int]
 
 
-class FixtureIngestor:
+@dataclass(frozen=True)
+class FixtureIngestRequest:
+    """Request for deterministic fixture ingestion."""
+
+
+@dataclass(frozen=True)
+class TickerIngestRequest:
+    tickers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PriceIngestRequest:
+    tickers: tuple[str, ...]
+    start: str
+    end: str
+
+
+RequestT = TypeVar("RequestT")
+
+
+class Ingestor(ABC, Generic[RequestT]):
+    """Common ingestion contract for schedulers, CLIs, and ops workflows."""
+
+    @abstractmethod
+    def ingest(self, request: RequestT) -> IngestResult:
+        """Ingest source data and return the written artifact manifests."""
+
+
+class FixtureIngestor(Ingestor[FixtureIngestRequest]):
     """Load deterministic fixtures into bronze, silver, and quarantine layers."""
 
     def __init__(self, store: LocalObjectStore, table_store: LanceTableStore | None = None) -> None:
@@ -27,7 +57,7 @@ class FixtureIngestor:
         self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
-    def ingest(self) -> IngestResult:
+    def ingest(self, request: FixtureIngestRequest | None = None) -> IngestResult:
         bundle = load_fixture_bundle()
 
         bronze_paths = {

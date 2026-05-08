@@ -12,7 +12,7 @@ import certifi
 
 from marketfm.core.schemas import EntityRecord, FundamentalRecord, Manifest
 from marketfm.core.store import ArtifactPaths, LocalObjectStore
-from marketfm.data.ingest import IngestResult
+from marketfm.data.ingest import Ingestor, IngestResult, TickerIngestRequest
 from marketfm.data.lance_store import LanceTableStore, LanceTables
 
 FetchJson = Callable[[str, str], dict]
@@ -43,7 +43,7 @@ class SecClient:
         return self.fetch_json(url, self.user_agent)
 
 
-class SecCompanyFactsIngestor:
+class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
     concepts = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "NetIncomeLoss", "Assets", "Liabilities")
 
     def __init__(self, store: LocalObjectStore, client: SecClient, table_store: LanceTableStore | None = None) -> None:
@@ -53,7 +53,8 @@ class SecCompanyFactsIngestor:
         self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
-    def ingest(self, tickers: list[str]) -> IngestResult:
+    def ingest(self, request: TickerIngestRequest) -> IngestResult:
+        tickers = list(request.tickers)
         raw_rows: list[dict] = []
         entities: list[EntityRecord] = []
         fundamentals: list[FundamentalRecord] = []

@@ -2,8 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
 from marketfm.core.store import LocalObjectStore
+from marketfm.data.ingest import TickerIngestRequest
+from marketfm.data.public.sec import SecClient, SecCompanyFactsIngestor
 
 
 class SecClientTests(unittest.TestCase):
@@ -90,7 +91,7 @@ class SecClientTests(unittest.TestCase):
             store = LocalObjectStore(Path(tmp))
             client = SecClient(user_agent="MarketFM test@example.com", fetch_json=fetch_json)
 
-            result = SecCompanyFactsIngestor(store, client).ingest(["AAPL"])
+            result = SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
 
             entities = store.read_jsonl("silver/entities/sec.jsonl")
             fundamentals = store.read_jsonl("silver/fundamentals/sec.jsonl")

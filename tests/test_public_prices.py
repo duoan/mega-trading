@@ -2,8 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
 from marketfm.core.store import LocalObjectStore
+from marketfm.data.ingest import PriceIngestRequest
+from marketfm.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
 
 
 class StooqPriceTests(unittest.TestCase):
@@ -27,7 +28,9 @@ class StooqPriceTests(unittest.TestCase):
             store = LocalObjectStore(Path(tmp))
             client = StooqClient(fetch_text=fetch_text)
 
-            result = StooqPriceIngestor(store, client).ingest(["AAPL"], "2023-01-01", "2023-01-31")
+            result = StooqPriceIngestor(store, client).ingest(
+                PriceIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
+            )
             prices = store.read_jsonl("silver/prices/stooq.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)
 
@@ -98,7 +101,7 @@ class YahooPriceTests(unittest.TestCase):
             store = LocalObjectStore(Path(tmp))
 
             result = YahooPriceIngestor(store, YahooChartClient(fetch_json=fetch_json)).ingest(
-                ["AAPL"], "2023-01-01", "2023-01-31"
+                PriceIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
             )
             prices = store.read_jsonl("silver/prices/yahoo.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)

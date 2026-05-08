@@ -2,21 +2,30 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from marketfm.data.ingest import FixtureIngestor
 from marketfm.core.store import LocalObjectStore
+from marketfm.data.ingest import FixtureIngestRequest, FixtureIngestor, Ingestor
 
 
 class IngestTests(unittest.TestCase):
     def test_fixture_ingest_writes_bronze_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            result = FixtureIngestor(store).ingest()
+            result = FixtureIngestor(store).ingest(FixtureIngestRequest())
 
             manifest = store.read_manifest(result.bronze_manifest_path)
 
             self.assertEqual(manifest.artifact_type, "bronze")
             self.assertIn("bronze/fixture/entities.jsonl", manifest.paths)
             self.assertEqual(manifest.metadata["source"], "fixture")
+
+    def test_fixture_ingestor_implements_ingestor_interface(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalObjectStore(Path(tmp))
+
+            ingestor: Ingestor[FixtureIngestRequest] = FixtureIngestor(store)
+            result = ingestor.ingest(FixtureIngestRequest())
+
+            self.assertEqual(result.normalized_counts["entities"], 2)
 
     def test_fixture_ingest_writes_normalized_records(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
