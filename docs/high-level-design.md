@@ -67,8 +67,8 @@ flowchart LR
     EvalPlane --> ObjectStore
     TrainPlane --> Modal[Modal GPU jobs]
     EvalPlane --> Reports[Reports and dashboards]
-    ObjectStore --> Agent[Investment Reasoning Agent]
-    Agent --> Researcher
+    ObjectStore --> Explanation[Model Explanation Runtime]
+    Explanation --> Researcher
 ```
 
 The researcher interacts with the system through a CLI, API, and generated reports. The object store is the system of record for source data, derived corpora, training shards, checkpoints, model artifacts, evaluation outputs, and lineage manifests.
@@ -105,7 +105,7 @@ flowchart TB
     subgraph reasoningPlane [Reasoning Plane]
         Retrieve[Evidence retrieval]
         Prompt[Evidence pack builder]
-        Agent[Prediction explanation agent]
+        Output[Prediction explanation runtime]
     end
 
     subgraph evalPlane [Evaluation Plane]
@@ -124,11 +124,11 @@ flowchart TB
 
     Ingest --> Normalize --> Quality --> Samples --> Labels --> Tokenize
     Tokenize --> Encoders --> Fusion --> Heads --> Checkpoint
-    Heads --> Explain --> Agent
-    Samples --> Retrieve --> Prompt --> Agent
-    Checkpoint --> Agent
-    Agent --> ReasonEval
-    Agent --> Backtest
+    Heads --> Explain --> Output
+    Samples --> Retrieve --> Prompt --> Output
+    Checkpoint --> Output
+    Output --> ReasonEval
+    Output --> Backtest
     Samples --> Leakage
     Backtest --> Reports
     ReasonEval --> Reports
@@ -294,7 +294,7 @@ The demo should include a checkpoint/resume validation path:
 4. Resume from checkpoint.
 5. Verify step count, config hash, and eval continuity.
 
-### Reasoning Agent Runtime
+### Reasoning Runtime
 
 The reasoning runtime generates investment thesis outputs.
 
@@ -308,7 +308,7 @@ Flow:
 6. Attach lineage.
 7. Store output for evaluation.
 
-The model output must be auditable. If evidence is missing or weak, the agent should lower confidence or refuse to make a strong claim.
+The model output must be auditable. If evidence is missing or weak, the runtime should lower confidence or refuse to make a strong claim.
 
 ### Evaluation Engine
 

@@ -327,7 +327,7 @@ Required checks:
 
 ## Low-Confidence And Refusal Behavior
 
-The agent should not always produce a strong view.
+The runtime should not always produce a strong view.
 
 It should output `insufficient_evidence` when:
 

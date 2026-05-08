@@ -317,7 +317,7 @@ Metrics:
 - earnings revision alignment where data exists.
 - thesis hit rate for human-labeled fixture examples.
 
-These are useful because the agent is aimed at long-term value investing, not short-term trading.
+These are useful because the model is aimed at long-term value investing, not short-term trading.
 
 ## Baselines
 
