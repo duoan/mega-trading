@@ -19,8 +19,10 @@ model:
   use_evidence: true
 
 training:
-  max_steps: 10
-  batch_size: 8
+  max_steps: 200
+  batch_size: 32
   learning_rate: 0.001
+  validation_fraction: 0.2
+  eval_interval: 10
   seed: 7
   device: cpu

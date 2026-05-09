@@ -118,6 +118,8 @@ def _run_train_config(config: DictConfig):
         attention_heads=int(config.model.attention_heads),
         batch_size=int(config.training.batch_size),
         learning_rate=float(config.training.learning_rate),
+        validation_fraction=float(config.training.validation_fraction),
+        eval_interval=int(config.training.eval_interval),
         price_window_size=_optional_int(config.model.price_window_size),
         fundamental_size=_optional_int(config.model.fundamental_size),
         evidence_size=_optional_int(config.model.evidence_size),
@@ -181,6 +183,8 @@ def _ablation_summary(run_name: str, config: DictConfig, manifest_path: str) -> 
             "max_steps": int(config.training.max_steps),
             "batch_size": int(config.training.batch_size),
             "learning_rate": float(config.training.learning_rate),
+            "validation_fraction": float(config.training.validation_fraction),
+            "eval_interval": int(config.training.eval_interval),
         },
         "model": {
             "hidden_dim": int(config.model.hidden_dim),

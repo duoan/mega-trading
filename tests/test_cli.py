@@ -280,6 +280,8 @@ end = "2023-01-31"
                 "training.max_steps=3",
                 "model.hidden_dim=16",
                 "model.use_evidence=false",
+                "training.validation_fraction=0.3",
+                "training.eval_interval=2",
             ],
         )
 
@@ -287,6 +289,8 @@ end = "2023-01-31"
         self.assertEqual(config.training.max_steps, 3)
         self.assertEqual(config.model.hidden_dim, 16)
         self.assertFalse(config.model.use_evidence)
+        self.assertEqual(config.training.validation_fraction, 0.3)
+        self.assertEqual(config.training.eval_interval, 2)
 
     def test_train_command_writes_run_artifacts_from_hydra_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

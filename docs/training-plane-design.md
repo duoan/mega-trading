@@ -51,10 +51,13 @@ Training metrics should make both model progress and infrastructure efficiency v
 - loss.
 - return-bucket accuracy.
 - risk-bucket accuracy.
+- validation loss.
+- validation return-bucket accuracy.
+- validation risk-bucket accuracy.
 - examples/sec.
 - checkpoint path and manifest path.
 
-Future runs should add calibration, rank correlation, data-loader wait time, checkpoint duration, and GPU utilization.
+The local trainer uses a time-ordered validation tail from the sample shard, so validation metrics measure later `as_of_time` samples instead of a random split that can hide temporal leakage. Future runs should add calibration, rank correlation, data-loader wait time, checkpoint duration, and GPU utilization.
 
 ## Local And GPU Paths
 
@@ -63,9 +66,9 @@ Local CPU training is the reviewer-friendly smoke path:
 ```bash
 uv run mega-trading train \
   run.run_id=public-tfm \
-  training.max_steps=100 \
+  training.max_steps=200 \
   model.hidden_dim=64 \
-  training.batch_size=16
+  training.batch_size=32
 ```
 
 Training config lives in `configs/train/default.yaml`. Ablations should use Hydra overrides so runs remain reproducible and easy to compare:

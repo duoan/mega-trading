@@ -24,15 +24,22 @@ class TradingFoundationTrainer:
     def train(self, shard_path: str) -> TradingFoundationTrainResult:
         torch.manual_seed(self.config.seed)
         rows = self.store.read_jsonl(shard_path)
+        if not rows:
+            raise ValueError("training shard is empty")
+        train_rows, validation_rows = _time_ordered_split(rows, self.config.validation_fraction)
         sizes = infer_stream_sizes(
             rows,
             self.config.price_window_size,
             self.config.fundamental_size,
             self.config.evidence_size,
         )
-        dataset = TradingFoundationDataset(rows, *sizes)
-        loader = DataLoader(dataset, batch_size=self.config.batch_size, shuffle=True)
-        iterator = iter(loader)
+        train_dataset = TradingFoundationDataset(train_rows, *sizes)
+        validation_dataset = TradingFoundationDataset(validation_rows, *sizes) if validation_rows else None
+        train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size, shuffle=True)
+        validation_loader = (
+            DataLoader(validation_dataset, batch_size=self.config.batch_size, shuffle=False) if validation_dataset else None
+        )
+        iterator = iter(train_loader)
         device = torch.device(self.config.device)
         model = TradingFoundationModel(
             *sizes,
@@ -51,7 +58,7 @@ class TradingFoundationTrainer:
             try:
                 batch = next(iterator)
             except StopIteration:
-                iterator = iter(loader)
+                iterator = iter(train_loader)
                 batch = next(iterator)
             started = perf_counter()
             batch = {key: value.to(device) for key, value in batch.items()}
@@ -68,11 +75,16 @@ class TradingFoundationTrainer:
                     "step": step,
                     "stage": "trading_foundation_model",
                     "loss": float(loss.detach().cpu()),
+                    "train_loss": float(loss.detach().cpu()),
                     "return_accuracy": _accuracy(return_logits, batch["return_label"]),
                     "risk_accuracy": _accuracy(risk_logits, batch["risk_label"]),
+                    "train_sample_count": len(train_rows),
+                    "validation_sample_count": len(validation_rows),
                     "examples_per_second": int(batch["return_label"].shape[0]) / elapsed,
                 }
             )
+            if validation_loader and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
+                metrics[-1].update(_evaluate(model, validation_loader, device, loss_fn))
             self.store.write_jsonl(metrics_path, metrics)
 
         checkpoint_path = self.paths.run("checkpoint.pt")
@@ -94,6 +106,8 @@ class TradingFoundationTrainer:
                     "evidence": self.config.use_evidence,
                 },
                 "attention_heads": self.config.attention_heads,
+                "train_sample_count": len(train_rows),
+                "validation_sample_count": len(validation_rows),
                 "step": self.config.max_steps,
                 "shard_path": shard_path,
             },
@@ -109,6 +123,10 @@ class TradingFoundationTrainer:
                 "shard_path": shard_path,
                 "stream_contract": "price_fundamental_text",
                 "attention_heads": str(self.config.attention_heads),
+                "train_sample_count": str(len(train_rows)),
+                "validation_sample_count": str(len(validation_rows)),
+                "validation_fraction": str(self.config.validation_fraction),
+                "eval_interval": str(self.config.eval_interval),
                 "use_price": str(self.config.use_price),
                 "use_fundamentals": str(self.config.use_fundamentals),
                 "use_evidence": str(self.config.use_evidence),
@@ -124,3 +142,55 @@ class TradingFoundationTrainer:
 def _accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
     predictions = logits.argmax(dim=-1)
     return float((predictions == labels).float().mean().detach().cpu())
+
+
+def _evaluate(
+    model: TradingFoundationModel,
+    loader: DataLoader[dict[str, torch.Tensor]],
+    device: torch.device,
+    loss_fn: nn.Module,
+) -> dict[str, float]:
+    model.eval()
+    total_examples = 0
+    total_loss = 0.0
+    return_correct = 0
+    risk_correct = 0
+    with torch.no_grad():
+        for batch in loader:
+            batch = {key: value.to(device) for key, value in batch.items()}
+            return_logits, risk_logits = model(batch)
+            batch_size = int(batch["return_label"].shape[0])
+            return_loss = loss_fn(return_logits, batch["return_label"])
+            risk_loss = loss_fn(risk_logits, batch["risk_label"])
+            total_loss += float((return_loss + risk_loss).detach().cpu()) * batch_size
+            return_correct += int((return_logits.argmax(dim=-1) == batch["return_label"]).sum().detach().cpu())
+            risk_correct += int((risk_logits.argmax(dim=-1) == batch["risk_label"]).sum().detach().cpu())
+            total_examples += batch_size
+    model.train()
+    if total_examples == 0:
+        return {}
+    return {
+        "validation_loss": total_loss / total_examples,
+        "validation_return_accuracy": return_correct / total_examples,
+        "validation_risk_accuracy": risk_correct / total_examples,
+    }
+
+
+def _time_ordered_split(
+    rows: list[dict[str, object]],
+    validation_fraction: float,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    ordered_rows = sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("as_of_time", "")),
+            str(row.get("ticker", "")),
+            str(row.get("sample_id", "")),
+        ),
+    )
+    if validation_fraction == 0.0 or len(ordered_rows) < 2:
+        return ordered_rows, []
+    validation_count = max(1, int(len(ordered_rows) * validation_fraction))
+    validation_count = min(validation_count, len(ordered_rows) - 1)
+    split_index = len(ordered_rows) - validation_count
+    return ordered_rows[:split_index], ordered_rows[split_index:]

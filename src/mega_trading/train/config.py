@@ -21,6 +21,8 @@ class TradingFoundationTrainConfig:
     attention_heads: int = 4
     batch_size: int = 8
     learning_rate: float = 1e-3
+    validation_fraction: float = 0.2
+    eval_interval: int = 10
     price_window_size: int | None = None
     fundamental_size: int | None = None
     evidence_size: int | None = None
@@ -43,6 +45,10 @@ class TradingFoundationTrainConfig:
             raise ValueError("batch_size must be positive")
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
+        if not 0.0 <= self.validation_fraction < 1.0:
+            raise ValueError("validation_fraction must be in [0.0, 1.0)")
+        if self.eval_interval <= 0:
+            raise ValueError("eval_interval must be positive")
         if not (self.use_price or self.use_fundamentals or self.use_evidence):
             raise ValueError("at least one modality must be enabled")
 
@@ -55,6 +61,8 @@ class TradingFoundationTrainConfig:
                 "attention_heads": self.attention_heads,
                 "batch_size": self.batch_size,
                 "learning_rate": self.learning_rate,
+                "validation_fraction": self.validation_fraction,
+                "eval_interval": self.eval_interval,
                 "price_window_size": self.price_window_size,
                 "fundamental_size": self.fundamental_size,
                 "evidence_size": self.evidence_size,

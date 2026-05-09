@@ -69,19 +69,19 @@ enabled = true
 enabled = true
 mixture_name = "public"
 sequence_length = 32
-input_window_observations = 20
+input_window_observations = 60
 horizon_observations = 20
 return_threshold = 0.02
 
 [[ingest.sources]]
 name = "sec_companyfacts"
-tickers = ["AAPL", "AMZN"]
+tickers = ["AAPL", "AMZN", "MSFT", "GOOGL", "META", "NVDA", "TSLA", "JPM", "UNH", "XOM"]
 
 [[ingest.sources]]
 name = "yahoo_prices"
-tickers = ["AAPL", "AMZN"]
-start = "2024-01-01"
-end = "2024-03-31"
+tickers = ["AAPL", "AMZN", "MSFT", "GOOGL", "META", "NVDA", "TSLA", "JPM", "UNH", "XOM"]
+start = "2020-01-01"
+end = "2025-12-31"
 ```
 
 Supported source names:

@@ -18,10 +18,10 @@ Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normaliz
 
 ```bash
 uv run mega-trading ingest --config configs/ingest-public.toml
-uv run mega-trading train run.run_id=public-tfm training.max_steps=10
+uv run mega-trading train run.run_id=public-tfm
 ```
 
-Training uses Hydra config from `configs/train/default.yaml`, so ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
+Training uses Hydra config from `configs/train/default.yaml`, including a time-ordered train/validation split and validation metrics. Ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
 
 Run the default modality ablation suite and write a summary report:
 
@@ -33,9 +33,9 @@ The config-driven API is the preferred path: a reviewer can inspect one TOML fil
 
 ```bash
 uv run mega-trading ingest-public \
-  --tickers AAPL,AMZN \
-  --start 2024-01-01 \
-  --end 2024-03-31 \
+  --tickers AAPL,AMZN,MSFT,GOOGL,META,NVDA,TSLA,JPM,UNH,XOM \
+  --start 2020-01-01 \
+  --end 2025-12-31 \
   --out .mega-trading/public \
   --sec-user-agent "your-name your-email@example.com"
 ```
