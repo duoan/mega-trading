@@ -21,6 +21,7 @@ from mega_trading.data.public.sec import SecClient, SecCompanyFactsIngestor
 from mega_trading.data.quality import DataQualityChecker
 from mega_trading.data.samples import MultiStreamSampleBuilder
 from mega_trading.data.tokenize import StreamShardBuilder
+from mega_trading.eval.backtest import BacktestConfig, run_backtest
 from mega_trading.eval.delayed_labels import materialize_delayed_labels
 from mega_trading.eval.replay import run_replay_inference
 from mega_trading.train.config import TradingFoundationTrainConfig
@@ -70,6 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
     labels.add_argument("--mixture", default="public", help="sample/shard mixture name")
     labels.add_argument("--prediction-path", required=True, help="prediction log artifact path")
     labels.add_argument("--label-run-id", default="labels", help="delayed label run id")
+    backtest = subparsers.add_parser("backtest", help="run deterministic backtest over labeled predictions")
+    backtest.add_argument("--data-dir", default=".mega-trading/public", help="artifact data directory")
+    backtest.add_argument("--labeled-prediction-path", required=True, help="labeled prediction artifact path")
+    backtest.add_argument("--backtest-id", default="backtest", help="backtest run id")
+    backtest.add_argument("--fee-bps", type=float, default=1.0, help="round-trip fee in basis points")
+    backtest.add_argument("--slippage-bps", type=float, default=1.0, help="slippage in basis points")
+    backtest.add_argument("--confidence-threshold", type=float, default=0.0, help="minimum confidence for a trade")
     return parser
 
 
@@ -125,6 +133,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"wrote delayed labels to {args.data_dir}/{result.label_path}")
         print(f"labeled predictions: {result.labeled_prediction_path}")
+        print(f"manifest: {result.manifest_path}")
+    elif args.command == "backtest":
+        store = LocalObjectStore(Path(args.data_dir))
+        result = run_backtest(
+            store,
+            backtest_id=args.backtest_id,
+            labeled_prediction_path=args.labeled_prediction_path,
+            config=BacktestConfig(
+                fee_bps=args.fee_bps,
+                slippage_bps=args.slippage_bps,
+                confidence_threshold=args.confidence_threshold,
+            ),
+        )
+        print(f"wrote backtest report to {args.data_dir}/{result.report_path}")
         print(f"manifest: {result.manifest_path}")
     return 0
 

@@ -363,6 +363,52 @@ end = "2023-01-31"
             self.assertTrue(labeled_path.exists())
             self.assertEqual(json.loads(labeled_path.read_text(encoding="utf-8").splitlines()[0])["label_status"], "ready")
 
+    def test_backtest_command_writes_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            labeled_path = root / "labels/demo/labeled-predictions.jsonl"
+            labeled_path.parent.mkdir(parents=True)
+            labeled_path.write_text(
+                json.dumps(
+                    {
+                        "prediction_id": "pred-1",
+                        "prediction_time": "2024-01-02T00:00:00Z",
+                        "ticker": "AAPL",
+                        "sample_id": "sample-a",
+                        "model_version_id": "model-v1",
+                        "base_model_version": "base-v1",
+                        "adapter_version": "adapter-none",
+                        "head_version": "head-v1",
+                        "feature_version": "features-v1",
+                        "label_version": "labels-v1",
+                        "pred_return_bucket": "outperform",
+                        "pred_risk_bucket": "low",
+                        "confidence": 0.8,
+                        "return_probabilities": {"outperform": 0.8},
+                        "risk_probabilities": {"low": 0.8},
+                        "source_ids": ["sample-a"],
+                        "label_status": "ready",
+                        "actual_return_bucket": "outperform",
+                        "actual_risk_bucket": "low",
+                        "actual_forward_return": 0.03,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            exit_code = main(
+                [
+                    "backtest",
+                    f"--data-dir={root}",
+                    "--labeled-prediction-path=labels/demo/labeled-predictions.jsonl",
+                    "--backtest-id=bt-cli",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((root / "evals/bt-cli/backtest-report.json").exists())
+
     def test_ablate_command_writes_summary_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
