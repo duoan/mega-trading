@@ -11,4 +11,4 @@ alwaysApply: true
 - Do not over-engineer: prefer the simplest implementation that preserves documented contracts and scaling paths.
 - Keep the deterministic local demo working; do not make private credentials or live services required.
 - Preserve `as_of_time`, lineage, metrics, and artifact manifests for model-visible data and training outputs.
-- Do not add `Co-authored-by` trailers unless the user explicitly asks.
+- Should have code comments at the critical path

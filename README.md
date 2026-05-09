@@ -46,6 +46,7 @@ The default checked-in ingest config uses `configs/universes/sp500.txt`, pulls a
 
 - [Feasibility Analysis](docs/feasibility-analysis.md): deep feasibility study covering public data, related work, system design, model training, evaluation, risks, and the recommended MVP.
 - [High-Level Design](docs/high-level-design.md): system architecture, component boundaries, data flow, training flow, deployment design, artifact contracts, and MVP scope.
+- [End-to-End Platform Design](docs/end-to-end-platform-design.md): target platform architecture for realtime inference, delayed labels, online adaptation, replay training, multimodal fusion, and model registry.
 - [Model Design](docs/model-design.md): multi-stream market foundation model, cross-attention fusion, prediction heads, explanation layer, labels, and MVP architecture.
 - [Project Structure](docs/project-structure.md): source tree conventions that map code packages to data, training, reasoning, evaluation, and operations planes.
 - [Training Systems Alignment](docs/training-systems-alignment.md): mapping from the AI Infrastructure Engineer JD to project design choices, training efficiency metrics, checkpointing, failure modes, and learning-per-compute goals.
