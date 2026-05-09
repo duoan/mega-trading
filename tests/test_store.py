@@ -11,10 +11,10 @@ class StoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
 
-            store.write_jsonl("stage=01_raw/source=fixture/entities.jsonl", [{"id": "one"}, {"id": "two"}])
+            store.write_jsonl("stage=01_raw/source=fixture/order_flow.jsonl", [{"id": "one"}, {"id": "two"}])
 
             self.assertEqual(
-                store.read_jsonl("stage=01_raw/source=fixture/entities.jsonl"),
+                store.read_jsonl("stage=01_raw/source=fixture/order_flow.jsonl"),
                 [{"id": "one"}, {"id": "two"}],
             )
 
@@ -31,7 +31,7 @@ class StoreTests(unittest.TestCase):
             manifest = Manifest(
                 manifest_id="manifest-1",
                 artifact_type="raw",
-                paths=["stage=01_raw/source=fixture/entities.jsonl"],
+                paths=["stage=01_raw/source=fixture/order_flow.jsonl"],
                 metadata={"source": "fixture"},
             )
 
@@ -44,8 +44,8 @@ class StoreTests(unittest.TestCase):
     def test_artifact_paths_are_stable(self) -> None:
         paths = ArtifactPaths(run_id="demo")
 
-        self.assertEqual(paths.raw("fixture", "entities"), "stage=01_raw/source=fixture/entities.jsonl")
-        self.assertEqual(paths.normalized("entities", "fixture"), "stage=02_normalized/family=entities/source=fixture.jsonl")
+        self.assertEqual(paths.raw("fixture", "order_flow"), "stage=01_raw/source=fixture/order_flow.jsonl")
+        self.assertEqual(paths.normalized("order_flow", "fixture"), "stage=02_normalized/family=order_flow/source=fixture.jsonl")
         self.assertEqual(paths.corpus("demo", "events"), "stage=04_corpus/mixture=demo/events.jsonl")
         self.assertEqual(paths.shard("demo", "tokens"), "stage=05_shards/mixture=demo/tokens.jsonl")
         self.assertEqual(paths.eval("eval-1", "report"), "evals/eval-1/report.json")

@@ -1,8 +1,4 @@
-"""Shared artifact schemas for Mega-Trading.
-
-The schemas intentionally use stdlib dataclasses so the deterministic demo has
-no runtime dependency on external validators.
-"""
+"""Shared artifact schemas for Mega-Trading."""
 
 from __future__ import annotations
 
@@ -39,84 +35,40 @@ def _validate_date(value: str, field_name: str) -> None:
 
 
 @dataclass(frozen=True)
-class EntityRecord:
-    entity_id: str
+class OrderFlowEventRecord:
+    """Paper-style participant-visible order-flow event features."""
+
+    event_id: str
     ticker: str
-    company_name: str
-    cik: str | None = None
-    sector: str | None = None
-    industry: str | None = None
-    source_ids: list[str] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        _require(self.entity_id, "entity_id")
-        _require(self.ticker, "ticker")
-        _require(self.company_name, "company_name")
-
-
-@dataclass(frozen=True)
-class DocumentRecord:
-    document_id: str
-    entity_id: str
-    ticker: str
-    source_type: str
-    title: str
-    text: str
-    source_uri: str
-    published_at: str
-    accepted_at: str
-    as_of_time: str
-    source_ids: list[str]
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        for name in ("document_id", "entity_id", "ticker", "source_type", "text", "source_uri"):
-            _require(getattr(self, name), name)
-        _validate_datetime(self.published_at, "published_at")
-        _validate_datetime(self.accepted_at, "accepted_at")
-        _validate_datetime(self.as_of_time, "as_of_time")
-        _require(self.source_ids, "source_ids")
-
-
-@dataclass(frozen=True)
-class SecFilingRecord:
-    sec_filing_id: str
-    entity_id: str
-    ticker: str
-    concept: str
-    value: float
-    unit: str
-    period_end: str
-    accepted_at: str
-    as_of_time: str
-    source_ids: list[str]
-
-    def __post_init__(self) -> None:
-        for name in ("sec_filing_id", "entity_id", "ticker", "concept", "unit"):
-            _require(getattr(self, name), name)
-        _validate_date(self.period_end, "period_end")
-        _validate_datetime(self.accepted_at, "accepted_at")
-        _validate_datetime(self.as_of_time, "as_of_time")
-        _require(self.source_ids, "source_ids")
-
-
-@dataclass(frozen=True)
-class MarketDataRecord:
-    market_data_id: str
-    ticker: str
+    timestamp: str
     date: str
-    adjusted_close: float
+    action: str
+    side: str
+    midprice: float
+    relative_price_bps: float
+    price_depth_bps: float
+    size: float
+    interarrival_seconds: float
     provider: str
     source_ids: list[str]
-    open: float | None = None
-    high: float | None = None
-    low: float | None = None
-    close: float | None = None
-    volume: int | None = None
+    midprice_return_bps: float | None = None
 
     def __post_init__(self) -> None:
-        for name in ("market_data_id", "ticker", "provider"):
+        for name in ("event_id", "ticker", "timestamp", "date", "action", "side", "provider"):
             _require(getattr(self, name), name)
+        if self.action not in {"add", "delete"}:
+            raise SchemaValidationError(f"action must be add or delete: {self.action}")
+        if self.side not in {"buy", "sell"}:
+            raise SchemaValidationError(f"side must be buy or sell: {self.side}")
+        if self.midprice <= 0.0:
+            raise SchemaValidationError("midprice must be positive")
+        if self.price_depth_bps < 0.0:
+            raise SchemaValidationError("price_depth_bps must be non-negative")
+        if self.size <= 0.0:
+            raise SchemaValidationError("size must be positive")
+        if self.interarrival_seconds <= 0.0:
+            raise SchemaValidationError("interarrival_seconds must be positive")
+        _validate_datetime(self.timestamp, "timestamp")
         _validate_date(self.date, "date")
         _require(self.source_ids, "source_ids")
 

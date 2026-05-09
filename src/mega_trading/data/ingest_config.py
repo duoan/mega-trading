@@ -1,4 +1,4 @@
-"""Config-driven ingestion contracts."""
+"""Config-driven ingestion contracts for paper-style event data."""
 
 from __future__ import annotations
 
@@ -8,31 +8,33 @@ from pathlib import Path
 from typing import Any
 
 
+PAPER_SOURCES = {"fixture", "hf_ohlcv_1m"}
+
+
 @dataclass(frozen=True)
 class IngestSourceConfig:
     name: str
-    tickers: tuple[str, ...]
+    tickers: tuple[str, ...] = ()
     enabled: bool = True
     start: str | None = None
     end: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.name:
-            raise ValueError("ingest source name is required")
-        if self.name != "fixture" and not self.tickers:
-            raise ValueError(f"ingest source {self.name} requires tickers")
-        if self.name in {"yahoo_market_data", "stooq_market_data"} and (not self.start or not self.end):
-            raise ValueError(f"market_data source {self.name} requires start and end")
+        if self.name not in PAPER_SOURCES:
+            raise ValueError(f"unsupported ingest source for paper pipeline: {self.name}")
+        if self.name == "hf_ohlcv_1m":
+            if not self.tickers:
+                raise ValueError("hf_ohlcv_1m requires tickers")
+            if not self.start or not self.end:
+                raise ValueError("hf_ohlcv_1m requires start and end")
 
 
 @dataclass(frozen=True)
 class IngestPipelineConfig:
     output_dir: str
     sources: tuple[IngestSourceConfig, ...]
-    sec_user_agent: str | None = None
     quality_enabled: bool = True
     quality_fail_on_error: bool = False
-    enrichment_enabled: bool = True
 
     def __post_init__(self) -> None:
         if not self.output_dir:
@@ -47,16 +49,11 @@ class IngestPipelineConfig:
         quality = value.get("quality", {})
         if not isinstance(quality, dict):
             quality = {}
-        enrichment = value.get("enrichment", {})
-        if not isinstance(enrichment, dict):
-            enrichment = {}
         return cls(
             output_dir=str(value.get("output_dir", "")),
-            sec_user_agent=_optional_string(value.get("sec_user_agent")),
             sources=sources,
             quality_enabled=bool(quality.get("enabled", True)),
             quality_fail_on_error=bool(quality.get("fail_on_error", False)),
-            enrichment_enabled=bool(enrichment.get("enabled", True)),
         )
 
     def enabled_sources(self) -> tuple[IngestSourceConfig, ...]:

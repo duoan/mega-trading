@@ -5,8 +5,5 @@ output_dir = ".mega-trading/demo"
 enabled = true
 fail_on_error = true
 
-[ingest.enrichment]
-enabled = true
-
 [[ingest.sources]]
 name = "fixture"

@@ -12,23 +12,23 @@ class LanceStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LanceTableStore(Path(tmp))
 
-            store.write_table("stage_02_normalized_entities_fixture", [{"entity_id": "one", "ticker": "ONE"}])
+            store.write_table("stage_02_normalized_order_flow_fixture", [{"event_id": "one", "ticker": "ONE"}])
 
-            self.assertEqual(store.read_rows("stage_02_normalized_entities_fixture"), [{"entity_id": "one", "ticker": "ONE"}])
+            self.assertEqual(store.read_rows("stage_02_normalized_order_flow_fixture"), [{"event_id": "one", "ticker": "ONE"}])
 
     def test_write_table_overwrites_existing_table(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LanceTableStore(Path(tmp))
 
-            store.write_table("stage_02_normalized_entities_fixture", [{"entity_id": "one", "ticker": "ONE"}])
-            store.write_table("stage_02_normalized_entities_fixture", [{"entity_id": "two", "ticker": "TWO"}])
+            store.write_table("stage_02_normalized_order_flow_fixture", [{"event_id": "one", "ticker": "ONE"}])
+            store.write_table("stage_02_normalized_order_flow_fixture", [{"event_id": "two", "ticker": "TWO"}])
 
-            self.assertEqual(store.read_rows("stage_02_normalized_entities_fixture"), [{"entity_id": "two", "ticker": "TWO"}])
+            self.assertEqual(store.read_rows("stage_02_normalized_order_flow_fixture"), [{"event_id": "two", "ticker": "TWO"}])
 
     def test_lance_table_names_are_stable(self) -> None:
         tables = LanceTables()
 
-        self.assertEqual(tables.normalized("sec_filings", "sec"), "stage_02_normalized_sec_filings_sec")
+        self.assertEqual(tables.normalized("order_flow", "fixture"), "stage_02_normalized_order_flow_fixture")
         self.assertEqual(tables.corpus("demo", "samples"), "stage_04_corpus_demo_samples")
 
     def test_fixture_ingestor_writes_normalized_lance_tables(self) -> None:
@@ -39,11 +39,10 @@ class LanceStoreTests(unittest.TestCase):
 
             FixtureIngestor(object_store, table_store=table_store).ingest()
 
-            entities = table_store.read_rows("stage_02_normalized_entities_fixture")
-            market_data = table_store.read_rows("stage_02_normalized_market_data_fixture")
+            events = table_store.read_rows("stage_02_normalized_order_flow_fixture")
 
-            self.assertEqual(len(entities), 2)
-            self.assertEqual(market_data[0]["ticker"], "ACME")
+            self.assertEqual(len(events), 24)
+            self.assertEqual(events[0]["ticker"], "ACME")
 
 
 if __name__ == "__main__":

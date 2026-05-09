@@ -2,113 +2,72 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pyarrow as pa
+
 from mega_trading.core.store import LocalObjectStore
-from mega_trading.data.ingest import MarketDataIngestRequest
-from mega_trading.data.public.market import StooqClient, StooqMarketDataIngestor, YahooChartClient, YahooMarketDataIngestor
+from mega_trading.data.ingest import OhlcvIngestRequest
+from mega_trading.data.public.market import HuggingFaceOhlcvClient, HuggingFaceOhlcvIngestor
 
 
-class StooqMarketDataTests(unittest.TestCase):
-    def test_stooq_client_parses_daily_csv(self) -> None:
-        def fetch_text(url: str) -> str:
-            self.assertIn("aapl.us", url)
-            return "Date,Open,High,Low,Close,Volume\n2023-01-03,100,110,90,105,12345\n"
+class HuggingFaceOhlcvTests(unittest.TestCase):
+    def test_client_filters_minute_parquet_rows(self) -> None:
+        def fetch_table(url: str) -> pa.Table:
+            self.assertIn("ohlcv_2024-01.parquet", url)
+            return _minute_table()
 
-        client = StooqClient(fetch_text=fetch_text)
+        rows = HuggingFaceOhlcvClient(fetch_table=fetch_table).minute(
+            ("AAPL",),
+            "2024-01-02T14:30:00Z",
+            "2024-01-02T14:32:00Z",
+        )
 
-        rows = client.daily("AAPL", "2023-01-01", "2023-01-31")
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["ticker"], "AAPL")
+        self.assertEqual(rows[0]["timestamp"], "2024-01-02T14:30:00Z")
 
-        self.assertEqual(rows[0]["date"], "2023-01-03")
-        self.assertEqual(rows[0]["close"], 105.0)
-
-    def test_stooq_ingestor_writes_market_data_artifacts(self) -> None:
-        def fetch_text(_url: str) -> str:
-            return "Date,Open,High,Low,Close,Volume\n2023-01-03,100,110,90,105,12345\n"
-
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LocalObjectStore(Path(tmp))
-            client = StooqClient(fetch_text=fetch_text)
-
-            result = StooqMarketDataIngestor(store, client).ingest(
-                MarketDataIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
-            )
-            market_data = store.read_jsonl("stage=02_normalized/family=market_data/source=stooq.jsonl")
-            manifest = store.read_manifest(result.normalization_manifest_path)
-
-            self.assertEqual(len(market_data), 1)
-            self.assertEqual(market_data[0]["ticker"], "AAPL")
-            self.assertEqual(market_data[0]["adjusted_close"], 105.0)
-            self.assertEqual(manifest.metadata["source"], "stooq_daily")
-
-
-class YahooMarketDataTests(unittest.TestCase):
-    def test_yahoo_client_parses_chart_payload(self) -> None:
-        def fetch_json(url: str) -> dict:
-            self.assertIn("query1.finance.yahoo.com", url)
-            return {
-                "chart": {
-                    "result": [
-                        {
-                            "timestamp": [1672704000],
-                            "indicators": {
-                                "quote": [
-                                    {
-                                        "open": [100.0],
-                                        "high": [110.0],
-                                        "low": [90.0],
-                                        "close": [105.0],
-                                        "volume": [12345],
-                                    }
-                                ],
-                                "adjclose": [{"adjclose": [104.5]}],
-                            },
-                        }
-                    ],
-                    "error": None,
-                }
-            }
-
-        rows = YahooChartClient(fetch_json=fetch_json).daily("AAPL", "2023-01-01", "2023-01-31")
-
-        self.assertEqual(rows[0]["date"], "2023-01-03")
-        self.assertEqual(rows[0]["adjusted_close"], 104.5)
-
-    def test_yahoo_ingestor_writes_market_data_artifacts(self) -> None:
-        def fetch_json(_url: str) -> dict:
-            return {
-                "chart": {
-                    "result": [
-                        {
-                            "timestamp": [1672704000],
-                            "indicators": {
-                                "quote": [
-                                    {
-                                        "open": [100.0],
-                                        "high": [110.0],
-                                        "low": [90.0],
-                                        "close": [105.0],
-                                        "volume": [12345],
-                                    }
-                                ],
-                                "adjclose": [{"adjclose": [104.5]}],
-                            },
-                        }
-                    ],
-                    "error": None,
-                }
-            }
+    def test_ingestor_writes_paper_order_flow_artifacts(self) -> None:
+        def fetch_table(_url: str) -> pa.Table:
+            return _minute_table()
 
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-
-            result = YahooMarketDataIngestor(store, YahooChartClient(fetch_json=fetch_json)).ingest(
-                MarketDataIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
+            result = HuggingFaceOhlcvIngestor(store, HuggingFaceOhlcvClient(fetch_table=fetch_table)).ingest(
+                OhlcvIngestRequest(
+                    tickers=("AAPL",),
+                    start="2024-01-02T14:30:00Z",
+                    end="2024-01-02T14:32:00Z",
+                )
             )
-            market_data = store.read_jsonl("stage=02_normalized/family=market_data/source=yahoo.jsonl")
+            events = store.read_jsonl("stage=02_normalized/family=order_flow/source=hf_ohlcv_1m.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)
 
-            self.assertEqual(len(market_data), 1)
-            self.assertEqual(market_data[0]["ticker"], "AAPL")
-            self.assertEqual(manifest.metadata["source"], "yahoo_chart")
+            self.assertEqual(len(events), 2)
+            self.assertEqual(events[0]["action"], "add")
+            self.assertIn(events[0]["side"], {"buy", "sell"})
+            self.assertAlmostEqual(events[0]["midprice"], 100.65)
+            self.assertAlmostEqual(events[0]["size"], 1.2)
+            self.assertLess(events[0]["relative_price_bps"], 0.0)
+            self.assertGreaterEqual(events[0]["price_depth_bps"], 0.0)
+            self.assertEqual(manifest.metadata["feature_contract"], "paper-order-flow-v1")
+
+
+def _minute_table() -> pa.Table:
+    return pa.table(
+        {
+            "timestamp": [
+                "2024-01-02T14:30:00Z",
+                "2024-01-02T14:31:00Z",
+                "2024-01-02T14:32:00Z",
+                "2024-01-02T14:30:00Z",
+            ],
+            "open": [100.0, 100.5, 100.2, 200.0],
+            "high": [101.0, 101.2, 100.8, 201.0],
+            "low": [99.0, 100.1, 99.8, 199.0],
+            "close": [100.5, 100.2, 100.7, 200.5],
+            "volume": [1000.0, 1200.0, 900.0, 500.0],
+            "ticker": ["AAPL", "AAPL", "AAPL", "MSFT"],
+        }
+    )
 
 
 if __name__ == "__main__":

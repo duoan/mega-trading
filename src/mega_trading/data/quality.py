@@ -1,4 +1,4 @@
-"""Data quality gates and readiness reports for normalized records."""
+"""Data quality gates for normalized order-flow records."""
 
 from __future__ import annotations
 
@@ -35,8 +35,8 @@ class DataQualityChecker:
             seen_ids: set[str] = set()
             for index, row in enumerate(self.store.read_jsonl(path)):
                 total_records += 1
-                reasons = self._reasons(path, row)
-                record_id = _record_id(path, row)
+                reasons = self._reasons(row)
+                record_id = str(row.get("event_id") or "")
                 if record_id:
                     if record_id in seen_ids:
                         reasons.append("duplicate_id")
@@ -46,7 +46,7 @@ class DataQualityChecker:
                         {
                             "path": path,
                             "row_index": index,
-                            "record_id": record_id or "",
+                            "record_id": record_id,
                             "reason": reason,
                         }
                     )
@@ -115,61 +115,53 @@ class DataQualityChecker:
         paths: list[str] = []
         for manifest_path in manifest_paths:
             manifest = self.store.read_manifest(manifest_path)
-            paths.extend(path for path in manifest.paths if path.startswith("stage=02_normalized/") and path.endswith(".jsonl"))
+            paths.extend(
+                path
+                for path in manifest.paths
+                if path.startswith("stage=02_normalized/family=order_flow/") and path.endswith(".jsonl")
+            )
         return paths
 
-    def _reasons(self, path: str, row: dict[str, Any]) -> list[str]:
+    def _reasons(self, row: dict[str, Any]) -> list[str]:
         reasons: list[str] = []
-        for field in _required_fields(path):
+        for field in (
+            "event_id",
+            "ticker",
+            "timestamp",
+            "date",
+            "action",
+            "side",
+            "midprice",
+            "relative_price_bps",
+            "price_depth_bps",
+            "size",
+            "interarrival_seconds",
+            "provider",
+            "source_ids",
+        ):
             if row.get(field) in (None, "", []):
                 reasons.append(f"missing_{field}")
-        if "family=market_data" in path and float(row.get("adjusted_close") or 0.0) <= 0.0:
-            reasons.append("invalid_market_data")
-        if "date" in row and not _valid_date(str(row["date"])):
+        if row.get("action") not in {"add", "delete"}:
+            reasons.append("invalid_action")
+        if row.get("side") not in {"buy", "sell"}:
+            reasons.append("invalid_side")
+        if float(row.get("midprice") or 0.0) <= 0.0:
+            reasons.append("invalid_midprice")
+        if float(row.get("price_depth_bps") or -1.0) < 0.0:
+            reasons.append("invalid_price_depth")
+        if float(row.get("size") or 0.0) <= 0.0:
+            reasons.append("invalid_size")
+        if float(row.get("interarrival_seconds") or 0.0) <= 0.0:
+            reasons.append("invalid_interarrival_seconds")
+        if row.get("date") and not _valid_date(str(row["date"])):
             reasons.append("invalid_date")
-        for field in ("as_of_time", "accepted_at", "timestamp", "published_at"):
-            if field in row and row[field] and not _valid_datetime(str(row[field])):
-                reasons.append(f"invalid_{field}")
-        if row.get("timestamp") and row.get("as_of_time") and _valid_datetime(str(row["timestamp"])) and _valid_datetime(str(row["as_of_time"])):
-            if _parse_datetime(str(row["timestamp"])) > _parse_datetime(str(row["as_of_time"])):
-                reasons.append("future_leakage")
+        if row.get("timestamp") and not _valid_datetime(str(row["timestamp"])):
+            reasons.append("invalid_timestamp")
         return reasons
 
 
 class DataQualityError(ValueError):
     """Raised when quality checks fail and fail_on_error is enabled."""
-
-
-def _required_fields(path: str) -> tuple[str, ...]:
-    if "family=entities" in path:
-        return ("entity_id", "ticker", "company_name")
-    if "family=sec_filings" in path:
-        return ("sec_filing_id", "entity_id", "ticker", "concept", "period_end", "accepted_at", "as_of_time", "source_ids")
-    if "family=market_data" in path:
-        return ("market_data_id", "ticker", "date", "adjusted_close", "provider", "source_ids")
-    if "family=documents" in path:
-        return ("document_id", "entity_id", "ticker", "source_type", "text", "source_uri", "as_of_time", "source_ids")
-    return ()
-
-
-def _record_id(path: str, row: dict[str, Any]) -> str | None:
-    for field in _id_fields(path):
-        value = row.get(field)
-        if value:
-            return str(value)
-    return None
-
-
-def _id_fields(path: str) -> tuple[str, ...]:
-    if "family=entities" in path:
-        return ("entity_id",)
-    if "family=sec_filings" in path:
-        return ("sec_filing_id",)
-    if "family=market_data" in path:
-        return ("market_data_id",)
-    if "family=documents" in path:
-        return ("document_id",)
-    return ("entity_id", "sec_filing_id", "market_data_id", "document_id")
 
 
 def _valid_date(value: str) -> bool:
@@ -182,11 +174,7 @@ def _valid_date(value: str) -> bool:
 
 def _valid_datetime(value: str) -> bool:
     try:
-        _parse_datetime(value)
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
         return True
     except ValueError:
         return False
-
-
-def _parse_datetime(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))

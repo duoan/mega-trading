@@ -8,31 +8,11 @@ from mega_trading.data.quality import DataQualityChecker
 
 
 class DataQualityTests(unittest.TestCase):
-    def test_quality_checker_writes_readiness_report_for_valid_normalized_records(self) -> None:
+    def test_quality_checker_writes_readiness_report_for_valid_order_flow(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            store.write_jsonl(
-                "stage=02_normalized/family=market_data/source=yahoo.jsonl",
-                [
-                    {
-                        "market_data_id": "yahoo-AAPL-2024-01-02",
-                        "ticker": "AAPL",
-                        "date": "2024-01-02",
-                        "adjusted_close": 185.0,
-                        "provider": "yahoo",
-                        "source_ids": ["yahoo-AAPL-2024-01-02"],
-                    }
-                ],
-            )
-            manifest_path = "manifests/normalization/yahoo-daily-normalized.json"
-            store.write_manifest(
-                manifest_path,
-                Manifest(
-                    manifest_id="yahoo-daily-normalized",
-                    artifact_type="normalized",
-                    paths=["stage=02_normalized/family=market_data/source=yahoo.jsonl"],
-                ),
-            )
+            _write_order_flow(store, [{"event_id": "evt-1"}])
+            manifest_path = _write_manifest(store)
 
             result = DataQualityChecker(store).run([manifest_path], run_id="unit")
             report = store.read_json(result.report_path)
@@ -45,22 +25,8 @@ class DataQualityTests(unittest.TestCase):
     def test_quality_checker_quarantines_duplicate_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            store.write_jsonl(
-                "stage=02_normalized/family=entities/source=sec.jsonl",
-                [
-                    {"entity_id": "sec-1", "ticker": "AAPL", "company_name": "Apple Inc.", "source_ids": ["one"]},
-                    {"entity_id": "sec-1", "ticker": "AAPL", "company_name": "Apple Inc.", "source_ids": ["two"]},
-                ],
-            )
-            manifest_path = "manifests/normalization/sec-companyfacts-normalized.json"
-            store.write_manifest(
-                manifest_path,
-                Manifest(
-                    manifest_id="sec-companyfacts-normalized",
-                    artifact_type="normalized",
-                    paths=["stage=02_normalized/family=entities/source=sec.jsonl"],
-                ),
-            )
+            _write_order_flow(store, [{"event_id": "evt-1"}, {"event_id": "evt-1"}])
+            manifest_path = _write_manifest(store)
 
             result = DataQualityChecker(store).run([manifest_path], run_id="unit")
             quarantined = store.read_jsonl(result.quarantine_path)
@@ -68,82 +34,52 @@ class DataQualityTests(unittest.TestCase):
             self.assertFalse(result.passed)
             self.assertEqual(quarantined[0]["reason"], "duplicate_id")
 
-    def test_quality_checker_uses_family_specific_record_ids(self) -> None:
+    def test_quality_checker_fails_on_bad_order_flow_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            store.write_jsonl(
-                "stage=02_normalized/family=sec_filings/source=sec.jsonl",
-                [
-                    {
-                        "sec_filing_id": "f1",
-                        "entity_id": "sec-1",
-                        "ticker": "AAPL",
-                        "concept": "Revenue",
-                        "value": 100.0,
-                        "unit": "USD",
-                        "period_end": "2024-01-31",
-                        "accepted_at": "2024-02-01T00:00:00Z",
-                        "as_of_time": "2024-02-01T00:00:00Z",
-                        "source_ids": ["f1"],
-                    },
-                    {
-                        "sec_filing_id": "f2",
-                        "entity_id": "sec-1",
-                        "ticker": "AAPL",
-                        "concept": "Revenue",
-                        "value": 200.0,
-                        "unit": "USD",
-                        "period_end": "2024-02-29",
-                        "accepted_at": "2024-03-01T00:00:00Z",
-                        "as_of_time": "2024-03-01T00:00:00Z",
-                        "source_ids": ["f2"],
-                    },
-                ],
-            )
-            manifest_path = "manifests/normalization/sec-companyfacts-normalized.json"
-            store.write_manifest(
-                manifest_path,
-                Manifest(
-                    manifest_id="sec-companyfacts-normalized",
-                    artifact_type="normalized",
-                    paths=["stage=02_normalized/family=sec_filings/source=sec.jsonl"],
-                ),
-            )
-
-            result = DataQualityChecker(store).run([manifest_path], run_id="unit")
-
-            self.assertTrue(result.passed)
-
-    def test_quality_checker_fails_on_bad_market_data_values(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LocalObjectStore(Path(tmp))
-            store.write_jsonl(
-                "stage=02_normalized/family=market_data/source=yahoo.jsonl",
-                [
-                    {
-                        "market_data_id": "bad-market_data",
-                        "ticker": "AAPL",
-                        "date": "2024-01-02",
-                        "adjusted_close": -1.0,
-                        "provider": "yahoo",
-                        "source_ids": ["bad-market_data"],
-                    }
-                ],
-            )
-            manifest_path = "manifests/normalization/yahoo-daily-normalized.json"
-            store.write_manifest(
-                manifest_path,
-                Manifest(
-                    manifest_id="yahoo-daily-normalized",
-                    artifact_type="normalized",
-                    paths=["stage=02_normalized/family=market_data/source=yahoo.jsonl"],
-                ),
-            )
+            _write_order_flow(store, [{"event_id": "evt-1", "size": 0.0}])
+            manifest_path = _write_manifest(store)
 
             result = DataQualityChecker(store).run([manifest_path], run_id="unit")
 
             self.assertFalse(result.passed)
-            self.assertEqual(store.read_json(result.report_path)["issues_by_reason"], {"invalid_market_data": 1})
+            self.assertEqual(store.read_json(result.report_path)["issues_by_reason"], {"invalid_size": 1})
+
+
+def _write_order_flow(store: LocalObjectStore, overrides: list[dict[str, object]]) -> None:
+    rows = []
+    for index, override in enumerate(overrides):
+        row = {
+            "event_id": f"evt-{index}",
+            "ticker": "AAPL",
+            "timestamp": f"2024-01-02T14:{30 + index:02d}:00Z",
+            "date": "2024-01-02",
+            "action": "add",
+            "side": "buy",
+            "midprice": 100.0,
+            "relative_price_bps": 1.0,
+            "price_depth_bps": 1.0,
+            "size": 100.0,
+            "interarrival_seconds": 60.0,
+            "provider": "fixture",
+            "source_ids": [f"raw-{index}"],
+        }
+        row.update(override)
+        rows.append(row)
+    store.write_jsonl("stage=02_normalized/family=order_flow/source=fixture.jsonl", rows)
+
+
+def _write_manifest(store: LocalObjectStore) -> str:
+    manifest_path = "manifests/normalization/fixture-order-flow-normalized.json"
+    store.write_manifest(
+        manifest_path,
+        Manifest(
+            manifest_id="fixture-order-flow-normalized",
+            artifact_type="normalized",
+            paths=["stage=02_normalized/family=order_flow/source=fixture.jsonl"],
+        ),
+    )
+    return manifest_path
 
 
 if __name__ == "__main__":

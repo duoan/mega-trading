@@ -24,9 +24,6 @@ class ArtifactPaths:
     def normalized(self, family: str, name: str) -> str:
         return f"stage=02_normalized/family={family}/source={name}.jsonl"
 
-    def enriched(self, name: str) -> str:
-        return f"stage=03_enriched/{name}.jsonl"
-
     def corpus(self, mixture: str, name: str) -> str:
         return f"stage=04_corpus/mixture={mixture}/{name}.jsonl"
 

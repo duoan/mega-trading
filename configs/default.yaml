@@ -5,21 +5,31 @@ run:
   run_id: smoke
 
 data:
-  data_dir: .mega-trading/public
+  data_dir: .mega-trading/hf-1m
   mixture: public
-  source: yahoo
+  source: hf_ohlcv_1m
 
 build:
   block_size: 128
   stride: 64
   min_events_per_ticker: 32
   max_tickers: null
+  tokenizer_method: quantile
+  tokenizer_clip_quantile: 0.01
+  tokenizer_relative_price_bins: 16
+  tokenizer_price_bins: 16
+  tokenizer_size_bins: 16
+  tokenizer_time_bins: 4
 
 model:
   hidden_dim: 128
   layers: 4
   attention_heads: 4
+  kv_heads: null
+  intermediate_dim: null
   dropout: 0.1
+  rope_theta: 500000.0
+  norm_eps: 0.00001
 
 training:
   max_steps: 100

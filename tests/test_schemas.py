@@ -1,58 +1,46 @@
 import unittest
 
 from mega_trading.core.hashing import stable_hash
-from mega_trading.core.schemas import (
-    DocumentRecord,
-    Manifest,
-    MarketDataRecord,
-    SchemaValidationError,
-)
+from mega_trading.core.schemas import Manifest, OrderFlowEventRecord, SchemaValidationError
 
 
 class SchemaTests(unittest.TestCase):
-    def test_model_visible_records_require_as_of_time(self) -> None:
+    def test_order_flow_record_validates_paper_features(self) -> None:
         with self.assertRaises(SchemaValidationError):
-            DocumentRecord(
-                document_id="doc-1",
-                entity_id="entity-1",
+            OrderFlowEventRecord(
+                event_id="evt-1",
                 ticker="ACME",
-                source_type="10-K",
-                title="ACME 10-K",
-                text="Management discussion",
-                source_uri="fixture://doc-1",
-                published_at="2023-02-01T00:00:00Z",
-                accepted_at="2023-02-01T00:00:00Z",
-                as_of_time="",
+                timestamp="2024-01-02T14:30:00Z",
+                date="2024-01-02",
+                action="trade",
+                side="buy",
+                midprice=100.0,
+                relative_price_bps=1.0,
+                price_depth_bps=1.0,
+                size=100.0,
+                interarrival_seconds=1.0,
+                provider="fixture",
                 source_ids=["raw-1"],
             )
 
-    def test_invalid_timestamp_fails(self) -> None:
-        with self.assertRaises(SchemaValidationError):
-            DocumentRecord(
-                document_id="doc-1",
-                entity_id="entity-1",
-                ticker="ACME",
-                source_type="10-K",
-                title="ACME 10-K",
-                published_at="not-a-date",
-                accepted_at="2023-02-01T00:00:00Z",
-                as_of_time="2023-02-01T00:00:00Z",
-                text="Revenue increased.",
-                source_uri="fixture://doc-1",
-                source_ids=["raw-1"],
-            )
-
-    def test_market_data_record_allows_date_without_time(self) -> None:
-        record = MarketDataRecord(
-            market_data_id="px-1",
+    def test_order_flow_record_accepts_valid_event(self) -> None:
+        record = OrderFlowEventRecord(
+            event_id="evt-1",
             ticker="ACME",
-            date="2023-01-03",
-            adjusted_close=100.0,
+            timestamp="2024-01-02T14:30:00Z",
+            date="2024-01-02",
+            action="add",
+            side="buy",
+            midprice=100.0,
+            relative_price_bps=1.0,
+            price_depth_bps=1.0,
+            size=100.0,
+            interarrival_seconds=1.0,
             provider="fixture",
-            source_ids=["raw-market_data-1"],
+            source_ids=["raw-1"],
         )
 
-        self.assertEqual(record.date, "2023-01-03")
+        self.assertEqual(record.action, "add")
 
     def test_manifest_hash_is_deterministic(self) -> None:
         left = Manifest(
@@ -70,6 +58,7 @@ class SchemaTests(unittest.TestCase):
 
         self.assertEqual(left.content_hash(), right.content_hash())
         self.assertEqual(left.content_hash(), stable_hash(right.to_dict()))
+
 
 if __name__ == "__main__":
     unittest.main()

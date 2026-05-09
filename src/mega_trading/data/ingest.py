@@ -1,4 +1,4 @@
-"""Ingestion adapters for deterministic and public data sources."""
+"""Ingestion contracts for paper-style order-flow data."""
 
 from __future__ import annotations
 
@@ -26,12 +26,7 @@ class FixtureIngestRequest:
 
 
 @dataclass(frozen=True)
-class TickerIngestRequest:
-    tickers: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class MarketDataIngestRequest:
+class OhlcvIngestRequest:
     tickers: tuple[str, ...]
     start: str
     end: str
@@ -45,11 +40,11 @@ class Ingestor(ABC, Generic[RequestT]):
 
     @abstractmethod
     def ingest(self, request: RequestT) -> IngestResult:
-        """Ingest source data and return the written artifact manifests."""
+        """Ingest source data and return written artifact manifests."""
 
 
 class FixtureIngestor(Ingestor[FixtureIngestRequest]):
-    """Load deterministic fixtures into raw, normalized, and quarantine stages."""
+    """Load deterministic order-flow fixtures into raw and normalized stages."""
 
     def __init__(self, store: LocalObjectStore, table_store: LanceTableStore | None = None) -> None:
         self.store = store
@@ -59,72 +54,43 @@ class FixtureIngestor(Ingestor[FixtureIngestRequest]):
 
     def ingest(self, request: FixtureIngestRequest | None = None) -> IngestResult:
         bundle = load_fixture_bundle()
-
-        raw_paths = {
-            "entities": self.paths.raw("fixture", "entities"),
-            "documents": self.paths.raw("fixture", "documents"),
-            "sec_filings": self.paths.raw("fixture", "sec_filings"),
-            "market_data": self.paths.raw("fixture", "market_data"),
-        }
-
-        self.store.write_jsonl(raw_paths["entities"], [asdict(row) for row in bundle.entities])
-        self.store.write_jsonl(raw_paths["documents"], [asdict(row) for row in bundle.documents])
-        self.store.write_jsonl(raw_paths["sec_filings"], [asdict(row) for row in bundle.sec_filings])
-        self.store.write_jsonl(raw_paths["market_data"], [asdict(row) for row in bundle.market_data])
-
-        normalized_paths = {
-            "entities": self.paths.normalized("entities", "fixture"),
-            "documents": self.paths.normalized("documents", "fixture"),
-            "sec_filings": self.paths.normalized("sec_filings", "fixture"),
-            "market_data": self.paths.normalized("market_data", "fixture"),
-        }
-
-        # Fixture records are already normalized typed schemas. Live adapters will
-        # use this same normalized contract after source-specific parsing.
-        for key, raw_path in raw_paths.items():
-            rows = self.store.read_jsonl(raw_path)
-            self.store.write_jsonl(normalized_paths[key], rows)
-            if self.table_store:
-                self.table_store.write_table(self.tables.normalized(key, "fixture"), rows)
-
+        raw_path = self.paths.raw("fixture", "order_flow")
+        normalized_path = self.paths.normalized("order_flow", "fixture")
         quarantine_path = "quarantine/fixture/bad_records.jsonl"
+
+        rows = [asdict(row) for row in bundle.order_flow]
+        self.store.write_jsonl(raw_path, rows)
+        self.store.write_jsonl(normalized_path, rows)
         self.store.write_jsonl(quarantine_path, bundle.bad_records)
+        if self.table_store:
+            self.table_store.write_table(self.tables.normalized("order_flow", "fixture"), rows)
 
         raw_manifest = Manifest(
-            manifest_id="fixture-raw",
+            manifest_id="fixture-order-flow-raw",
             artifact_type="raw",
-            paths=list(raw_paths.values()),
-            metadata={"source": "fixture", "record_count": str(sum(len(self.store.read_jsonl(path)) for path in raw_paths.values()))},
+            paths=[raw_path],
+            metadata={"source": "fixture", "record_count": str(len(rows))},
         )
-        raw_manifest_path = self.paths.manifest("ingest", "fixture-raw")
+        raw_manifest_path = self.paths.manifest("ingest", "fixture-order-flow-raw")
         self.store.write_manifest(raw_manifest_path, raw_manifest)
 
-        normalized_counts = {
-            "entities": len(bundle.entities),
-            "documents": len(bundle.documents),
-            "sec_filings": len(bundle.sec_filings),
-            "market_data": len(bundle.market_data),
-        }
-        quality_summary = {
-            "duplicate_records": 0,
-            "quarantined_records": len(bundle.bad_records),
-        }
+        quality_summary = {"duplicate_records": 0, "quarantined_records": len(bundle.bad_records)}
         normalization_manifest = Manifest(
-            manifest_id="fixture-normalized",
+            manifest_id="fixture-order-flow-normalized",
             artifact_type="normalized",
-            paths=list(normalized_paths.values()) + [quarantine_path],
+            paths=[normalized_path, quarantine_path],
             metadata={
                 "source_manifest_id": raw_manifest.manifest_id,
-                "duplicate_records": str(quality_summary["duplicate_records"]),
+                "order_flow": str(len(rows)),
                 "quarantined_records": str(quality_summary["quarantined_records"]),
             },
         )
-        normalization_manifest_path = self.paths.manifest("normalization", "fixture-normalized")
+        normalization_manifest_path = self.paths.manifest("normalization", "fixture-order-flow-normalized")
         self.store.write_manifest(normalization_manifest_path, normalization_manifest)
 
         return IngestResult(
             raw_manifest_path=raw_manifest_path,
             normalization_manifest_path=normalization_manifest_path,
-            normalized_counts=normalized_counts,
+            normalized_counts={"order_flow": len(rows)},
             quality_summary=quality_summary,
         )

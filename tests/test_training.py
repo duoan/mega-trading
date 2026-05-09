@@ -11,7 +11,7 @@ from mega_trading.core.store import LocalObjectStore
 from mega_trading.dataset import row_to_example
 from mega_trading.eval import run_eval
 from mega_trading.events import EventBuilder
-from mega_trading.model import TradingModel
+from mega_trading.model import LlamaAttention, RMSNorm, SwiGLU, TradingModel
 from mega_trading.tokenizer import MarketEventTokenizer
 from mega_trading.trainer import Trainer
 
@@ -20,7 +20,7 @@ class TrainingTests(unittest.TestCase):
     def test_event_builder_writes_token_shards_and_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_market_data(root)
+            _write_order_flow(root)
             store = LocalObjectStore(root)
 
             result = EventBuilder(
@@ -28,30 +28,65 @@ class TrainingTests(unittest.TestCase):
                 BuildConfig(block_size=8, stride=4, min_events_per_ticker=5),
             ).build()
             profile = json.loads(root.joinpath(result.profile_path).read_text(encoding="utf-8"))
+            tokenizer = json.loads(root.joinpath(result.tokenizer_path).read_text(encoding="utf-8"))
             first_sequence = json.loads(root.joinpath(result.shard_path).read_text(encoding="utf-8").splitlines()[0])
 
-            self.assertEqual(profile["stream_contract"], "market-event-token-v1")
+            self.assertEqual(profile["stream_contract"], "paper-order-flow-token-v1")
+            self.assertEqual(profile["feature_order"], ["action", "side", "relative_price", "price_depth", "size", "time"])
+            self.assertEqual(profile["event_size"], 1)
+            self.assertEqual(tokenizer["type"], "paper-order-flow-composite")
             self.assertGreater(profile["event_count"], 10)
             self.assertGreater(profile["sequence_count"], 1)
             self.assertEqual(len(first_sequence["tokens"]), 9)
 
     def test_tokenizer_is_deterministic_and_model_forward_shapes(self) -> None:
-        tokenizer = MarketEventTokenizer()
+        events = [
+            {
+                "side": "buy" if index % 2 else "sell",
+                "action": "add" if index % 3 else "delete",
+                "relative_price_bps": float(index - 5),
+                "price_depth_bps": float(index + 1),
+                "size": float(100 + index),
+                "interarrival_seconds": 1.0,
+            }
+            for index in range(10)
+        ]
+        tokenizer = MarketEventTokenizer.fit(events, relative_price_bins=4, price_bins=4, size_bins=4, time_bins=2)
         event = {
+            "action": "add",
             "side": "buy",
-            "return_bps": 42.0,
-            "range_bps": 80.0,
-            "gap_bps": 5.0,
-            "log_volume_ratio": 0.25,
-            "dt_days": 1,
-            "weekday": 2,
+            "relative_price_bps": 4.2,
+            "price_depth_bps": 4.2,
+            "size": 128.0,
+            "interarrival_seconds": 1.0,
         }
         tokens = tokenizer.encode_event(event)
         model = TradingModel(vocab_size=tokenizer.vocab_size, block_size=8, hidden_dim=16, layers=1, attention_heads=2)
         logits = model(torch.tensor([tokens[:8]], dtype=torch.long))
 
         self.assertEqual(tokens, tokenizer.encode_event(event))
+        self.assertEqual(len(tokens), 1)
+        self.assertIsNotNone(tokenizer.price_depth_value(tokens[0]))
         self.assertEqual(logits.shape, (1, len(tokens[:8]), tokenizer.vocab_size))
+
+    def test_model_uses_llama_style_decoder_blocks(self) -> None:
+        tokenizer = MarketEventTokenizer()
+        model = TradingModel(
+            vocab_size=tokenizer.vocab_size,
+            block_size=8,
+            hidden_dim=16,
+            layers=1,
+            attention_heads=4,
+            kv_heads=2,
+            intermediate_dim=32,
+        )
+        block = model.blocks[0]
+
+        self.assertIsInstance(model.norm, RMSNorm)
+        self.assertFalse(hasattr(model, "position_embedding"))
+        self.assertIsInstance(block.attention, LlamaAttention)
+        self.assertEqual(block.attention.kv_heads, 2)
+        self.assertIsInstance(block.feed_forward, SwiGLU)
 
     def test_dataset_row_maps_to_next_token_example(self) -> None:
         example = row_to_example({"tokens": [1, 3, 4, 5]})
@@ -62,7 +97,7 @@ class TrainingTests(unittest.TestCase):
     def test_trainer_and_eval_smoke_write_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_market_data(root)
+            _write_order_flow(root)
             store = LocalObjectStore(root)
             EventBuilder(
                 store,
@@ -97,7 +132,7 @@ class TrainingTests(unittest.TestCase):
     def test_cli_build_train_eval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_market_data(root)
+            _write_order_flow(root)
 
             self.assertEqual(
                 main(
@@ -151,26 +186,28 @@ class TrainingTests(unittest.TestCase):
             self.assertTrue((root / "evals/train-cli/report.json").exists())
 
 
-def _write_market_data(root: Path) -> None:
-    target = root / "stage=02_normalized/family=market_data/source=yahoo.jsonl"
+def _write_order_flow(root: Path) -> None:
+    target = root / "stage=02_normalized/family=order_flow/source=hf_ohlcv_1m.jsonl"
     target.parent.mkdir(parents=True)
     rows = []
     for ticker_index, ticker in enumerate(("AAPL", "MSFT")):
-        base = 100.0 + ticker_index * 20.0
-        for day in range(1, 16):
-            close = base + day * (1.0 + 0.1 * ticker_index) + ((-1) ** day) * 0.3
+        for index in range(20):
             rows.append(
                 {
-                    "market_data_id": f"yahoo-{ticker}-2024-01-{day:02d}",
+                    "event_id": f"event-{ticker}-{index:04d}",
                     "ticker": ticker,
-                    "date": f"2024-01-{day:02d}",
-                    "open": close - 0.2,
-                    "high": close + 0.8,
-                    "low": close - 0.7,
-                    "adjusted_close": close,
-                    "volume": 1_000_000 + day * 10_000 + ticker_index * 5_000,
-                    "provider": "yahoo",
-                    "source_ids": [f"yahoo-{ticker}-2024-01-{day:02d}"],
+                    "timestamp": f"2024-01-02T14:{30 + index:02d}:00Z",
+                    "date": "2024-01-02",
+                    "action": "add" if index % 3 else "delete",
+                    "side": "buy" if (index + ticker_index) % 2 == 0 else "sell",
+                    "midprice": 100.0 + ticker_index * 10.0 + index * 0.01,
+                    "relative_price_bps": float((1 if (index + ticker_index) % 2 == 0 else -1) * (1 + index % 8)),
+                    "price_depth_bps": float(1 + (index % 8) * 2 + ticker_index),
+                    "size": float(1.0 + index * 0.1 + ticker_index * 0.05),
+                    "interarrival_seconds": 60.0,
+                    "provider": "hf_ohlcv_1m",
+                    "source_ids": [f"hf:{ticker}:{index:04d}"],
+                    "midprice_return_bps": float((1 if index % 2 else -1) * (index % 5)),
                 }
             )
     target.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")

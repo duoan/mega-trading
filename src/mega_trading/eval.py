@@ -28,6 +28,7 @@ def run_eval(
 ) -> EvalResult:
     shard_path = f"stage=05_shards/mixture={mixture_name}/tokens.jsonl"
     profile = store.read_json(f"stage=05_shards/mixture={mixture_name}/tokens-profile.json")
+    tokenizer = MarketEventTokenizer.from_dict(store.read_json(str(profile["tokenizer_path"])))
     checkpoint = torch.load(store.root / f"runs/{run_id}/checkpoint.pt", map_location="cpu")
     model = TradingModel(
         vocab_size=int(profile["vocab_size"]),
@@ -41,48 +42,50 @@ def run_eval(
     resolved_device = _resolve_device(device)
     model.to(resolved_device)
 
-    real_returns = _return_values_from_rows(store, shard_path, limit=rollouts)
-    generated_returns = _generate_returns(model, resolved_device, int(profile["block_size"]), rollouts, generated_tokens)
+    real_depths = _price_depth_values_from_rows(store, shard_path, tokenizer, limit=rollouts)
+    generated_depths = _generate_depths(model, tokenizer, resolved_device, int(profile["block_size"]), rollouts, generated_tokens)
     report = {
         "stage": "eval",
         "run_id": run_id,
         "mixture": mixture_name,
-        "real": _stylized_facts(real_returns),
-        "generated": _stylized_facts(generated_returns),
-        "distribution_l1": _distribution_l1(real_returns, generated_returns),
+        "feature": "price_depth_bps",
+        "real": _stylized_facts(real_depths),
+        "generated": _stylized_facts(generated_depths),
+        "distribution_l1": _distribution_l1(real_depths, generated_depths),
     }
     report_path = ArtifactPaths().eval(run_id, "report")
     store.write_json(report_path, report)
     return EvalResult(report_path=report_path)
 
 
-def _generate_returns(
+def _generate_depths(
     model: TradingModel,
+    tokenizer: MarketEventTokenizer,
     device: torch.device,
     block_size: int,
     rollouts: int,
     generated_tokens: int,
 ) -> list[float]:
-    tokenizer = MarketEventTokenizer()
-    returns: list[float] = []
+    depths: list[float] = []
     seeds = torch.full((rollouts, 1), BOS_TOKEN, dtype=torch.long, device=device)
     tokens = model.generate(seeds, max_new_tokens=generated_tokens)
     for row in tokens.cpu().tolist():
         for token in row[: block_size + 1]:
-            value = tokenizer.return_bucket_value(int(token))
+            value = tokenizer.price_depth_value(int(token))
             if value is not None:
-                returns.append(value)
-    return returns
+                depths.append(value)
+    return depths
 
 
-def _return_values_from_rows(store: LocalObjectStore, shard_path: str, limit: int) -> list[float]:
-    tokenizer = MarketEventTokenizer()
+def _price_depth_values_from_rows(
+    store: LocalObjectStore, shard_path: str, tokenizer: MarketEventTokenizer, limit: int
+) -> list[float]:
     values: list[float] = []
     for index, row in enumerate(store.iter_jsonl(shard_path)):
         if index >= limit:
             break
         for token in row["tokens"]:
-            value = tokenizer.return_bucket_value(int(token))
+            value = tokenizer.price_depth_value(int(token))
             if value is not None:
                 values.append(value)
     return values
