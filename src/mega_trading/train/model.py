@@ -4,8 +4,22 @@ from __future__ import annotations
 
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from mega_trading.train.config import RETURN_LABELS, RISK_LABELS
+
+
+class SwiGLU(nn.Module):
+    """Gated feed-forward block used in modern transformer FFNs."""
+
+    def __init__(self, d_model: int, d_ff: int) -> None:
+        super().__init__()
+        self.w1 = nn.Linear(d_model, d_ff)
+        self.w2 = nn.Linear(d_ff, d_model)
+        self.w3 = nn.Linear(d_model, d_ff)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
 class TradingFoundationModel(nn.Module):
@@ -34,12 +48,8 @@ class TradingFoundationModel(nn.Module):
         self.evidence_proj = nn.Linear(1, hidden_dim)
         self.cross_attention = nn.MultiheadAttention(hidden_dim, num_heads=attention_heads, batch_first=True)
         self.norm = nn.LayerNorm(hidden_dim)
-        self.output_ffn = nn.Sequential(
-            nn.Linear(hidden_dim * 3, hidden_dim * 4),
-            nn.SiLU(),
-            nn.Linear(hidden_dim * 4, hidden_dim),
-            nn.SiLU(),
-        )
+        self.fusion_proj = nn.Linear(hidden_dim * 3, hidden_dim)
+        self.output_ffn = SwiGLU(hidden_dim, hidden_dim * 4)
         self.return_head = nn.Linear(hidden_dim, len(RETURN_LABELS))
         self.risk_head = nn.Linear(hidden_dim, len(RISK_LABELS))
         self.price_window_size = price_window_size
@@ -73,5 +83,6 @@ class TradingFoundationModel(nn.Module):
 
         fundamental_repr = fundamental_tokens.mean(dim=1) if fundamental_tokens is not None else zero_repr
         evidence_repr = evidence_tokens.mean(dim=1) if evidence_tokens is not None else zero_repr
-        fused = self.output_ffn(torch.cat([price_repr, fundamental_repr, evidence_repr], dim=1))
+        fused = self.fusion_proj(torch.cat([price_repr, fundamental_repr, evidence_repr], dim=1))
+        fused = self.output_ffn(fused)
         return self.return_head(fused), self.risk_head(fused)
