@@ -115,6 +115,7 @@ def _run_train_config(config: DictConfig):
         run_id=str(config.run.run_id),
         max_steps=int(config.training.max_steps),
         hidden_dim=int(config.model.hidden_dim),
+        attention_heads=int(config.model.attention_heads),
         batch_size=int(config.training.batch_size),
         learning_rate=float(config.training.learning_rate),
         price_window_size=_optional_int(config.model.price_window_size),
@@ -183,6 +184,7 @@ def _ablation_summary(run_name: str, config: DictConfig, manifest_path: str) -> 
         },
         "model": {
             "hidden_dim": int(config.model.hidden_dim),
+            "attention_heads": int(config.model.attention_heads),
         },
         "final_metrics": final_metrics,
     }

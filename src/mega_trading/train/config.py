@@ -18,6 +18,7 @@ class TradingFoundationTrainConfig:
     run_id: str
     max_steps: int
     hidden_dim: int = 32
+    attention_heads: int = 4
     batch_size: int = 8
     learning_rate: float = 1e-3
     price_window_size: int | None = None
@@ -34,6 +35,10 @@ class TradingFoundationTrainConfig:
             raise ValueError("max_steps must be positive")
         if self.hidden_dim <= 0:
             raise ValueError("hidden_dim must be positive")
+        if self.attention_heads <= 0:
+            raise ValueError("attention_heads must be positive")
+        if self.hidden_dim % self.attention_heads != 0:
+            raise ValueError("hidden_dim must be divisible by attention_heads")
         if self.batch_size <= 0:
             raise ValueError("batch_size must be positive")
         if self.learning_rate <= 0:
@@ -47,6 +52,7 @@ class TradingFoundationTrainConfig:
                 "run_id": self.run_id,
                 "max_steps": self.max_steps,
                 "hidden_dim": self.hidden_dim,
+                "attention_heads": self.attention_heads,
                 "batch_size": self.batch_size,
                 "learning_rate": self.learning_rate,
                 "price_window_size": self.price_window_size,

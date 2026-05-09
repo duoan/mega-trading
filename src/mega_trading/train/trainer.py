@@ -37,6 +37,7 @@ class TradingFoundationTrainer:
         model = TradingFoundationModel(
             *sizes,
             hidden_dim=self.config.hidden_dim,
+            attention_heads=self.config.attention_heads,
             use_price=self.config.use_price,
             use_fundamentals=self.config.use_fundamentals,
             use_evidence=self.config.use_evidence,
@@ -92,6 +93,7 @@ class TradingFoundationTrainer:
                     "fundamentals": self.config.use_fundamentals,
                     "evidence": self.config.use_evidence,
                 },
+                "attention_heads": self.config.attention_heads,
                 "step": self.config.max_steps,
                 "shard_path": shard_path,
             },
@@ -106,6 +108,7 @@ class TradingFoundationTrainer:
                 "steps": str(self.config.max_steps),
                 "shard_path": shard_path,
                 "stream_contract": "price_fundamental_text",
+                "attention_heads": str(self.config.attention_heads),
                 "use_price": str(self.config.use_price),
                 "use_fundamentals": str(self.config.use_fundamentals),
                 "use_evidence": str(self.config.use_evidence),

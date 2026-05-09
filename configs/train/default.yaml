@@ -10,6 +10,7 @@ run:
 
 model:
   hidden_dim: 32
+  attention_heads: 4
   price_window_size: null
   fundamental_size: null
   evidence_size: null

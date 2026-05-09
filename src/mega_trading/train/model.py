@@ -17,6 +17,7 @@ class TradingFoundationModel(nn.Module):
         fundamental_size: int,
         evidence_size: int,
         hidden_dim: int,
+        attention_heads: int = 4,
         use_price: bool = True,
         use_fundamentals: bool = True,
         use_evidence: bool = True,
@@ -24,16 +25,20 @@ class TradingFoundationModel(nn.Module):
         super().__init__()
         if not (use_price or use_fundamentals or use_evidence):
             raise ValueError("at least one modality must be enabled")
+        if attention_heads <= 0:
+            raise ValueError("attention_heads must be positive")
+        if hidden_dim % attention_heads != 0:
+            raise ValueError("hidden_dim must be divisible by attention_heads")
         self.price_proj = nn.Linear(2, hidden_dim)
         self.fundamental_proj = nn.Linear(1, hidden_dim)
         self.evidence_proj = nn.Linear(1, hidden_dim)
-        self.cross_attention = nn.MultiheadAttention(hidden_dim, num_heads=1, batch_first=True)
+        self.cross_attention = nn.MultiheadAttention(hidden_dim, num_heads=attention_heads, batch_first=True)
         self.norm = nn.LayerNorm(hidden_dim)
-        self.fusion = nn.Sequential(
-            nn.Linear(hidden_dim * 3, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+        self.output_ffn = nn.Sequential(
+            nn.Linear(hidden_dim * 3, hidden_dim * 4),
+            nn.SiLU(),
+            nn.Linear(hidden_dim * 4, hidden_dim),
+            nn.SiLU(),
         )
         self.return_head = nn.Linear(hidden_dim, len(RETURN_LABELS))
         self.risk_head = nn.Linear(hidden_dim, len(RISK_LABELS))
@@ -41,6 +46,7 @@ class TradingFoundationModel(nn.Module):
         self.fundamental_size = fundamental_size
         self.evidence_size = evidence_size
         self.hidden_dim = hidden_dim
+        self.attention_heads = attention_heads
         self.use_price = use_price
         self.use_fundamentals = use_fundamentals
         self.use_evidence = use_evidence
@@ -67,5 +73,5 @@ class TradingFoundationModel(nn.Module):
 
         fundamental_repr = fundamental_tokens.mean(dim=1) if fundamental_tokens is not None else zero_repr
         evidence_repr = evidence_tokens.mean(dim=1) if evidence_tokens is not None else zero_repr
-        fused = self.fusion(torch.cat([price_repr, fundamental_repr, evidence_repr], dim=1))
+        fused = self.output_ffn(torch.cat([price_repr, fundamental_repr, evidence_repr], dim=1))
         return self.return_head(fused), self.risk_head(fused)

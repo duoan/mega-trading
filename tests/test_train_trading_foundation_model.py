@@ -36,6 +36,8 @@ class TradingFoundationModelTests(unittest.TestCase):
 
         self.assertEqual(return_logits.shape, torch.Size([2, 3]))
         self.assertEqual(risk_logits.shape, torch.Size([2, 3]))
+        self.assertEqual(model.cross_attention.num_heads, 4)
+        self.assertIsInstance(model.output_ffn[1], torch.nn.SiLU)
 
     def test_model_supports_modality_ablation(self) -> None:
         model = TradingFoundationModel(
@@ -58,6 +60,16 @@ class TradingFoundationModelTests(unittest.TestCase):
         self.assertEqual(return_logits.shape, torch.Size([2, 3]))
         self.assertEqual(risk_logits.shape, torch.Size([2, 3]))
 
+    def test_model_requires_hidden_dim_divisible_by_attention_heads(self) -> None:
+        with self.assertRaises(ValueError):
+            TradingFoundationModel(
+                price_window_size=4,
+                fundamental_size=3,
+                evidence_size=5,
+                hidden_dim=10,
+                attention_heads=4,
+            )
+
     def test_config_requires_at_least_one_modality(self) -> None:
         with self.assertRaises(ValueError):
             TradingFoundationTrainConfig(
@@ -67,6 +79,10 @@ class TradingFoundationModelTests(unittest.TestCase):
                 use_fundamentals=False,
                 use_evidence=False,
             )
+
+    def test_config_requires_attention_heads_to_divide_hidden_dim(self) -> None:
+        with self.assertRaises(ValueError):
+            TradingFoundationTrainConfig(run_id="bad", max_steps=1, hidden_dim=10, attention_heads=4)
 
     def test_trainer_consumes_stream_shards_and_writes_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -88,6 +104,7 @@ class TradingFoundationModelTests(unittest.TestCase):
             self.assertIn("loss", metrics[-1])
             self.assertTrue((Path(tmp) / result.checkpoint_path).exists())
             self.assertEqual(manifest.metadata["stage"], "trading_foundation_model")
+            self.assertEqual(manifest.metadata["attention_heads"], "4")
             self.assertEqual(manifest.metadata["use_price"], "True")
 
 
