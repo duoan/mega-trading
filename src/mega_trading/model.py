@@ -1,15 +1,16 @@
-"""Decoder-only Transformer baseline for market event modeling."""
+"""Llama-style decoder-only Transformer for order-flow event modeling."""
 
 from __future__ import annotations
 
 import math
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 
 class TradingModel(nn.Module):
-    """Small causal Transformer trained with next-token cross entropy."""
+    """Small Llama-style causal Transformer trained with next-token cross entropy."""
 
     def __init__(
         self,
@@ -18,37 +19,51 @@ class TradingModel(nn.Module):
         hidden_dim: int = 128,
         layers: int = 4,
         attention_heads: int = 4,
+        kv_heads: int | None = None,
+        intermediate_dim: int | None = None,
         dropout: float = 0.1,
+        rope_theta: float = 500_000.0,
+        norm_eps: float = 1e-5,
     ) -> None:
         super().__init__()
+        if hidden_dim % attention_heads != 0:
+            raise ValueError("hidden_dim must be divisible by attention_heads")
+        kv_heads = kv_heads or attention_heads
+        if attention_heads % kv_heads != 0:
+            raise ValueError("attention_heads must be divisible by kv_heads")
         self.vocab_size = vocab_size
         self.block_size = block_size
+        self.hidden_dim = hidden_dim
+        self.attention_heads = attention_heads
+        self.kv_heads = kv_heads
         self.token_embedding = nn.Embedding(vocab_size, hidden_dim)
-        self.position_embedding = nn.Embedding(block_size, hidden_dim)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=attention_heads,
-            dim_feedforward=hidden_dim * 4,
-            dropout=dropout,
-            activation="gelu",
-            batch_first=True,
-            norm_first=True,
+        self.blocks = nn.ModuleList(
+            [
+                LlamaDecoderBlock(
+                    hidden_dim=hidden_dim,
+                    attention_heads=attention_heads,
+                    kv_heads=kv_heads,
+                    intermediate_dim=intermediate_dim,
+                    dropout=dropout,
+                    rope_theta=rope_theta,
+                    norm_eps=norm_eps,
+                )
+                for _ in range(layers)
+            ]
         )
-        self.blocks = nn.TransformerEncoder(encoder_layer, num_layers=layers)
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.output = nn.Linear(hidden_dim, vocab_size)
+        self.norm = RMSNorm(hidden_dim, eps=norm_eps)
+        self.output = nn.Linear(hidden_dim, vocab_size, bias=False)
+        self.output.weight = self.token_embedding.weight
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         if input_ids.ndim != 2:
             raise ValueError("input_ids must have shape [batch, time]")
-        batch_size, sequence_length = input_ids.shape
+        _batch_size, sequence_length = input_ids.shape
         if sequence_length > self.block_size:
             raise ValueError(f"sequence length {sequence_length} exceeds block_size {self.block_size}")
-        positions = torch.arange(sequence_length, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
-        hidden = self.token_embedding(input_ids) + self.position_embedding(positions)
-        hidden = hidden * math.sqrt(self.token_embedding.embedding_dim)
-        mask = _causal_mask(sequence_length, input_ids.device)
-        hidden = self.blocks(hidden, mask=mask)
+        hidden = self.token_embedding(input_ids)
+        for block in self.blocks:
+            hidden = block(hidden)
         return self.output(self.norm(hidden))
 
     @torch.no_grad()
@@ -67,5 +82,124 @@ class TradingModel(nn.Module):
         return tokens
 
 
-def _causal_mask(sequence_length: int, device: torch.device) -> torch.Tensor:
-    return torch.triu(torch.ones(sequence_length, sequence_length, dtype=torch.bool, device=device), diagonal=1)
+class LlamaDecoderBlock(nn.Module):
+    """Pre-norm decoder block with RoPE attention and SwiGLU MLP."""
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        attention_heads: int,
+        kv_heads: int,
+        intermediate_dim: int | None,
+        dropout: float,
+        rope_theta: float,
+        norm_eps: float,
+    ) -> None:
+        super().__init__()
+        self.attention_norm = RMSNorm(hidden_dim, eps=norm_eps)
+        self.attention = LlamaAttention(
+            hidden_dim=hidden_dim,
+            attention_heads=attention_heads,
+            kv_heads=kv_heads,
+            dropout=dropout,
+            rope_theta=rope_theta,
+        )
+        self.ffn_norm = RMSNorm(hidden_dim, eps=norm_eps)
+        self.feed_forward = SwiGLU(hidden_dim, intermediate_dim or _llama_intermediate_dim(hidden_dim), dropout)
+
+    def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+        hidden = hidden + self.attention(self.attention_norm(hidden))
+        return hidden + self.feed_forward(self.ffn_norm(hidden))
+
+
+class LlamaAttention(nn.Module):
+    """Causal self-attention with rotary positions and optional grouped-query attention."""
+
+    def __init__(
+        self,
+        hidden_dim: int,
+        attention_heads: int,
+        kv_heads: int,
+        dropout: float,
+        rope_theta: float,
+    ) -> None:
+        super().__init__()
+        self.attention_heads = attention_heads
+        self.kv_heads = kv_heads
+        self.head_dim = hidden_dim // attention_heads
+        self.repeats = attention_heads // kv_heads
+        self.q_proj = nn.Linear(hidden_dim, attention_heads * self.head_dim, bias=False)
+        self.k_proj = nn.Linear(hidden_dim, kv_heads * self.head_dim, bias=False)
+        self.v_proj = nn.Linear(hidden_dim, kv_heads * self.head_dim, bias=False)
+        self.o_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.dropout = dropout
+        self.rope_theta = rope_theta
+
+    def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+        batch_size, sequence_length, hidden_dim = hidden.shape
+        query = self.q_proj(hidden).view(batch_size, sequence_length, self.attention_heads, self.head_dim).transpose(1, 2)
+        key = self.k_proj(hidden).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
+        value = self.v_proj(hidden).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
+        query, key = _apply_rope(query, key, theta=self.rope_theta)
+        if self.repeats > 1:
+            key = key.repeat_interleave(self.repeats, dim=1)
+            value = value.repeat_interleave(self.repeats, dim=1)
+        attended = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=self.dropout if self.training else 0.0,
+            is_causal=True,
+        )
+        attended = attended.transpose(1, 2).contiguous().view(batch_size, sequence_length, hidden_dim)
+        return self.o_proj(attended)
+
+
+class SwiGLU(nn.Module):
+    def __init__(self, hidden_dim: int, intermediate_dim: int, dropout: float) -> None:
+        super().__init__()
+        self.w1 = nn.Linear(hidden_dim, intermediate_dim, bias=False)
+        self.w2 = nn.Linear(intermediate_dim, hidden_dim, bias=False)
+        self.w3 = nn.Linear(hidden_dim, intermediate_dim, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+        return self.w2(self.dropout(F.silu(self.w1(hidden)) * self.w3(hidden)))
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, hidden_dim: int, eps: float = 1e-5) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_dim))
+        self.eps = eps
+
+    def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+        variance = hidden.pow(2).mean(dim=-1, keepdim=True)
+        return self.weight * hidden * torch.rsqrt(variance + self.eps)
+
+
+def _apply_rope(query: torch.Tensor, key: torch.Tensor, theta: float) -> tuple[torch.Tensor, torch.Tensor]:
+    head_dim = query.shape[-1]
+    if head_dim % 2 != 0:
+        raise ValueError("RoPE requires an even head dimension")
+    sequence_length = query.shape[-2]
+    device = query.device
+    dtype = query.dtype
+    positions = torch.arange(sequence_length, device=device, dtype=torch.float32)
+    inv_freq = 1.0 / (theta ** (torch.arange(0, head_dim, 2, device=device, dtype=torch.float32) / head_dim))
+    freqs = torch.outer(positions, inv_freq)
+    cos = freqs.cos().to(dtype).view(1, 1, sequence_length, head_dim // 2)
+    sin = freqs.sin().to(dtype).view(1, 1, sequence_length, head_dim // 2)
+    return _rotate(query, cos, sin), _rotate(key, cos, sin)
+
+
+def _rotate(value: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    even = value[..., 0::2]
+    odd = value[..., 1::2]
+    rotated = torch.stack((even * cos - odd * sin, even * sin + odd * cos), dim=-1)
+    return rotated.flatten(start_dim=-2)
+
+
+def _llama_intermediate_dim(hidden_dim: int) -> int:
+    # Llama-family SwiGLU uses roughly 8/3 d_model, commonly rounded to a hardware-friendly multiple.
+    return int(math.ceil((8 * hidden_dim / 3) / 16) * 16)

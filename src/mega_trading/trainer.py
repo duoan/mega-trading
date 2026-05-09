@@ -1,4 +1,4 @@
-"""Training loop for next-token market event modeling."""
+"""Training loop for next-token order-flow modeling."""
 
 from __future__ import annotations
 
@@ -65,7 +65,11 @@ class Trainer:
             hidden_dim=self.config.hidden_dim,
             layers=self.config.layers,
             attention_heads=self.config.attention_heads,
+            kv_heads=self.config.kv_heads,
+            intermediate_dim=self.config.intermediate_dim,
             dropout=self.config.dropout,
+            rope_theta=self.config.rope_theta,
+            norm_eps=self.config.norm_eps,
         )
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate)
         if validation_loader is None:
@@ -257,6 +261,8 @@ def _init_trackers(
             "hidden_dim": config.hidden_dim,
             "layers": config.layers,
             "attention_heads": config.attention_heads,
+            "kv_heads": config.kv_heads or config.attention_heads,
+            "intermediate_dim": config.intermediate_dim,
             "batch_size": config.batch_size,
             "learning_rate": config.learning_rate,
             "requested_device": config.device,
