@@ -21,6 +21,7 @@ from mega_trading.data.public.sec import SecClient, SecCompanyFactsIngestor
 from mega_trading.data.quality import DataQualityChecker
 from mega_trading.data.samples import MultiStreamSampleBuilder
 from mega_trading.data.tokenize import StreamShardBuilder
+from mega_trading.eval.replay import run_replay_inference
 from mega_trading.train.config import TradingFoundationTrainConfig
 from mega_trading.train.trainer import TradingFoundationTrainer
 
@@ -56,6 +57,13 @@ def build_parser() -> argparse.ArgumentParser:
     ablate.add_argument("--config-dir", default="configs/ablation", help="Hydra config directory for ablation plans")
     ablate.add_argument("--config-name", default="public", help="Hydra ablation config name")
     ablate.add_argument("overrides", nargs="*", help="Hydra overrides for the ablation plan")
+    replay = subparsers.add_parser("replay", help="run historical replay inference and write prediction logs")
+    replay.add_argument("--data-dir", default=".mega-trading/public", help="artifact data directory")
+    replay.add_argument("--mixture", default="public", help="sample/shard mixture name")
+    replay.add_argument("--model-version-id", required=True, help="registered model version id")
+    replay.add_argument("--replay-id", default="replay", help="prediction replay run id")
+    replay.add_argument("--max-predictions", type=int, default=None, help="optional cap for smoke replays")
+    replay.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"], help="inference device")
     return parser
 
 
@@ -89,6 +97,18 @@ def main(argv: list[str] | None = None) -> int:
         config = load_ablation_config(Path(args.config_dir), args.config_name, list(args.overrides))
         report_path = _run_ablation_config(config)
         print(f"wrote ablation summary to {report_path}")
+    elif args.command == "replay":
+        store = LocalObjectStore(Path(args.data_dir))
+        result = run_replay_inference(
+            store,
+            replay_id=args.replay_id,
+            model_version_id=args.model_version_id,
+            shard_path=f"stage=05_shards/mixture={args.mixture}/samples.jsonl",
+            max_predictions=args.max_predictions,
+            device=args.device,
+        )
+        print(f"wrote replay predictions to {args.data_dir}/{result.prediction_path}")
+        print(f"manifest: {result.manifest_path}")
     return 0
 
 
