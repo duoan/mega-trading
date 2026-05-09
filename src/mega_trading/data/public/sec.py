@@ -78,7 +78,7 @@ class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
             raw_rows.append({"ticker": entity["ticker"], "cik": entity["cik"], "payload": facts})
             entities.append(
                 EntityRecord(
-                    entity_id=f"sec-{entity['cik']}",
+                    entity_id=_entity_id(entity),
                     ticker=entity["ticker"],
                     cik=entity["cik"],
                     company_name=entity["company_name"],
@@ -150,7 +150,7 @@ def _fundamentals_from_companyfacts(entity: dict[str, str], payload: dict, conce
                 records.append(
                     FundamentalRecord(
                         fundamental_id=fact_id,
-                        entity_id=f"sec-{entity['cik']}",
+                        entity_id=_entity_id(entity),
                         ticker=entity["ticker"],
                         concept=label,
                         value=float(fact["val"]),
@@ -181,6 +181,10 @@ def _fundamental_id(entity: dict[str, str], concept: str, unit: str, fact: dict)
         "accn": fact.get("accn"),
     }
     return f"sec-{entity['ticker']}-{stable_hash(identity)[:16]}"
+
+
+def _entity_id(entity: dict[str, str]) -> str:
+    return f"sec-{entity['cik']}-{entity['ticker']}"
 
 
 def _fetch_json(url: str, user_agent: str) -> dict:

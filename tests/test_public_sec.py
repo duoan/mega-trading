@@ -148,6 +148,24 @@ class SecClientTests(unittest.TestCase):
 
             self.assertEqual(len({row["fundamental_id"] for row in fundamentals}), 2)
 
+    def test_sec_entity_ids_include_ticker_for_share_classes(self) -> None:
+        def fetch_json(url: str, _user_agent: str) -> dict:
+            if url.endswith("/company_tickers.json"):
+                return {
+                    "0": {"cik_str": 1652044, "ticker": "GOOG", "title": "Alphabet Inc."},
+                    "1": {"cik_str": 1652044, "ticker": "GOOGL", "title": "Alphabet Inc."},
+                }
+            return {"facts": {"us-gaap": {}}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalObjectStore(Path(tmp))
+            client = SecClient(user_agent="Mega-Trading test@example.com", fetch_json=fetch_json)
+
+            SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("GOOG", "GOOGL")))
+            entities = store.read_jsonl("stage=02_normalized/family=entities/source=sec.jsonl")
+
+            self.assertEqual({row["entity_id"] for row in entities}, {"sec-0001652044-GOOG", "sec-0001652044-GOOGL"})
+
 
 if __name__ == "__main__":
     unittest.main()
