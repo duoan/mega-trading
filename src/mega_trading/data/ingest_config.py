@@ -19,7 +19,7 @@ class IngestSourceConfig:
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("ingest source name is required")
-        if not self.tickers:
+        if self.name != "fixture" and not self.tickers:
             raise ValueError(f"ingest source {self.name} requires tickers")
         if self.name in {"yahoo_market_data", "stooq_market_data"} and (not self.start or not self.end):
             raise ValueError(f"market_data source {self.name} requires start and end")

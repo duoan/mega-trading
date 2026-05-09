@@ -50,6 +50,17 @@ end = "2024-03-31"
                 }
             )
 
+    def test_fixture_source_does_not_require_tickers(self) -> None:
+        config = IngestPipelineConfig.from_dict(
+            {
+                "output_dir": ".mega-trading/demo",
+                "sources": [{"name": "fixture"}],
+            }
+        )
+
+        self.assertEqual(config.sources[0].name, "fixture")
+        self.assertEqual(config.sources[0].tickers, ())
+
     def test_loads_source_tickers_from_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

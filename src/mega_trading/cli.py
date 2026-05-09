@@ -12,7 +12,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.enrich import DataEnricher
-from mega_trading.data.ingest import MarketDataIngestRequest, TickerIngestRequest
+from mega_trading.data.ingest import FixtureIngestor, MarketDataIngestRequest, TickerIngestRequest
 from mega_trading.data.ingest_config import IngestPipelineConfig, IngestSourceConfig, load_ingest_config
 from mega_trading.data.labels import LabelConfig
 from mega_trading.data.lance_store import LanceTableStore
@@ -331,7 +331,9 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
     table_store = LanceTableStore(Path(config.output_dir) / "lancedb")
     normalization_manifests: list[str] = []
     for source in config.enabled_sources():
-        if source.name == "sec_filings":
+        if source.name == "fixture":
+            result = FixtureIngestor(store, table_store=table_store).ingest()
+        elif source.name == "sec_filings":
             if not config.sec_user_agent:
                 raise ValueError("sec_filings requires ingest.sec_user_agent")
             result = SecFilingsIngestor(store, SecClient(user_agent=config.sec_user_agent), table_store=table_store).ingest(

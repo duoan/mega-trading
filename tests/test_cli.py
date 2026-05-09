@@ -271,6 +271,40 @@ end = "2023-01-31"
             self.assertTrue((output_dir / "stage=04_corpus/mixture=public/samples.jsonl").exists())
             self.assertTrue((output_dir / "stage=05_shards/mixture=public/samples.jsonl").exists())
 
+    def test_ingest_command_runs_fixture_demo_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "ingest-demo.toml"
+            output_dir = Path(tmp) / "demo"
+            config_path.write_text(
+                f"""
+[ingest]
+output_dir = "{output_dir}"
+
+[ingest.quality]
+enabled = true
+fail_on_error = true
+
+[ingest.training_data]
+enabled = true
+mixture_name = "demo"
+input_window_observations = 2
+horizon_observations = 2
+return_threshold = 0.05
+
+[[ingest.sources]]
+name = "fixture"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            exit_code = main(["ingest", "--config", str(config_path)])
+            samples = (output_dir / "stage=05_shards/mixture=demo/samples.jsonl").read_text(encoding="utf-8")
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((output_dir / "reports/data-readiness.json").exists())
+            self.assertIn("market_returns", samples)
+
     def test_train_config_applies_hydra_overrides(self) -> None:
         config = load_train_config(
             Path("configs/train"),

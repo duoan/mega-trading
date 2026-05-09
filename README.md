@@ -14,6 +14,8 @@ make test
 make demo
 ```
 
+`make demo` is the no-network Day 1 path: it ingests deterministic fixture market and SEC filing data, runs readiness checks, builds samples/shards, and trains one CPU step.
+
 Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, and multi-stream prediction samples/shards under the output directory:
 
 ```bash
