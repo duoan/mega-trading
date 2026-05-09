@@ -25,6 +25,7 @@ from mega_trading.eval.backtest import BacktestConfig, run_backtest
 from mega_trading.eval.delayed_labels import materialize_delayed_labels
 from mega_trading.eval.replay_buffer import ReplayBufferConfig
 from mega_trading.eval.replay import run_replay_inference
+from mega_trading.serving import FeatureRequest, ModelServer
 from mega_trading.train.config import TradingFoundationTrainConfig
 from mega_trading.train.online import OnlineAdaptationConfig, run_online_adapter_update
 from mega_trading.train.trainer import TradingFoundationTrainer
@@ -86,6 +87,17 @@ def build_parser() -> argparse.ArgumentParser:
     online.add_argument("--base-model-version", required=True, help="base model version to adapt")
     online.add_argument("--update-id", default="online-update", help="online update id")
     online.add_argument("--max-samples", type=int, default=128, help="replay buffer sample budget")
+    serve = subparsers.add_parser("serve-smoke", help="run serving-compatible local inference smoke test")
+    serve.add_argument("--data-dir", default=".mega-trading/public", help="artifact data directory")
+    serve.add_argument("--model-version-id", required=True, help="registered model version id")
+    serve.add_argument(
+        "--shard-path",
+        default="stage=05_shards/mixture=public/samples.jsonl",
+        help="feature shard path to read one request from",
+    )
+    serve.add_argument("--sample-id", default=None, help="optional sample id to serve")
+    serve.add_argument("--out", default="replay/serve-smoke/response.json", help="output response artifact path")
+    serve.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"], help="inference device")
     return parser
 
 
@@ -167,6 +179,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"wrote online adapter update to {args.data_dir}/{result.adapter_path}")
         print(f"manifest: {result.manifest_path}")
+    elif args.command == "serve-smoke":
+        store = LocalObjectStore(Path(args.data_dir))
+        row = _first_matching_row(store, args.shard_path, args.sample_id)
+        response = ModelServer(store, args.model_version_id, device=args.device).predict(FeatureRequest.from_shard_row(row))
+        store.write_json(args.out, response.to_dict())
+        print(f"wrote serving smoke response to {args.data_dir}/{args.out}")
     return 0
 
 
@@ -293,6 +311,13 @@ def _distribution(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
         label = str(row.get(field, ""))
         counts[label] = counts.get(label, 0) + 1
     return dict(sorted(counts.items()))
+
+
+def _first_matching_row(store: LocalObjectStore, path: str, sample_id: str | None) -> dict[str, Any]:
+    for row in store.iter_jsonl(path):
+        if sample_id is None or str(row.get("sample_id")) == sample_id:
+            return row
+    raise ValueError(f"sample_id not found in {path}: {sample_id}")
 
 
 def _run_ingest_config(config: IngestPipelineConfig) -> None:
