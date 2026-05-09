@@ -16,6 +16,7 @@ sequence_length = 32
 input_window_observations = 60
 horizon_observations = 20
 return_threshold = 0.02
+workers = 8
 
 [[ingest.sources]]
 name = "sec_companyfacts"

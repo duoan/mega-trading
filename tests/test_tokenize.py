@@ -16,19 +16,20 @@ class TokenizeTests(unittest.TestCase):
     def test_stream_shard_builder_writes_compact_model_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            store.write_jsonl("stage=04_corpus/mixture=public/samples.jsonl", [_sample()])
+            store.write_jsonl("stage=04_corpus/mixture=public/samples.jsonl", [_sample(), _sample("sample-ACME-2024-01-03")])
 
-            result = StreamShardBuilder(store).build("public")
+            result = StreamShardBuilder(store, num_workers=2).build("public")
             rows = store.read_jsonl(result.shard_path)
             manifest = store.read_manifest(result.manifest_path)
 
-            self.assertEqual(result.num_samples, 1)
+            self.assertEqual(result.num_samples, 2)
             self.assertEqual(rows[0]["sample_id"], "sample-ACME-2024-01-02")
             self.assertEqual(rows[0]["return_label"], "outperform")
             self.assertEqual(rows[0]["risk_label"], "low")
             self.assertEqual(rows[0]["price_returns"], [0.0, 0.1])
             self.assertEqual(rows[0]["fundamental_values"], [100.0])
             self.assertEqual(manifest.metadata["artifact"], "multi_stream_samples")
+            self.assertEqual(manifest.metadata["workers"], "2")
 
     def test_malformed_sample_fails_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -39,9 +40,9 @@ class TokenizeTests(unittest.TestCase):
                 StreamShardBuilder(store).build("public")
 
 
-def _sample() -> dict[str, object]:
+def _sample(sample_id: str = "sample-ACME-2024-01-02") -> dict[str, object]:
     return {
-        "sample_id": "sample-ACME-2024-01-02",
+        "sample_id": sample_id,
         "ticker": "ACME",
         "as_of_time": "2024-01-02T00:00:00Z",
         "price_window": [

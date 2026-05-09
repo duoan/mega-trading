@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from itertools import islice
+import os
+from typing import Iterable
 
 from mega_trading.core.hashing import stable_hash
 from mega_trading.core.schemas import Manifest
@@ -61,16 +65,19 @@ class StreamShardBuildResult:
 class StreamShardBuilder:
     """Build compact numeric shards for TradingFoundationModel training."""
 
-    def __init__(self, store: LocalObjectStore) -> None:
+    def __init__(self, store: LocalObjectStore, num_workers: int = 0) -> None:
         self.store = store
+        self.num_workers = num_workers
         self.paths = ArtifactPaths()
 
     def build(self, mixture_name: str) -> StreamShardBuildResult:
         sample_path = self.paths.corpus(mixture_name, "samples")
-        samples = self.store.read_jsonl(sample_path)
-        shard_rows = [_stream_row(row) for row in samples]
+        sample_count = _jsonl_count(self.store, sample_path)
+        workers = _worker_count(self.num_workers, sample_count)
+        if workers > 1:
+            print(f"stream shard build using {workers} workers for {sample_count} samples")
         shard_path = self.paths.shard(mixture_name, "samples")
-        self.store.write_jsonl(shard_path, shard_rows)
+        shard_count = self.store.write_jsonl_iter(shard_path, _shard_rows(self.store.iter_jsonl(sample_path), workers))
 
         manifest = Manifest(
             manifest_id=f"{mixture_name}-samples-shards",
@@ -79,16 +86,32 @@ class StreamShardBuilder:
             metadata={
                 "artifact": "multi_stream_samples",
                 "sample_path": sample_path,
-                "num_samples": str(len(shard_rows)),
+                "num_samples": str(shard_count),
+                "workers": str(workers),
             },
         )
         manifest_path = self.paths.manifest("shards", f"{mixture_name}-samples-shards")
         self.store.write_manifest(manifest_path, manifest)
-        return StreamShardBuildResult(shard_path=shard_path, manifest_path=manifest_path, num_samples=len(shard_rows))
+        return StreamShardBuildResult(shard_path=shard_path, manifest_path=manifest_path, num_samples=shard_count)
 
 
 def _tokens(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+|[^\w\s]", text.lower())
+
+
+def _shard_rows(samples: Iterable[dict[str, object]], workers: int) -> Iterable[dict[str, object]]:
+    if workers <= 1:
+        for sample in samples:
+            yield _stream_row(sample)
+        return
+    chunk_size = 512
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        for rows in executor.map(_stream_rows, _chunks(samples, chunk_size), chunksize=1):
+            yield from rows
+
+
+def _stream_rows(samples: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [_stream_row(sample) for sample in samples]
 
 
 def _stream_row(sample: dict[str, object]) -> dict[str, object]:
@@ -156,3 +179,24 @@ def _evidence_text(evidence: list[dict[str, object]]) -> str:
 
 def _round_feature(value: float) -> float:
     return round(value, 12)
+
+
+def _chunks(rows: Iterable[dict[str, object]], size: int) -> Iterable[list[dict[str, object]]]:
+    iterator = iter(rows)
+    while True:
+        chunk = list(islice(iterator, size))
+        if not chunk:
+            return
+        yield chunk
+
+
+def _jsonl_count(store: LocalObjectStore, path: str) -> int:
+    return sum(1 for _ in store.iter_jsonl(path))
+
+
+def _worker_count(requested_workers: int, task_count: int) -> int:
+    if task_count <= 1:
+        return 1
+    if requested_workers == 0:
+        requested_workers = os.cpu_count() or 1
+    return max(1, min(requested_workers, task_count))

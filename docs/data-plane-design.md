@@ -72,6 +72,7 @@ sequence_length = 32
 input_window_observations = 60
 horizon_observations = 20
 return_threshold = 0.02
+workers = 8
 
 [[ingest.sources]]
 name = "sec_companyfacts"
@@ -93,6 +94,8 @@ Supported source names:
 The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, which quality gates and enrichment steps will run, which trainable samples/shards will be produced, where artifacts will be written, and which source-specific requirements apply.
 
 Sources can use either inline `tickers = [...]` for small experiments or `ticker_file = "universes/sp500.txt"` for larger universes. Ticker files are newline-delimited, support `#` comments, and normalize class-share symbols like `BRK.B` to `BRK-B` for SEC/Yahoo compatibility.
+
+`ingest.training_data.workers` controls local multiprocessing for CPU-heavy sample and shard construction. Set it to `0` to use available cores automatically, or pin it to a fixed value such as `8` for repeatable local runs.
 
 Config-driven ingestion should produce:
 

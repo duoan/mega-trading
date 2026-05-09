@@ -39,12 +39,15 @@ class IngestPipelineConfig:
     training_input_window_observations: int = 20
     training_horizon_observations: int = 20
     training_return_threshold: float = 0.02
+    training_workers: int = 0
 
     def __post_init__(self) -> None:
         if not self.output_dir:
             raise ValueError("ingest output_dir is required")
         if not self.sources:
             raise ValueError("at least one ingest source is required")
+        if self.training_workers < 0:
+            raise ValueError("training_data workers must be non-negative")
 
     @classmethod
     def from_dict(cls, value: dict[str, Any], base_path: Path | None = None) -> "IngestPipelineConfig":
@@ -72,6 +75,7 @@ class IngestPipelineConfig:
             training_input_window_observations=int(training_data.get("input_window_observations", 20)),
             training_horizon_observations=int(training_data.get("horizon_observations", 20)),
             training_return_threshold=float(training_data.get("return_threshold", 0.02)),
+            training_workers=int(training_data.get("workers", 0)),
         )
 
     def enabled_sources(self) -> tuple[IngestSourceConfig, ...]:

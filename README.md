@@ -40,7 +40,7 @@ uv run mega-trading ingest-public \
   --sec-user-agent "your-name your-email@example.com"
 ```
 
-The default checked-in ingest config uses `configs/universes/sp500.txt` and pulls a 10-year S&P 500 price window. Use the shortcut only for quick targeted runs.
+The default checked-in ingest config uses `configs/universes/sp500.txt`, pulls a 10-year S&P 500 price window, and uses multiprocessing for sample/shard construction. Use the shortcut only for quick targeted runs.
 
 ## Documents
 

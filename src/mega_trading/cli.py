@@ -254,6 +254,7 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
                 horizon_observations=config.training_horizon_observations,
                 return_threshold=config.training_return_threshold,
             ),
+            num_workers=config.training_workers,
         ).build(mixture_name=config.training_mixture_name, run_id="configured-ingest")
-        StreamShardBuilder(store).build(config.training_mixture_name)
+        StreamShardBuilder(store, num_workers=config.training_workers).build(config.training_mixture_name)
     print(f"wrote configured ingest artifacts to {config.output_dir}")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 from mega_trading.core.schemas import Manifest
 
@@ -64,16 +64,29 @@ class LocalObjectStore:
         return json.loads(target.read_text(encoding="utf-8"))
 
     def write_jsonl(self, path: str, rows: list[dict[str, Any]]) -> None:
+        self.write_jsonl_iter(path, rows)
+
+    def write_jsonl_iter(self, path: str, rows: Iterable[dict[str, Any]]) -> int:
         target = self._resolve(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        content = "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
-        target.write_text(content, encoding="utf-8")
+        row_count = 0
+        with target.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+                row_count += 1
+        return row_count
 
     def read_jsonl(self, path: str) -> list[dict[str, Any]]:
+        return list(self.iter_jsonl(path))
+
+    def iter_jsonl(self, path: str) -> Iterator[dict[str, Any]]:
         target = self._resolve(path)
         if not target.exists():
             raise ArtifactNotFoundError(path)
-        return [json.loads(line) for line in target.read_text(encoding="utf-8").splitlines() if line]
+        with target.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    yield json.loads(line)
 
     def write_manifest(self, path: str, manifest: Manifest) -> None:
         self.write_json(path, manifest.to_dict())
