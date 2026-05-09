@@ -21,6 +21,7 @@ from mega_trading.data.public.sec import SecClient, SecCompanyFactsIngestor
 from mega_trading.data.quality import DataQualityChecker
 from mega_trading.data.samples import MultiStreamSampleBuilder
 from mega_trading.data.tokenize import StreamShardBuilder
+from mega_trading.eval.delayed_labels import materialize_delayed_labels
 from mega_trading.eval.replay import run_replay_inference
 from mega_trading.train.config import TradingFoundationTrainConfig
 from mega_trading.train.trainer import TradingFoundationTrainer
@@ -64,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--replay-id", default="replay", help="prediction replay run id")
     replay.add_argument("--max-predictions", type=int, default=None, help="optional cap for smoke replays")
     replay.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"], help="inference device")
+    labels = subparsers.add_parser("materialize-labels", help="materialize delayed labels for prediction logs")
+    labels.add_argument("--data-dir", default=".mega-trading/public", help="artifact data directory")
+    labels.add_argument("--mixture", default="public", help="sample/shard mixture name")
+    labels.add_argument("--prediction-path", required=True, help="prediction log artifact path")
+    labels.add_argument("--label-run-id", default="labels", help="delayed label run id")
     return parser
 
 
@@ -108,6 +114,17 @@ def main(argv: list[str] | None = None) -> int:
             device=args.device,
         )
         print(f"wrote replay predictions to {args.data_dir}/{result.prediction_path}")
+        print(f"manifest: {result.manifest_path}")
+    elif args.command == "materialize-labels":
+        store = LocalObjectStore(Path(args.data_dir))
+        result = materialize_delayed_labels(
+            store,
+            label_run_id=args.label_run_id,
+            prediction_path=args.prediction_path,
+            shard_path=f"stage=05_shards/mixture={args.mixture}/samples.jsonl",
+        )
+        print(f"wrote delayed labels to {args.data_dir}/{result.label_path}")
+        print(f"labeled predictions: {result.labeled_prediction_path}")
         print(f"manifest: {result.manifest_path}")
     return 0
 

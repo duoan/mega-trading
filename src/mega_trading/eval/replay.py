@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from mega_trading.core.schemas import Manifest, PredictionRecord
-from mega_trading.core.store import ArtifactPaths, LocalObjectStore
+from mega_trading.core.schemas import PredictionRecord
+from mega_trading.core.store import LocalObjectStore
+from mega_trading.eval.prediction_log import write_prediction_log
 from mega_trading.train.inference import ModelPredictor
 
 
@@ -26,29 +27,23 @@ def run_replay_inference(
     device: str = "auto",
 ) -> ReplayResult:
     predictor = ModelPredictor(store, model_version_id=model_version_id, device=device)
-    paths = ArtifactPaths()
-    prediction_path = paths.predictions(replay_id)
-    count = store.write_jsonl_iter(
-        prediction_path,
-        _prediction_rows(store, predictor, replay_id, shard_path, max_predictions),
-    )
-    manifest = Manifest(
-        manifest_id=f"{replay_id}-prediction-log",
-        artifact_type="prediction_log",
-        paths=[prediction_path],
+    result = write_prediction_log(
+        store,
+        replay_id=replay_id,
+        records=_prediction_records(store, predictor, replay_id, shard_path, max_predictions),
         metadata={
-            "replay_id": replay_id,
             "model_version_id": model_version_id,
             "shard_path": shard_path,
-            "predictions": str(count),
         },
     )
-    manifest_path = paths.manifest("predictions", f"{replay_id}-prediction-log")
-    store.write_manifest(manifest_path, manifest)
-    return ReplayResult(prediction_path=prediction_path, manifest_path=manifest_path, predictions=count)
+    return ReplayResult(
+        prediction_path=result.prediction_path,
+        manifest_path=result.manifest_path,
+        predictions=result.predictions,
+    )
 
 
-def _prediction_rows(
+def _prediction_records(
     store: LocalObjectStore,
     predictor: ModelPredictor,
     replay_id: str,
@@ -83,4 +78,4 @@ def _prediction_rows(
                 "row_index": index,
             },
         )
-        yield record.to_dict()
+        yield record

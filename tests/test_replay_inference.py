@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from mega_trading.core.store import LocalObjectStore
+from mega_trading.eval.delayed_labels import materialize_delayed_labels
 from mega_trading.eval.replay import run_replay_inference
 from mega_trading.train.config import TradingFoundationTrainConfig
 from mega_trading.train.trainer import TradingFoundationTrainer
@@ -52,6 +53,20 @@ class ReplayInferenceTests(unittest.TestCase):
             self.assertIn("confidence", predictions[0])
             self.assertEqual(manifest.metadata["predictions"], "2")
 
+            label_result = materialize_delayed_labels(
+                store,
+                label_run_id="labels-smoke",
+                prediction_path=result.prediction_path,
+                shard_path=shard_path,
+            )
+            labels = store.read_jsonl(label_result.label_path)
+            labeled_predictions = store.read_jsonl(label_result.labeled_prediction_path)
+
+            self.assertEqual(label_result.labels, 2)
+            self.assertEqual(labels[0]["actual_return_bucket"], "outperform")
+            self.assertEqual(labeled_predictions[0]["label_status"], "ready")
+            self.assertEqual(labeled_predictions[0]["actual_risk_bucket"], "low")
+
 
 def _row(sample_id: str, return_label: str, risk_label: str) -> dict[str, object]:
     return {
@@ -64,6 +79,8 @@ def _row(sample_id: str, return_label: str, risk_label: str) -> dict[str, object
         "evidence_token_ids": [2, 3, 4],
         "return_label": return_label,
         "risk_label": risk_label,
+        "forward_return": 0.01,
+        "label_ready_time": "2024-01-22T00:00:00Z",
         "source_ids": [sample_id],
         "evidence_ids": [],
     }

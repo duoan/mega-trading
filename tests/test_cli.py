@@ -317,6 +317,52 @@ end = "2023-01-31"
             self.assertTrue((root / "runs/tfm-cli/metrics.jsonl").exists())
             self.assertTrue((root / "runs/tfm-cli/checkpoint.pt").exists())
 
+    def test_materialize_labels_command_writes_labeled_predictions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_stream_shard(root)
+            prediction_path = "predictions/replay/predictions.jsonl"
+            root.joinpath("predictions/replay").mkdir(parents=True)
+            root.joinpath(prediction_path).write_text(
+                json.dumps(
+                    {
+                        "prediction_id": "pred-1",
+                        "prediction_time": "2024-01-02T00:00:00Z",
+                        "ticker": "AAPL",
+                        "sample_id": "sample-a",
+                        "model_version_id": "model-v1",
+                        "base_model_version": "base-v1",
+                        "adapter_version": "adapter-none",
+                        "head_version": "head-v1",
+                        "feature_version": "features-v1",
+                        "label_version": "labels-v1",
+                        "pred_return_bucket": "outperform",
+                        "pred_risk_bucket": "low",
+                        "confidence": 0.7,
+                        "return_probabilities": {"outperform": 0.7, "neutral": 0.2, "underperform": 0.1},
+                        "risk_probabilities": {"low": 0.7, "medium": 0.2, "high": 0.1},
+                        "source_ids": ["sample-a"],
+                        "label_status": "pending",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            exit_code = main(
+                [
+                    "materialize-labels",
+                    f"--data-dir={root}",
+                    f"--prediction-path={prediction_path}",
+                    "--label-run-id=labels-cli",
+                ]
+            )
+            labeled_path = root / "labels/labels-cli/labeled-predictions.jsonl"
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(labeled_path.exists())
+            self.assertEqual(json.loads(labeled_path.read_text(encoding="utf-8").splitlines()[0])["label_status"], "ready")
+
     def test_ablate_command_writes_summary_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
