@@ -8,7 +8,15 @@ import torch
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.train.config import TradingFoundationTrainConfig
 from mega_trading.train.dataset import TradingFoundationDataset
-from mega_trading.train.model import SwiGLU, TradingFoundationModel
+from mega_trading.train.model import (
+    GatedCrossAttentionFusion,
+    MarketEventEncoder,
+    PriceEncoder,
+    SharedMarketMemory,
+    SwiGLU,
+    TaskDecoder,
+    TradingFoundationModel,
+)
 from mega_trading.train.trainer import TradingFoundationTrainer, _resolve_device, _resolve_precision
 
 
@@ -37,14 +45,22 @@ class TradingFoundationModelTests(unittest.TestCase):
 
         self.assertEqual(return_logits.shape, torch.Size([2, 3]))
         self.assertEqual(risk_logits.shape, torch.Size([2, 3]))
-        self.assertEqual(model.cross_attention.num_heads, 4)
-        self.assertIsInstance(model.output_ffn, SwiGLU)
-        self.assertEqual(model.output_ffn.w1.in_features, 8)
-        self.assertEqual(model.output_ffn.w1.out_features, 32)
-        self.assertEqual(model.output_ffn.w2.in_features, 32)
-        self.assertEqual(model.output_ffn.w2.out_features, 8)
-        self.assertEqual(model.output_ffn.w3.in_features, 8)
-        self.assertEqual(model.output_ffn.w3.out_features, 32)
+        self.assertIsInstance(model.price_encoder, PriceEncoder)
+        self.assertIsInstance(model.fundamental_encoder, MarketEventEncoder)
+        self.assertIsInstance(model.evidence_encoder, MarketEventEncoder)
+        self.assertIsInstance(model.fusion, GatedCrossAttentionFusion)
+        self.assertIsInstance(model.market_memory, SharedMarketMemory)
+        self.assertIsInstance(model.return_decoder, TaskDecoder)
+        self.assertIsInstance(model.risk_decoder, TaskDecoder)
+        self.assertEqual(model.fusion.cross_attention.num_heads, 4)
+        self.assertEqual(model.market_memory.memory.shape, torch.Size([4, 8]))
+        self.assertIsInstance(model.fusion.output_ffn, SwiGLU)
+        self.assertEqual(model.fusion.output_ffn.w1.in_features, 8)
+        self.assertEqual(model.fusion.output_ffn.w1.out_features, 32)
+        self.assertEqual(model.fusion.output_ffn.w2.in_features, 32)
+        self.assertEqual(model.fusion.output_ffn.w2.out_features, 8)
+        self.assertEqual(model.fusion.output_ffn.w3.in_features, 8)
+        self.assertEqual(model.fusion.output_ffn.w3.out_features, 32)
 
     def test_model_supports_modality_ablation(self) -> None:
         model = TradingFoundationModel(

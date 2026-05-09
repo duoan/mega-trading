@@ -9,6 +9,18 @@ from torch.nn import functional as F
 from mega_trading.train.config import RETURN_LABELS, RISK_LABELS
 
 
+def _transformer_block(hidden_dim: int, attention_heads: int) -> nn.TransformerEncoder:
+    layer = nn.TransformerEncoderLayer(
+        d_model=hidden_dim,
+        nhead=attention_heads,
+        dim_feedforward=hidden_dim * 4,
+        activation="gelu",
+        batch_first=True,
+        norm_first=True,
+    )
+    return nn.TransformerEncoder(layer, num_layers=1, enable_nested_tensor=False)
+
+
 class SwiGLU(nn.Module):
     """Gated feed-forward block used in modern transformer FFNs."""
 
@@ -22,8 +34,93 @@ class SwiGLU(nn.Module):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
+class PriceEncoder(nn.Module):
+    """Encode price return/level windows into temporal market tokens."""
+
+    def __init__(self, hidden_dim: int, attention_heads: int) -> None:
+        super().__init__()
+        self.input_proj = nn.Linear(2, hidden_dim)
+        self.temporal_encoder = _transformer_block(hidden_dim, attention_heads)
+        self.norm = nn.LayerNorm(hidden_dim)
+
+    def forward(self, price: torch.Tensor) -> torch.Tensor:
+        return self.norm(self.temporal_encoder(self.input_proj(price)))
+
+
+class MarketEventEncoder(nn.Module):
+    """Encode scalar event streams such as fundamentals or evidence token ids."""
+
+    def __init__(self, hidden_dim: int, attention_heads: int) -> None:
+        super().__init__()
+        self.input_proj = nn.Linear(1, hidden_dim)
+        self.event_encoder = _transformer_block(hidden_dim, attention_heads)
+        self.norm = nn.LayerNorm(hidden_dim)
+
+    def forward(self, values: torch.Tensor) -> torch.Tensor:
+        tokens = self.input_proj(values.unsqueeze(-1))
+        return self.norm(self.event_encoder(tokens))
+
+
+class GatedCrossAttentionFusion(nn.Module):
+    """Fuse context modalities into query tokens with a learned gate."""
+
+    def __init__(self, hidden_dim: int, attention_heads: int) -> None:
+        super().__init__()
+        self.cross_attention = nn.MultiheadAttention(hidden_dim, num_heads=attention_heads, batch_first=True)
+        self.gate = nn.Sequential(nn.Linear(hidden_dim * 2, hidden_dim), nn.Sigmoid())
+        self.output_ffn = SwiGLU(hidden_dim, hidden_dim * 4)
+        self.norm = nn.LayerNorm(hidden_dim)
+
+    def forward(self, query_tokens: torch.Tensor, context_tokens: list[torch.Tensor]) -> torch.Tensor:
+        if not context_tokens:
+            return self.norm(query_tokens + self.output_ffn(query_tokens))
+        context = torch.cat(context_tokens, dim=1)
+        attended, _ = self.cross_attention(query_tokens, context, context)
+        gate = self.gate(torch.cat([query_tokens, attended], dim=-1))
+        fused_query = query_tokens + gate * attended
+        return self.norm(fused_query + self.output_ffn(fused_query))
+
+
+class SharedMarketMemory(nn.Module):
+    """Compress fused modality tokens into shared market-memory tokens."""
+
+    def __init__(self, hidden_dim: int, attention_heads: int, memory_tokens: int = 4) -> None:
+        super().__init__()
+        self.memory = nn.Parameter(torch.randn(memory_tokens, hidden_dim) * 0.02)
+        self.attention = nn.MultiheadAttention(hidden_dim, num_heads=attention_heads, batch_first=True)
+        self.output_ffn = SwiGLU(hidden_dim, hidden_dim * 4)
+        self.norm = nn.LayerNorm(hidden_dim)
+
+    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+        batch_size = tokens.shape[0]
+        memory_query = self.memory.unsqueeze(0).expand(batch_size, -1, -1)
+        attended, _ = self.attention(memory_query, tokens, tokens)
+        memory = self.norm(memory_query + attended)
+        return self.norm(memory + self.output_ffn(memory))
+
+
+class TaskDecoder(nn.Module):
+    """Decode a task-specific prediction from shared market memory."""
+
+    def __init__(self, hidden_dim: int, attention_heads: int, output_dim: int) -> None:
+        super().__init__()
+        self.query = nn.Parameter(torch.randn(1, hidden_dim) * 0.02)
+        self.attention = nn.MultiheadAttention(hidden_dim, num_heads=attention_heads, batch_first=True)
+        self.output_ffn = SwiGLU(hidden_dim, hidden_dim * 4)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.head = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, memory: torch.Tensor) -> torch.Tensor:
+        batch_size = memory.shape[0]
+        query = self.query.unsqueeze(0).expand(batch_size, -1, -1)
+        attended, _ = self.attention(query, memory, memory)
+        decoded = self.norm(query + attended)
+        decoded = self.norm(decoded + self.output_ffn(decoded))
+        return self.head(decoded.squeeze(1))
+
+
 class TradingFoundationModel(nn.Module):
-    """Cross-attention model over price, fundamentals, and evidence streams."""
+    """Modular market foundation model with gated fusion and shared memory."""
 
     def __init__(
         self,
@@ -43,15 +140,14 @@ class TradingFoundationModel(nn.Module):
             raise ValueError("attention_heads must be positive")
         if hidden_dim % attention_heads != 0:
             raise ValueError("hidden_dim must be divisible by attention_heads")
-        self.price_proj = nn.Linear(2, hidden_dim)
-        self.fundamental_proj = nn.Linear(1, hidden_dim)
-        self.evidence_proj = nn.Linear(1, hidden_dim)
-        self.cross_attention = nn.MultiheadAttention(hidden_dim, num_heads=attention_heads, batch_first=True)
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.fusion_proj = nn.Linear(hidden_dim * 3, hidden_dim)
-        self.output_ffn = SwiGLU(hidden_dim, hidden_dim * 4)
-        self.return_head = nn.Linear(hidden_dim, len(RETURN_LABELS))
-        self.risk_head = nn.Linear(hidden_dim, len(RISK_LABELS))
+        self.price_encoder = PriceEncoder(hidden_dim, attention_heads)
+        self.fundamental_encoder = MarketEventEncoder(hidden_dim, attention_heads)
+        self.evidence_encoder = MarketEventEncoder(hidden_dim, attention_heads)
+        self.query_seed = nn.Parameter(torch.randn(1, hidden_dim) * 0.02)
+        self.fusion = GatedCrossAttentionFusion(hidden_dim, attention_heads)
+        self.market_memory = SharedMarketMemory(hidden_dim, attention_heads)
+        self.return_decoder = TaskDecoder(hidden_dim, attention_heads, len(RETURN_LABELS))
+        self.risk_decoder = TaskDecoder(hidden_dim, attention_heads, len(RISK_LABELS))
         self.price_window_size = price_window_size
         self.fundamental_size = fundamental_size
         self.evidence_size = evidence_size
@@ -63,26 +159,27 @@ class TradingFoundationModel(nn.Module):
 
     def forward(self, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         batch_size = batch["price"].shape[0]
-        device = batch["price"].device
-        zero_repr = torch.zeros((batch_size, self.hidden_dim), dtype=batch["price"].dtype, device=device)
+        query_tokens = self.price_encoder(batch["price"]) if self.use_price else self._learned_query(batch_size, batch["price"])
+        context_tokens = self._context_tokens(batch)
+        fused_query = self.fusion(query_tokens, context_tokens)
+        all_tokens = torch.cat([fused_query] + context_tokens, dim=1) if context_tokens else fused_query
+        memory = self.market_memory(all_tokens)
+        return self.return_decoder(memory), self.risk_decoder(memory)
 
-        fundamental_tokens = self.fundamental_proj(batch["fundamentals"].unsqueeze(-1)) if self.use_fundamentals else None
-        evidence_tokens = self.evidence_proj(batch["evidence"].unsqueeze(-1)) if self.use_evidence else None
-        context_parts = [tokens for tokens in (fundamental_tokens, evidence_tokens) if tokens is not None]
+    def _context_tokens(self, batch: dict[str, torch.Tensor]) -> list[torch.Tensor]:
+        tokens: list[torch.Tensor] = []
+        if self.use_fundamentals:
+            tokens.append(self.fundamental_encoder(batch["fundamentals"]))
+        if self.use_evidence:
+            tokens.append(self.evidence_encoder(batch["evidence"]))
+        return tokens
 
-        if self.use_price:
-            price_tokens = self.price_proj(batch["price"])
-            if context_parts:
-                context_tokens = torch.cat(context_parts, dim=1)
-                attended_price, _ = self.cross_attention(price_tokens, context_tokens, context_tokens)
-                price_repr = self.norm(price_tokens + attended_price).mean(dim=1)
-            else:
-                price_repr = price_tokens.mean(dim=1)
+    def _learned_query(self, batch_size: int, reference: torch.Tensor) -> torch.Tensor:
+        if self.use_fundamentals:
+            length = self.fundamental_size
+        elif self.use_evidence:
+            length = self.evidence_size
         else:
-            price_repr = zero_repr
-
-        fundamental_repr = fundamental_tokens.mean(dim=1) if fundamental_tokens is not None else zero_repr
-        evidence_repr = evidence_tokens.mean(dim=1) if evidence_tokens is not None else zero_repr
-        fused = self.fusion_proj(torch.cat([price_repr, fundamental_repr, evidence_repr], dim=1))
-        fused = self.output_ffn(fused)
-        return self.return_head(fused), self.risk_head(fused)
+            length = 1
+        query = self.query_seed.to(dtype=reference.dtype, device=reference.device)
+        return query.unsqueeze(0).expand(batch_size, length, -1)
