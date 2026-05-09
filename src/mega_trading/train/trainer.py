@@ -10,6 +10,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
+from mega_trading.core.registry import ModelRegistry, model_version_id_for
 from mega_trading.core.schemas import Manifest
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
 from mega_trading.train.config import TradingFoundationTrainConfig, TradingFoundationTrainResult
@@ -107,6 +108,9 @@ class TradingFoundationTrainer:
         checkpoint_path = self.paths.run("checkpoint.pt")
         checkpoint_target = self.store.root / checkpoint_path
         checkpoint_target.parent.mkdir(parents=True, exist_ok=True)
+        config_hash = self.config.content_hash()
+        model_version_id = model_version_id_for(self.config.run_id, config_hash)
+        model_version_path = ArtifactPaths().model(model_version_id)
         torch.save(
             {
                 "stage": "trading_foundation_model",
@@ -127,6 +131,7 @@ class TradingFoundationTrainer:
                 "validation_sample_count": validation_count,
                 "step": self.config.max_steps,
                 "shard_path": shard_path,
+                "model_version_id": model_version_id,
                 "requested_device": self.config.device,
                 "device": device.type,
                 "requested_precision": self.config.precision,
@@ -151,7 +156,9 @@ class TradingFoundationTrainer:
                 "use_price": str(self.config.use_price),
                 "use_fundamentals": str(self.config.use_fundamentals),
                 "use_evidence": str(self.config.use_evidence),
-                "config_hash": self.config.content_hash(),
+                "config_hash": config_hash,
+                "model_version_id": model_version_id,
+                "model_version_path": model_version_path,
                 "requested_device": self.config.device,
                 "device": device.type,
                 "requested_precision": self.config.precision,
@@ -160,6 +167,22 @@ class TradingFoundationTrainer:
         )
         manifest_path = self.paths.manifest("runs", f"{self.config.run_id}-trading-foundation-model")
         self.store.write_manifest(manifest_path, manifest)
+        ModelRegistry(self.store).register_training_run(
+            run_id=self.config.run_id,
+            checkpoint_path=checkpoint_path,
+            manifest_path=manifest_path,
+            metrics_path=metrics_path,
+            config_hash=config_hash,
+            feature_version="price_fundamental_text-v1",
+            label_version="forward_return_risk-v1",
+            data_snapshot_version=shard_path,
+            metadata={
+                "stream_contract": "price_fundamental_text",
+                "attention_heads": self.config.attention_heads,
+                "train_sample_count": train_count,
+                "validation_sample_count": validation_count,
+            },
+        )
         return TradingFoundationTrainResult(steps=self.config.max_steps, checkpoint_path=checkpoint_path, manifest_path=manifest_path)
 
 
