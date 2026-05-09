@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from mega_trading.core.schemas import Manifest
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
 from mega_trading.train.config import TradingFoundationTrainConfig, TradingFoundationTrainResult
-from mega_trading.train.dataset import TradingFoundationDataset, infer_stream_sizes
+from mega_trading.train.dataset import TradingFoundationIterableDataset
 from mega_trading.train.model import TradingFoundationModel
 
 
@@ -23,19 +23,29 @@ class TradingFoundationTrainer:
 
     def train(self, shard_path: str) -> TradingFoundationTrainResult:
         torch.manual_seed(self.config.seed)
-        rows = self.store.read_jsonl(shard_path)
-        if not rows:
+        shard_profile = _profile_shard(self.store, shard_path, self.config)
+        if shard_profile["total_rows"] == 0:
             raise ValueError("training shard is empty")
-        train_rows, validation_rows = _time_ordered_split(rows, self.config.validation_fraction)
-        sizes = infer_stream_sizes(
-            rows,
-            self.config.price_window_size,
-            self.config.fundamental_size,
-            self.config.evidence_size,
+        total_rows = int(shard_profile["total_rows"])
+        train_count, validation_count = _time_ordered_counts(total_rows, self.config.validation_fraction)
+        sizes = (
+            int(shard_profile["price_window_size"]),
+            int(shard_profile["fundamental_size"]),
+            int(shard_profile["evidence_size"]),
         )
-        train_dataset = TradingFoundationDataset(train_rows, *sizes)
-        validation_dataset = TradingFoundationDataset(validation_rows, *sizes) if validation_rows else None
-        train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size, shuffle=True)
+        train_dataset = TradingFoundationIterableDataset(
+            lambda: _iter_row_slice(self.store, shard_path, 0, train_count),
+            *sizes,
+        )
+        validation_dataset = (
+            TradingFoundationIterableDataset(
+                lambda: _iter_row_slice(self.store, shard_path, train_count, total_rows),
+                *sizes,
+            )
+            if validation_count
+            else None
+        )
+        train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size)
         validation_loader = (
             DataLoader(validation_dataset, batch_size=self.config.batch_size, shuffle=False) if validation_dataset else None
         )
@@ -78,12 +88,12 @@ class TradingFoundationTrainer:
                     "train_loss": float(loss.detach().cpu()),
                     "return_accuracy": _accuracy(return_logits, batch["return_label"]),
                     "risk_accuracy": _accuracy(risk_logits, batch["risk_label"]),
-                    "train_sample_count": len(train_rows),
-                    "validation_sample_count": len(validation_rows),
+                    "train_sample_count": train_count,
+                    "validation_sample_count": validation_count,
                     "examples_per_second": int(batch["return_label"].shape[0]) / elapsed,
                 }
             )
-            if validation_loader and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
+            if validation_loader is not None and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
                 metrics[-1].update(_evaluate(model, validation_loader, device, loss_fn))
             self.store.write_jsonl(metrics_path, metrics)
 
@@ -106,8 +116,8 @@ class TradingFoundationTrainer:
                     "evidence": self.config.use_evidence,
                 },
                 "attention_heads": self.config.attention_heads,
-                "train_sample_count": len(train_rows),
-                "validation_sample_count": len(validation_rows),
+                "train_sample_count": train_count,
+                "validation_sample_count": validation_count,
                 "step": self.config.max_steps,
                 "shard_path": shard_path,
             },
@@ -123,8 +133,8 @@ class TradingFoundationTrainer:
                 "shard_path": shard_path,
                 "stream_contract": "price_fundamental_text",
                 "attention_heads": str(self.config.attention_heads),
-                "train_sample_count": str(len(train_rows)),
-                "validation_sample_count": str(len(validation_rows)),
+                "train_sample_count": str(train_count),
+                "validation_sample_count": str(validation_count),
                 "validation_fraction": str(self.config.validation_fraction),
                 "eval_interval": str(self.config.eval_interval),
                 "use_price": str(self.config.use_price),
@@ -176,21 +186,48 @@ def _evaluate(
     }
 
 
-def _time_ordered_split(
-    rows: list[dict[str, object]],
-    validation_fraction: float,
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    ordered_rows = sorted(
-        rows,
-        key=lambda row: (
-            str(row.get("as_of_time", "")),
-            str(row.get("ticker", "")),
-            str(row.get("sample_id", "")),
-        ),
-    )
-    if validation_fraction == 0.0 or len(ordered_rows) < 2:
-        return ordered_rows, []
-    validation_count = max(1, int(len(ordered_rows) * validation_fraction))
-    validation_count = min(validation_count, len(ordered_rows) - 1)
-    split_index = len(ordered_rows) - validation_count
-    return ordered_rows[:split_index], ordered_rows[split_index:]
+def _profile_shard(
+    store: LocalObjectStore,
+    shard_path: str,
+    config: TradingFoundationTrainConfig,
+) -> dict[str, int]:
+    total_rows = 0
+    price_window_size = config.price_window_size or 1
+    fundamental_size = config.fundamental_size or 1
+    evidence_size = config.evidence_size or 1
+    for row in store.iter_jsonl(shard_path):
+        total_rows += 1
+        if config.price_window_size is None:
+            price_window_size = max(price_window_size, len(row.get("price_returns", [])))
+        if config.fundamental_size is None:
+            fundamental_size = max(fundamental_size, len(row.get("fundamental_values", [])))
+        if config.evidence_size is None:
+            evidence_size = max(evidence_size, len(row.get("evidence_token_ids", [])))
+    return {
+        "total_rows": total_rows,
+        "price_window_size": max(1, price_window_size),
+        "fundamental_size": max(1, fundamental_size),
+        "evidence_size": max(1, evidence_size),
+    }
+
+
+def _time_ordered_counts(total_rows: int, validation_fraction: float) -> tuple[int, int]:
+    if validation_fraction == 0.0 or total_rows < 2:
+        return total_rows, 0
+    validation_count = max(1, int(total_rows * validation_fraction))
+    validation_count = min(validation_count, total_rows - 1)
+    return total_rows - validation_count, validation_count
+
+
+def _iter_row_slice(
+    store: LocalObjectStore,
+    shard_path: str,
+    start_index: int,
+    stop_index: int,
+):
+    for index, row in enumerate(store.iter_jsonl(shard_path)):
+        if index < start_index:
+            continue
+        if index >= stop_index:
+            break
+        yield row
