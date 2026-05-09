@@ -12,3 +12,4 @@ alwaysApply: true
 - Keep the deterministic local demo working; do not make private credentials or live services required.
 - Preserve `as_of_time`, lineage, metrics, and artifact manifests for model-visible data and training outputs.
 - Should have code comments at the critical path
+- Commit the code change once the test passed, keep the commit small
