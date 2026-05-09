@@ -2,7 +2,7 @@
 
 Mega-Trading is a foundation model of trading. It is an end-to-end infra-model co-design prototype that designs the data contracts, training system, model architecture, evaluation loop, and operations layer together, because the model can only learn useful market behavior if the infrastructure gives it time-correct multi-stream inputs, labels, lineage, and fast feedback.
 
-The target model is a multi-input market foundation model for long-term investment research. It is not a next-tick trading predictor and it is not a pure LLM over finance text. The core model consumes price windows, fundamentals, and text/evidence streams through modality-specific encoders and a fusion transformer, predicts forward return and risk targets, and then uses an explanation layer to trace the view back to filings, historical fundamentals, news, macro context, and prices.
+The target model is a multi-input market foundation model for long-term investment research. It is not a next-tick trading predictor and it is not a pure LLM over finance text. The core model follows the target data modalities: market time series, financial news, SEC filings/earnings, and macro data, each through a dedicated encoder before gated cross-attention fusion and task decoders.
 
 ## Quickstart
 
@@ -67,24 +67,19 @@ uv run mega-trading ingest-public \
   --sec-user-agent "your-name your-email@example.com"
 ```
 
-The default checked-in ingest config uses `configs/universes/sp500.txt`, pulls a 10-year S&P 500 price window, and uses multiprocessing for sample/shard construction. Use the shortcut only for quick targeted runs.
+The default checked-in ingest config uses `configs/universes/sp500.txt`, pulls a 10-year S&P 500 market_data window, and uses multiprocessing for sample/shard construction. Use the shortcut only for quick targeted runs.
 
 ## Documents
 
-- [Feasibility Analysis](docs/feasibility-analysis.md): deep feasibility study covering public data, related work, system design, model training, evaluation, risks, and the recommended MVP.
-- [High-Level Design](docs/high-level-design.md): system architecture, component boundaries, data flow, training flow, deployment design, artifact contracts, and MVP scope.
 - [End-to-End Platform Design](docs/end-to-end-platform-design.md): target platform architecture for realtime inference, delayed labels, online adaptation, replay training, multimodal fusion, and model registry.
-- [Model Design](docs/model-design.md): multi-stream market foundation model, cross-attention fusion, prediction heads, explanation layer, labels, and MVP architecture.
-- [Project Structure](docs/project-structure.md): source tree conventions that map code packages to data, training, reasoning, evaluation, and operations planes.
+- [Model Design](docs/model-design.md): multi-stream market foundation model, cross-attention fusion, prediction heads, labels, and MVP architecture.
+- [Project Structure](docs/project-structure.md): source tree conventions that map code packages to data, training, evaluation, and serving.
 - [Training Systems Alignment](docs/training-systems-alignment.md): mapping from the AI Infrastructure Engineer JD to project design choices, training efficiency metrics, checkpointing, failure modes, and learning-per-compute goals.
 
 ### Module Designs
 
 - [Data Plane Design](docs/data-plane-design.md): ingestion, normalization, quality checks, leakage controls, corpus construction, lineage, and data health metrics.
-- [Training Plane Design](docs/training-plane-design.md): multi-stream supervised training, dataloading, checkpointing, Modal GPU jobs, training efficiency, and learning per unit of compute.
-- [Reasoning And Evidence Design](docs/reasoning-evidence-design.md): evidence retrieval, `as_of_time` constraints, investment thesis output schema, citation validation, and reasoning lineage.
-- [Evaluation And Backtesting Design](docs/evaluation-backtesting-design.md): reasoning metrics, citation checks, temporal correctness, long-horizon backtesting, baselines, and leakage-aware reporting.
-- [Observability And Deployment Design](docs/observability-deployment-design.md): metrics, alarm-as-code, failure injection, ops reports, Docker, Kubernetes, Terraform/IaC, and Modal integration.
+- [Training Plane Design](docs/training-plane-design.md): multi-stream supervised training, dataloading, checkpointing, training efficiency, and learning per unit of compute.
 
 ## Goals
 
@@ -93,46 +88,43 @@ The default checked-in ingest config uses `configs/universes/sp500.txt`, pulls a
 Within the 72-hour submission window, the goal is to build a credible end-to-end prototype that proves the core contracts of a finance foundation model lab for long-term investment research:
 
 - Consume both offline and continuously updated market data sources into a unified object-store-backed data plane.
-- Convert raw market documents, fundamentals, and prices into versioned multi-stream training examples with data quality checks, deduplication, entity mapping, label manifests, and replayable lineage.
-- Produce trainable shards for price windows, fundamental features, text/evidence tokens, forward-return labels, risk labels, and evidence-grounded explanation examples.
+- Convert raw market, news, filing/earnings, macro, and market_data records into versioned multi-stream training examples with data quality checks, deduplication, entity mapping, label manifests, and replayable lineage.
+- Produce trainable shards for market_data windows, news embeddings, filing features, macro features, forward-return labels, and risk labels.
 - Demonstrate a small fusion model path over the same artifact contracts: modality encoders, cross-attention fusion, prediction heads, checkpointing, and metrics.
-- Build the model interface around prediction plus explanation: forward return bucket, risk/reward view, confidence, rationale, cited source IDs, and as-of timestamp.
+- Build the model interface around prediction contracts: forward return bucket, risk bucket, confidence, source IDs, model version, and as-of timestamp.
 - Evaluate model outputs with long-horizon investing and portfolio backtesting metrics, not only NLP metrics.
-- Run local smoke tests quickly and provide Modal GPU entry points for scalable training.
-- Containerize every runtime path and provide Kubernetes and infrastructure-as-code definitions for deployability.
-- Emit metrics, alarms, and an ops report that show data health, training health, checkpoint recovery, and end-to-end time-to-result.
+- Run local smoke tests quickly and keep the training path ready for scalable GPU execution.
+- Emit data and training metrics that show data health, checkpointing, and end-to-end time-to-result.
 - Make the repository stand alone: a reviewer can run the fixture demo, inspect generated artifacts, and understand the scaling path without private data or credentials.
 
 ### Long-Term Goals
 
 If extended into a real Deeter-scale system, the prototype should evolve into a continuous finance foundation model platform:
 
-- Scale ingestion across proprietary research feeds, filings, news, transcripts, macro releases, fundamentals, prices, ownership data, options, credit data, real estate data, and alternative datasets.
+- Scale ingestion across proprietary research feeds, sec_filings, news, transcripts, macro releases, sec_filings, market_data, ownership data, options, credit data, real estate data, and alternative datasets.
 - Maintain a governed market data lake with dataset versioning, entitlements, quality scoring, lineage, leakage controls, and reproducible corpus mixtures.
 - Support large-scale distributed training for multi-stream models with streaming shards, async prefetch, elastic workers, FSDP/DeepSpeed, checkpoint orchestration, and automated failure recovery.
 - Enable rapid research iteration across supervised model training, evaluations, ablations, and model/data experiments.
-- Build a robust evaluation stack for investment reasoning, evidence grounding, hallucination risk, business quality analysis, valuation reasoning, temporal robustness, and downstream portfolio research signals.
-- Support traceable model reasoning where every prediction can be audited back to source documents, source timestamps, market data windows, retrieval queries, feature snapshots, and model/data versions.
+- Build a robust evaluation stack for prediction quality, temporal robustness, and downstream portfolio research signals.
+- Support traceable predictions where every output can be audited back to source IDs, source timestamps, market data windows, feature snapshots, and model/data versions.
 - Integrate realistic backtesting workflows that account for transaction costs, slippage, turnover, exposure, liquidity constraints, and time-aware data leakage prevention.
-- Operate the platform with production-grade observability: service metrics, training metrics, data drift, freshness SLOs, alerting, runbooks, cost dashboards, and incident workflows.
+- Operate the platform with production-grade service metrics, training metrics, data drift, freshness SLOs, cost dashboards, and incident workflows.
 - Minimize time from new information to model feedback, so researchers can evaluate new data, new objectives, and new model variants in hours rather than weeks.
-- Provide a secure deployment path across S3/EKS/Ray or internal GPU clusters, with least-privilege access, auditability, and private-data isolation.
+- Provide a secure path to shared object storage and GPU training clusters, with least-privilege access, auditability, and private-data isolation.
 
-## Prediction, Reasoning, And Backtesting
+## Prediction And Backtesting
 
-Mega-Trading should evaluate whether the model can learn useful long-horizon market structure from multiple data streams, and whether its explanations remain faithful to the evidence and model-visible context.
+Mega-Trading should evaluate whether the model can learn useful long-horizon market structure from multiple data streams without leaking future information.
 
 ### Model Output Contract
 
 Each prediction should include:
 
 - `prediction`: forward return bucket, ranking score, risk bucket, volatility estimate, or drawdown estimate.
-- `investment_view`: long-term thesis, rating, or risk/reward view derived from the prediction heads.
 - `confidence`: calibrated confidence or uncertainty score.
-- `rationale`: concise explanation of the investment thesis, including business quality, valuation, catalyst, risk, and uncertainty.
-- `evidence`: source document IDs, URLs or local object paths, timestamps, quoted snippets, and retrieved context.
 - `as_of_time`: the timestamp boundary proving the model did not use future information.
-- `lineage`: model version, data mixture version, shard IDs, prompt/template version, and evaluation run ID.
+- `source_ids`: source record IDs used by the feature sample.
+- `lineage`: model version, data mixture version, shard IDs, and evaluation run ID.
 
 ### Backtesting Metrics
 
@@ -145,13 +137,3 @@ The evaluation stack should include real finance and long-horizon portfolio metr
 - Value-investing metrics: thesis hit rate, downside capture, upside/downside ratio, drawdown recovery, valuation multiple change, earnings revision alignment, and catalyst realization.
 - Robustness metrics: walk-forward performance, market regime split, sector split, market-cap split, event-type split, and time-aware train/test leakage checks.
 
-### Reasoning Metrics
-
-The reasoning layer should be evaluated separately from raw trading performance:
-
-- Evidence coverage: whether the rationale cites the relevant news, filing, price window, or report.
-- Citation accuracy: whether cited sources actually support the claim.
-- Faithfulness: whether the rationale matches the retrieved evidence and model-visible context.
-- Temporal correctness: whether the explanation only uses information available at `as_of_time`.
-- Uncertainty quality: whether the model expresses uncertainty when evidence is weak or conflicting.
-- Thesis quality: whether the model separates durable business fundamentals from short-term market noise.

@@ -8,9 +8,10 @@ The Training Plane turns versioned multi-stream financial samples into model cap
 
 The primary workload is `TradingFoundationModel`:
 
-- price-window encoder over trailing adjusted-close returns and levels.
-- fundamental encoder over point-in-time SEC facts.
-- text/evidence encoder over evidence tokens visible at `as_of_time`.
+- market_data-window encoder over trailing adjusted-close returns and levels.
+- news encoder over precomputed financial-news embedding features.
+- filing encoder over SEC filing, earnings, and company-fact features visible at `as_of_time`.
+- macro encoder over macro and regime features.
 - cross-attention fusion block.
 - prediction heads for forward-return and risk buckets.
 
@@ -23,14 +24,14 @@ Each stream shard row should include:
 - `sample_id`
 - `ticker`
 - `as_of_time`
-- `price_returns`
-- `price_levels`
-- `fundamental_values`
-- `evidence_token_ids`
+- `market_returns`
+- `market_levels`
+- `news_embeddings`
+- `sec_filing_features`
+- `macro_features`
 - `return_label`
 - `risk_label`
 - `source_ids`
-- `evidence_ids`
 
 Labels must be generated from windows that begin strictly after `as_of_time`.
 
@@ -97,7 +98,7 @@ The default ablation suite lives in `configs/ablation/public.yaml`:
 uv run mega-trading ablate
 ```
 
-It compares price-only, fundamentals-only, evidence-only, price+fundamentals, and all-modality runs, then writes `.mega-trading/public/reports/ablation-summary.json`.
+It compares market_data-only, sec_filings-only, market_data+sec_filings, and all-modality runs, then writes `.mega-trading/public/reports/ablation-summary.json`.
 
 For a faster local smoke run, override the shared run settings:
 
@@ -105,7 +106,7 @@ For a faster local smoke run, override the shared run settings:
 uv run mega-trading ablate 'base_overrides=["training.max_steps=1","training.batch_size=2","model.hidden_dim=8"]'
 ```
 
-Modal or Kubernetes jobs should call the same trainer with the same shard contract, only changing device, batch size, worker count, and checkpoint storage.
+GPU jobs should call the same trainer with the same shard contract, only changing device, batch size, worker count, and checkpoint storage.
 
 ## Design Rules
 

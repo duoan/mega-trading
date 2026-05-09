@@ -26,13 +26,13 @@ Project response:
 
 - Provide training entry points for multi-stream supervised training.
 - Keep training stages config-driven so model requirements can be translated into system configurations.
-- Support local CPU smoke tests and Modal GPU jobs through the same artifact contracts.
+- Support local CPU smoke tests and future GPU jobs through the same artifact contracts.
 - Design the training loop so it can later scale to FSDP/DeepSpeed/Ray without rewriting data contracts.
 
 72-hour implementation target:
 
 - One small local training path.
-- One Modal GPU training path.
+- One GPU-ready training path using the same local contract.
 - Shared configs, manifests, metrics, and checkpointing.
 
 Long-term path:
@@ -79,15 +79,14 @@ Project response:
   - precision
   - batch size
   - gradient accumulation
-  - LoRA rank
   - checkpoint interval
   - shard mixture
-  - Modal GPU type
+  - GPU type
   - expected memory budget
 
 The system should make trade-offs explicit:
 
-- Longer context improves evidence reasoning but increases memory and step time.
+- Longer windows improve market context but increase memory and step time.
 - Larger batch improves utilization but may reduce iteration speed.
 - Higher LoRA rank may improve adaptation but increases memory and compute.
 - Frequent checkpointing improves recovery but increases overhead.
@@ -107,14 +106,13 @@ Project response:
 - Separate smoke-test runs from scalable runs.
 - Track raw-data-to-eval wall-clock time.
 - Validate checkpoint/resume.
-- Include failure-injection paths.
 
 Efficiency targets for the prototype:
 
 - `make demo` should complete quickly enough for a reviewer to run.
 - First checkpoint should be produced early in the run.
 - Evaluation should run automatically after training.
-- Ops report should show where time was spent.
+- Training metrics should show where time was spent.
 
 Reliability targets:
 
@@ -128,19 +126,17 @@ Reliability targets:
 Project response:
 
 - Treat debugging as part of the artifact.
-- Provide structured run logs, metrics, and alert rules.
-- Include failure-injection demos for common issues.
+- Provide structured run logs and metrics for common failure modes.
 
 Failure modes to simulate or document:
 
 - Stale source feed.
-- Missing price/fundamental coverage.
+- Missing market_data/sec_filing coverage.
 - Future leakage detected.
 - Slow dataloader.
 - NaN loss.
 - Checkpoint save failure.
 - Resume mismatch.
-- Modal job failure.
 - GPU OOM.
 
 The project should include runbook entries for:
@@ -162,9 +158,9 @@ The dataloader should be designed as if it will eventually handle large corpora:
 - Preserve source IDs for auditability.
 - Measure dataloader wait time.
 - Track padding and packing waste.
-- Keep CPU tokenization separate from GPU training.
+- Keep CPU feature construction separate from GPU training.
 
-For the MVP, tokenized local shards are enough. The important design point is that training consumes versioned shards, not ad hoc pandas dataframes.
+For the MVP, local numeric feature shards are enough. The important design point is that training consumes versioned shards, not ad hoc pandas dataframes.
 
 ### Checkpointing
 
@@ -186,7 +182,7 @@ Resume validation should fail fast if:
 
 - the config hash changed unexpectedly
 - required shards are missing
-- tokenizer config differs
+- shard feature contract differs
 - model base checkpoint differs
 - training stage differs
 
@@ -202,20 +198,6 @@ The system should emit metrics at multiple levels:
 - end-to-end cycle metrics
 
 This directly aligns with the role's emphasis on measurable efficiency.
-
-### Alarms
-
-Alarms should be defined as code, not only described in prose.
-
-Example alarm categories:
-
-- Data freshness SLO violated.
-- Dataloader wait ratio too high.
-- Tokens/sec below threshold.
-- Checkpoint failed or too slow.
-- Loss is NaN or stalled.
-- E2E cycle time regressed.
-- Future leakage detected.
 
 ### Cost Awareness
 
@@ -234,7 +216,7 @@ This gives the project a training-infra signature rather than a notebook-demo si
 
 Use this framing in the README and submission:
 
-> Mega-Trading is a foundation model of trading. It demonstrates how offline and continuously updated financial data becomes traceable model training signal, how supervised and explanation stages consume that signal, and how training efficiency, checkpoint reliability, and end-to-end time-to-result are measured.
+> Mega-Trading is a foundation model of trading. It demonstrates how offline and continuously updated financial data becomes traceable model training signal, how supervised training consumes that signal, and how training efficiency, checkpoint reliability, and end-to-end time-to-result are measured.
 
 Avoid this framing:
 
@@ -248,12 +230,10 @@ The training-system-specific deliverables should be:
 
 - `configs/train/*.yaml` for model training jobs.
 - A local training loop that emits training metrics.
-- A Modal GPU training entry point.
-- Tokenized packed shards with manifests.
+- A GPU-ready training entry point.
+- Numeric feature shards with manifests.
 - Checkpoint save/resume validation.
-- Ops report with training efficiency metrics.
-- Alert rules for slow dataloader, low throughput, failed checkpoint, and e2e regression.
-- Failure-injection command for at least one training failure and one data failure.
+- Training efficiency metrics for dataloading, throughput, and checkpointing.
 - README section explaining learning per unit of compute.
 
 ## Success Criteria

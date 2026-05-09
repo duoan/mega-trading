@@ -11,11 +11,11 @@ The goal is not simply to predict whether one ticker goes up or down. The goal i
 The current repository implements the offline foundation-training path:
 
 - S&P 500 public universe from `configs/universes/sp500.txt`.
-- Ten-year Yahoo price history and SEC EDGAR fundamentals.
+- Ten-year Yahoo market data history and SEC EDGAR filings.
 - Stage-based raw, normalized, enriched, sample, and shard artifacts.
 - Data readiness checks with leakage-aware sample construction.
 - Partitioned sample corpus and streaming shard training for million-sample datasets.
-- A multi-stream `TradingFoundationModel` with price, fundamentals, and evidence inputs.
+- A multi-stream `TradingFoundationModel` with market_data, news, filing, and macro modality inputs.
 - Time-ordered train/validation split, metrics, checkpoint, and manifests.
 
 The target platform extends this into:
@@ -51,7 +51,7 @@ The repository now implements a runnable target-platform vertical slice on top o
 ### Functional Goals
 
 - Realtime market inference over a large symbol universe.
-- Multimodal event understanding across prices, news, filings, earnings, and macro data.
+- Multimodal event understanding across market_data, news, sec_filings, earnings, and macro data.
 - Delayed label generation for future return, direction, volatility, drawdown, and tail risk.
 - Offline foundation training over replayable historical samples.
 - Online adaptation through lightweight adapters, decoders, calibrators, and regime embeddings.
@@ -149,7 +149,7 @@ Core fields:
 - `sentiment`
 - `importance_score`
 
-### SEC Filings And Earnings
+### SEC SecFilings And Earnings
 
 The MVP already ingests SEC company facts. The target path extends this to filing documents, sections, 8-K events, earnings transcripts, guidance, and EPS surprise.
 
@@ -189,7 +189,7 @@ The raw ingestion layer writes append-only event logs. Each record must preserve
 Responsibilities:
 
 - ingest market data
-- ingest SEC filings and fundamentals
+- ingest SEC filings and sec_filings
 - ingest news and earnings events
 - ingest macro updates
 - normalize timestamps
@@ -197,20 +197,36 @@ Responsibilities:
 
 ### Feature Builder
 
-The feature builder creates point-in-time model-visible features. It must enforce that every feature satisfies:
+The feature builder creates point-in-time model-visible features. Data Plane output is the contract consumed by Model Architecture and Offline Training, so field names must stay stable across sample building, shard building, training, replay, and serving.
+
+Every model-visible feature must satisfy:
 
 ```text
 feature_time <= prediction_time
 ```
 
-Generated features include:
+Current implemented sample contract:
 
-- market windows
-- rolling returns
-- rolling volatility
-- event embeddings
-- macro regime features
-- fundamentals visible as of prediction time
+- `market_data_window`: trailing market time-series records ending at `as_of_time`.
+- `news_window`: financial-news records visible at `as_of_time`; currently empty until news ingestion is implemented.
+- `sec_filing_window`: SEC filing features visible at as_of_time visible at `as_of_time`.
+- `macro_window`: macro and regime records visible at `as_of_time`; currently empty until macro ingestion is implemented.
+- `labels`: forward-return bucket and risk bucket generated from future market_data windows.
+- `source_ids`: lineage for market_data and filing records used by the sample.
+
+Current implemented shard contract:
+
+- `market_returns`
+- `market_levels`
+- `news_embeddings`
+- `sec_filing_features`
+- `macro_features`
+- `return_label`
+- `risk_label`
+- `forward_return`
+- `source_ids`
+
+Empty modality windows are intentional placeholders, not evidence fallbacks. If a modality has no current data source, the pipeline writes an empty list and the trainer pads it to a fixed-size zero vector.
 
 ### Online Feature Store
 
@@ -237,11 +253,13 @@ Example schema:
 offline_training_samples
   sample_time
   ticker
-  price_window
+  market_data_window
   news_window
-  filing_window
+  sec_filing_window
   macro_window
-  labels
+  labels.forward_return_bucket
+  labels.risk_bucket
+  labels.forward_return
   feature_version
   source_ids
 ```
@@ -250,41 +268,23 @@ offline_training_samples
 
 Trading labels are delayed because actual outcomes are only known after the prediction horizon matures.
 
-### Return Labels
+### Current Labels
 
 ```text
-future_return_5m = log(price[t + 5m] / price[t])
-future_return_30m = log(price[t + 30m] / price[t])
+forward_return = market_data[label_end] / market_data[label_start] - 1
+return_label = bucket(forward_return)
+risk_label = bucket(max_drawdown_or_forward_risk)
 ```
 
-### Direction Labels
-
-Direction labels must include transaction costs. A positive future return is not enough.
-
-```text
-direction = future_return > fee + slippage
-```
-
-### Risk Labels
-
-Risk labels include:
-
-- future volatility
-- future drawdown
-- tail risk
-- regime stress
-
-Example schema:
+Current schema:
 
 ```text
 labels
   sample_time
   ticker
-  label_return_5m
-  label_return_30m
-  label_direction
-  label_volatility
-  label_drawdown
+  forward_return
+  forward_return_bucket
+  risk_bucket
   label_ready_time
 ```
 
@@ -294,6 +294,8 @@ The label contract must satisfy:
 label_time > prediction_time
 label_ready_time >= label_time
 ```
+
+Future label extensions can add direction, volatility, drawdown, event impact, market regime, and calibration targets after those labels are materialized into the shard contract.
 
 ## Prediction Logging
 
@@ -306,19 +308,19 @@ prediction_log
   prediction_id
   prediction_time
   ticker
+  sample_id
+  model_version_id
   base_model_version
   adapter_version
   head_version
   feature_version
   label_version
-  pred_return_5m
-  pred_return_30m
-  pred_direction
-  pred_volatility
+  pred_return_bucket
+  pred_risk_bucket
   confidence
-  actual_return_5m
-  actual_return_30m
-  actual_volatility
+  actual_return_bucket
+  actual_risk_bucket
+  actual_forward_return
   label_status
 ```
 
@@ -327,7 +329,7 @@ prediction_log
 The model should not flatten all modalities into one unstructured vector. Each modality should have a dedicated encoder, followed by cross-attention fusion and task-specific decoders.
 
 ```text
-Price Encoder      News Encoder      Filing Encoder      Macro Encoder
+MarketData Encoder      News Encoder      Filing Encoder      Macro Encoder
       |                 |                  |                  |
       +-----------------+------------------+------------------+
                                |
@@ -343,10 +345,10 @@ Price Encoder      News Encoder      Filing Encoder      Macro Encoder
 
 ### Encoders
 
-- Price encoder: OHLCV windows and market features, using temporal transformer blocks or sequence encoders.
-- News encoder: pre-computed event embeddings, using a transformer event encoder.
-- Filing encoder: filing or section embeddings, using transformer or MLP blocks.
-- Macro encoder: macro feature vectors and regime tokens, using MLP or transformer blocks.
+- MarketData encoder consumes `market_returns` and `market_levels` from `market_data_window`.
+- News encoder consumes `news_embeddings` from `news_window`; current public ingest writes no news, so this stream is zero-padded unless explicitly enabled with data.
+- Filing encoder consumes `sec_filing_features` from `sec_filing_window`; the current public path maps SEC company facts into this stream.
+- Macro encoder consumes `macro_features` from `macro_window`; current public ingest writes no macro records, so this stream is zero-padded unless explicitly enabled with data.
 
 ### Fusion
 
@@ -354,22 +356,25 @@ Fusion should be query-based because the importance of external events changes b
 
 ```text
 news_context = CrossAttention(
-  query = price_tokens,
+  query = market_data_tokens,
   key = news_tokens,
   value = news_tokens
 )
 
-gate = sigmoid(MLP(concat(price_tokens, news_context)))
-fused = price_tokens + gate * news_context
+gate = sigmoid(MLP(concat(market_data_tokens, news_context)))
+fused = market_data_tokens + gate * news_context
 ```
 
-The same pattern can extend to filings and macro tokens.
+The same pattern can extend to sec_filings and macro tokens.
 
 ### Task Decoders
 
-Task decoders can be implemented as query decoders followed by MLP heads.
+Task decoders must match materialized labels. The current supervised implementation only trains decoders for labels that exist in the public shard contract:
 
-Target tasks:
+- `ForwardReturnDecoder` for future-return buckets.
+- `RiskDecoder` for risk buckets.
+
+Future decoders should only be added after their labels exist in Data Plane artifacts:
 
 - future return
 - direction
@@ -381,16 +386,23 @@ Target tasks:
 
 ## Offline Training
 
-Offline training learns the foundation backbone, multimodal representations, and long-term market structure.
+Offline training learns the foundation backbone and the currently materialized supervised tasks from `stage=05_shards/mixture=<name>/samples.jsonl`.
 
-A target multitask loss can combine return, direction, volatility, and drawdown objectives:
+Current training batch contract:
+
+- `market_data`: tensor from `market_returns` and `market_levels`.
+- `news`: tensor from `news_embeddings`; zero-padded when `news_window` is empty.
+- `sec_filings`: tensor from `sec_filing_features`; populated from SEC company facts in the public MVP.
+- `macro`: tensor from `macro_features`; zero-padded when `macro_window` is empty.
+- `return_label`: class ID for `ForwardReturnDecoder`.
+- `risk_label`: class ID for `RiskDecoder`.
+
+Current supervised loss:
 
 ```text
 loss =
-  loss_return
-  + 0.5 * loss_direction
-  + 0.2 * loss_volatility
-  + 0.2 * loss_drawdown
+  cross_entropy(forward_return_logits, return_label)
+  + cross_entropy(risk_logits, risk_label)
 ```
 
 Dataset rules:
@@ -400,7 +412,9 @@ feature_time <= prediction_time
 label_time > prediction_time
 ```
 
-The current MVP implements the first version of this path through forward-return and risk labels over S&P 500 price and fundamentals data.
+The current MVP implements this path with S&P 500 market_data history and SEC company facts mapped into the filing stream. News and macro streams are part of the contract but remain empty until corresponding ingestion adapters produce real records. They should not be replaced by evidence text or generic fallback data.
+
+Future multitask losses can add direction, volatility, drawdown, event-impact, regime, or calibration terms only after the Data Plane materializes those labels.
 
 ## Realtime Inference
 
@@ -431,7 +445,7 @@ The full foundation model should not be retrained online.
 
 Frozen components:
 
-- price encoder
+- market_data encoder
 - news encoder
 - filing encoder
 - macro encoder
@@ -523,7 +537,7 @@ Prediction Logger
 ### Day 1
 
 - OHLCV data integration.
-- SEC fundamentals integration.
+- SEC filings integration.
 - Multimodal sample contract.
 - Offline training pipeline.
 - Data readiness and leakage checks.

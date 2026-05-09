@@ -22,11 +22,11 @@ src/mega_trading/
     quality.py           # Quality gates and data-readiness reports
     corpus.py            # Fixture/public text corpora and future sample builders
     labels.py            # Forward-return and risk label generation
-    samples.py           # Multi-stream price/fundamental/text sample builder
-    tokenize.py          # Tokenizer and stream shard builder
+    samples.py           # Multi-stream market_data/news/filing/macro sample builder
+    shards.py            # Numeric feature shard builder
     public/              # Real public data adapters
       sec.py             # SEC EDGAR company facts
-      prices.py          # Yahoo/Stooq price adapters
+      market.py          # Yahoo/Stooq market data adapters
 
   train/                 # Training plane
     config.py            # TradingFoundationModel training config
@@ -34,14 +34,8 @@ src/mega_trading/
     model.py             # TradingFoundationModel architecture
     trainer.py           # TradingFoundationModel trainer
 
-  reasoning/             # Reasoning plane
-    runtime.py           # Evidence retrieval, pack building, thesis output
-
   eval/                  # Evaluation plane
     __init__.py          # Placeholder for backtesting/eval modules
-
-  ops/                   # Operations plane
-    __init__.py          # Placeholder for metrics/alarms/deployment modules
 ```
 
 New production code should import from the plane-specific packages, for example:
@@ -50,17 +44,14 @@ New production code should import from the plane-specific packages, for example:
 - `mega_trading.data.corpus`
 - `mega_trading.data.public.sec`
 - `mega_trading.train.trainer`
-- `mega_trading.reasoning.runtime`
 
 ## Rules
 
 - Put shared contracts in `core/`.
-- Put data ingestion, label generation, sample/corpus construction, tokenization, and public data adapters in `data/`.
+- Put data ingestion, label generation, sample construction, feature shard building, and public data adapters in `data/`.
 - Treat ingestion config as the public ingestion API; CLI and schedulers should dispatch from config rather than hard-coded source arguments.
 - Run quality and enrichment between ingestion and corpus construction; corpus builders should consume data that has a readiness report.
-- Use `mega_trading.data.lance_store` for normalized query tables and evidence/corpus indexes.
+- Use `mega_trading.data.lance_store` for normalized query tables.
 - Put foundation-model and support training stages in `train/`.
-- Put evidence-grounded prediction explanation runtime code in `reasoning/`.
 - Put backtesting and evaluation code in `eval/`.
-- Put metrics, alarms, failure injection, deployment helpers, and ops reports in `ops/`.
-- Avoid adding production modules at the package root; keep ownership in `core/`, `data/`, `train/`, `reasoning/`, `eval/`, or `ops/`.
+- Avoid adding production modules at the package root; keep ownership in `core/`, `data/`, `train/`, `eval/`, or `serving/`.
