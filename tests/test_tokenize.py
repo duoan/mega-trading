@@ -16,7 +16,11 @@ class TokenizeTests(unittest.TestCase):
     def test_stream_shard_builder_writes_compact_model_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
-            store.write_jsonl("stage=04_corpus/mixture=public/samples.jsonl", [_sample(), _sample("sample-ACME-2024-01-03")])
+            store.write_jsonl("stage=04_corpus/mixture=public/partitions/ticker=ACME/samples.jsonl", [_sample()])
+            store.write_jsonl(
+                "stage=04_corpus/mixture=public/partitions/ticker=BETA/samples.jsonl",
+                [_sample("sample-BETA-2024-01-03", ticker="BETA")],
+            )
 
             result = StreamShardBuilder(store, num_workers=2).build("public")
             rows = store.read_jsonl(result.shard_path)
@@ -40,10 +44,10 @@ class TokenizeTests(unittest.TestCase):
                 StreamShardBuilder(store).build("public")
 
 
-def _sample(sample_id: str = "sample-ACME-2024-01-02") -> dict[str, object]:
+def _sample(sample_id: str = "sample-ACME-2024-01-02", ticker: str = "ACME") -> dict[str, object]:
     return {
         "sample_id": sample_id,
-        "ticker": "ACME",
+        "ticker": ticker,
         "as_of_time": "2024-01-02T00:00:00Z",
         "price_window": [
             {"date": "2024-01-01", "adjusted_close": 100.0, "price_id": "px-1", "source_ids": ["px-1"]},

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import json
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterable
 
 from mega_trading.core.schemas import Manifest
@@ -62,22 +64,39 @@ class MultiStreamSampleBuilder:
             for ticker in sorted(entities)
             if ticker in prices_by_ticker
         ]
-        sample_path = self.paths.corpus(mixture_name, "samples")
         workers = _worker_count(self.num_workers, len(tasks))
         if workers > 1:
             print(f"sample build using {workers} workers for {len(tasks)} tickers")
-        samples = self.store.write_jsonl_iter(sample_path, _sample_rows(tasks, workers))
+            partition_root = f"stage=04_corpus/mixture={mixture_name}/partitions"
+            partition_tasks = [
+                {
+                    **task,
+                    "store_root": str(self.store.root),
+                    "sample_path": f"{partition_root}/ticker={_safe_partition_value(str(task['ticker']))}/samples.jsonl",
+                }
+                for task in tasks
+            ]
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                partition_results = list(executor.map(_write_ticker_sample_partition, partition_tasks, chunksize=1))
+            sample_paths = [path for path, _count in partition_results]
+            samples = sum(count for _path, count in partition_results)
+            sample_path = partition_root
+        else:
+            sample_path = self.paths.corpus(mixture_name, "samples")
+            samples = self.store.write_jsonl_iter(sample_path, _sample_rows(tasks))
+            sample_paths = [sample_path]
 
         manifest = Manifest(
             manifest_id=f"{mixture_name}-{run_id}-samples",
             artifact_type="samples",
-            paths=[sample_path],
+            paths=sample_paths,
             metadata={
                 "mixture_name": mixture_name,
                 "samples": str(samples),
                 "input_window_observations": str(self.label_config.input_window_observations),
                 "horizon_observations": str(self.label_config.horizon_observations),
                 "workers": str(workers),
+                "partitioned": str(workers > 1).lower(),
                 "readiness_quality_score": str(readiness.get("quality_score", "")),
             },
         )
@@ -107,14 +126,21 @@ class MultiStreamSampleBuilder:
         return rows
 
 
-def _sample_rows(tasks: list[dict[str, Any]], workers: int) -> Iterable[dict[str, Any]]:
-    if workers <= 1:
-        for task in tasks:
-            yield from _samples_for_ticker(task)
-        return
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        for samples in executor.map(_samples_for_ticker, tasks, chunksize=1):
-            yield from samples
+def _sample_rows(tasks: list[dict[str, Any]]) -> Iterable[dict[str, Any]]:
+    for task in tasks:
+        yield from _samples_for_ticker(task)
+
+
+def _write_ticker_sample_partition(task: dict[str, Any]) -> tuple[str, int]:
+    sample_path = str(task["sample_path"])
+    target = Path(str(task["store_root"])) / sample_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with target.open("w", encoding="utf-8") as handle:
+        for sample in _samples_for_ticker(task):
+            handle.write(json.dumps(sample, sort_keys=True) + "\n")
+            count += 1
+    return sample_path, count
 
 
 def _samples_for_ticker(task: dict[str, Any]) -> list[dict[str, Any]]:
@@ -214,3 +240,7 @@ def _worker_count(requested_workers: int, task_count: int) -> int:
     if requested_workers == 0:
         requested_workers = os.cpu_count() or 1
     return max(1, min(requested_workers, task_count))
+
+
+def _safe_partition_value(value: str) -> str:
+    return value.replace("/", "_")

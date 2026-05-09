@@ -48,12 +48,13 @@ class MultiStreamSampleBuilderTests(unittest.TestCase):
                 LabelConfig(input_window_observations=2, horizon_observations=2, return_threshold=0.05),
                 num_workers=2,
             ).build(mixture_name="public")
-            samples = store.read_jsonl("stage=04_corpus/mixture=public/samples.jsonl")
             manifest = store.read_manifest(result.manifest_path)
+            samples = [sample for path in manifest.paths for sample in store.read_jsonl(path)]
 
             self.assertEqual(result.samples, 2)
             self.assertEqual({sample["ticker"] for sample in samples}, {"ACME", "BETA"})
             self.assertEqual(manifest.metadata["workers"], "2")
+            self.assertEqual(manifest.metadata["partitioned"], "true")
 
 
 def _prepared_store(tmp: str, tickers: tuple[str, ...] = ("ACME",)) -> LocalObjectStore:

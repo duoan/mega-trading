@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
+import json
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
-from itertools import islice
 import os
 from typing import Iterable
 
@@ -72,12 +72,13 @@ class StreamShardBuilder:
 
     def build(self, mixture_name: str) -> StreamShardBuildResult:
         sample_path = self.paths.corpus(mixture_name, "samples")
-        sample_count = _jsonl_count(self.store, sample_path)
-        workers = _worker_count(self.num_workers, sample_count)
+        sample_paths = _sample_paths(self.store, mixture_name, sample_path)
+        sample_count = sum(_jsonl_count(self.store, path) for path in sample_paths)
+        workers = _worker_count(self.num_workers, len(sample_paths))
         if workers > 1:
-            print(f"stream shard build using {workers} workers for {sample_count} samples")
+            print(f"stream shard build using {workers} workers for {sample_count} samples across {len(sample_paths)} partitions")
         shard_path = self.paths.shard(mixture_name, "samples")
-        shard_count = self.store.write_jsonl_iter(shard_path, _shard_rows(self.store.iter_jsonl(sample_path), workers))
+        shard_count = self.store.write_jsonl_iter(shard_path, _shard_rows(self.store.root, sample_paths, workers))
 
         manifest = Manifest(
             manifest_id=f"{mixture_name}-samples-shards",
@@ -86,6 +87,7 @@ class StreamShardBuilder:
             metadata={
                 "artifact": "multi_stream_samples",
                 "sample_path": sample_path,
+                "sample_partitions": str(len(sample_paths)),
                 "num_samples": str(shard_count),
                 "workers": str(workers),
             },
@@ -99,19 +101,35 @@ def _tokens(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+|[^\w\s]", text.lower())
 
 
-def _shard_rows(samples: Iterable[dict[str, object]], workers: int) -> Iterable[dict[str, object]]:
+def _sample_paths(store: LocalObjectStore, mixture_name: str, fallback_sample_path: str) -> list[str]:
+    partition_root = store.root / f"stage=04_corpus/mixture={mixture_name}/partitions"
+    if partition_root.exists():
+        paths = sorted(partition_root.glob("ticker=*/samples.jsonl"))
+        if paths:
+            return [str(path.relative_to(store.root)) for path in paths]
+    return [fallback_sample_path]
+
+
+def _shard_rows(store_root: object, sample_paths: list[str], workers: int) -> Iterable[dict[str, object]]:
     if workers <= 1:
-        for sample in samples:
-            yield _stream_row(sample)
+        root = os.fspath(store_root)
+        for sample_path in sample_paths:
+            yield from _stream_partition((root, sample_path))
         return
-    chunk_size = 512
+    root = os.fspath(store_root)
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        for rows in executor.map(_stream_rows, _chunks(samples, chunk_size), chunksize=1):
+        for rows in executor.map(_stream_partition, [(root, sample_path) for sample_path in sample_paths], chunksize=1):
             yield from rows
 
 
-def _stream_rows(samples: list[dict[str, object]]) -> list[dict[str, object]]:
-    return [_stream_row(sample) for sample in samples]
+def _stream_partition(task: tuple[str, str]) -> list[dict[str, object]]:
+    root, sample_path = task
+    rows: list[dict[str, object]] = []
+    with open(os.path.join(root, sample_path), encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                rows.append(_stream_row(json.loads(line)))
+    return rows
 
 
 def _stream_row(sample: dict[str, object]) -> dict[str, object]:
@@ -179,15 +197,6 @@ def _evidence_text(evidence: list[dict[str, object]]) -> str:
 
 def _round_feature(value: float) -> float:
     return round(value, 12)
-
-
-def _chunks(rows: Iterable[dict[str, object]], size: int) -> Iterable[list[dict[str, object]]]:
-    iterator = iter(rows)
-    while True:
-        chunk = list(islice(iterator, size))
-        if not chunk:
-            return
-        yield chunk
 
 
 def _jsonl_count(store: LocalObjectStore, path: str) -> int:
