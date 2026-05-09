@@ -28,10 +28,11 @@ class SecClient:
             raise ValueError("SEC user_agent is required")
         self.user_agent = user_agent
         self.fetch_json = fetch_json or _fetch_json
+        self._ticker_payload: dict | None = None
 
     def resolve_ticker(self, ticker: str) -> dict[str, str]:
         ticker_upper = ticker.upper()
-        payload = self.fetch_json(self.ticker_url, self.user_agent)
+        payload = self._company_tickers()
         for row in payload.values():
             if str(row["ticker"]).upper() == ticker_upper:
                 cik = str(row["cik_str"]).zfill(10)
@@ -40,8 +41,16 @@ class SecClient:
 
     def company_facts(self, ticker: str) -> dict:
         entity = self.resolve_ticker(ticker)
-        url = f"{self.base_url}/api/xbrl/companyfacts/CIK{entity['cik']}.json"
+        return self.company_facts_for_cik(entity["cik"])
+
+    def company_facts_for_cik(self, cik: str) -> dict:
+        url = f"{self.base_url}/api/xbrl/companyfacts/CIK{cik}.json"
         return self.fetch_json(url, self.user_agent)
+
+    def _company_tickers(self) -> dict:
+        if self._ticker_payload is None:
+            self._ticker_payload = self.fetch_json(self.ticker_url, self.user_agent)
+        return self._ticker_payload
 
 
 class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
@@ -60,9 +69,12 @@ class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
         entities: list[EntityRecord] = []
         fundamentals: list[FundamentalRecord] = []
 
-        for ticker in tickers:
+        total = len(tickers)
+        for index, ticker in enumerate(tickers, start=1):
+            if index == 1 or index % 25 == 0 or index == total:
+                print(f"sec_companyfacts ingest progress: {index}/{total}")
             entity = self.client.resolve_ticker(ticker)
-            facts = self.client.company_facts(ticker)
+            facts = self.client.company_facts_for_cik(entity["cik"])
             raw_rows.append({"ticker": entity["ticker"], "cik": entity["cik"], "payload": facts})
             entities.append(
                 EntityRecord(

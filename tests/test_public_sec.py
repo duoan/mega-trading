@@ -47,6 +47,7 @@ class SecClientTests(unittest.TestCase):
         self.assertEqual(entity["cik"], "0000320193")
         self.assertEqual(facts["entityName"], "Apple Inc.")
         self.assertTrue(any("companyfacts/CIK0000320193.json" in url for url in calls))
+        self.assertEqual(sum(url.endswith("/company_tickers.json") for url in calls), 1)
 
     def test_sec_companyfacts_ingestor_writes_real_contract_artifacts(self) -> None:
         def fetch_json(url: str, _user_agent: str) -> dict:

@@ -65,7 +65,10 @@ class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
         end = request.end
         raw_rows: list[dict[str, object]] = []
         prices: list[PriceRecord] = []
-        for ticker in tickers:
+        total = len(tickers)
+        for index, ticker in enumerate(tickers, start=1):
+            if index == 1 or index % 25 == 0 or index == total:
+                print(f"stooq_prices ingest progress: {index}/{total}")
             rows = self.client.daily(ticker, start, end)
             raw_rows.append({"ticker": ticker.upper(), "start": start, "end": end, "rows": rows})
             for row in rows:
@@ -180,7 +183,10 @@ class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
         end = request.end
         raw_rows: list[dict[str, object]] = []
         prices: list[PriceRecord] = []
-        for ticker in tickers:
+        total = len(tickers)
+        for index, ticker in enumerate(tickers, start=1):
+            if index == 1 or index % 25 == 0 or index == total:
+                print(f"yahoo_prices ingest progress: {index}/{total}")
             rows = self.client.daily(ticker, start, end)
             raw_rows.append({"ticker": ticker.upper(), "start": start, "end": end, "rows": rows})
             for row in rows:
