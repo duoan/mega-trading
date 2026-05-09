@@ -128,6 +128,7 @@ def _run_train_config(config: DictConfig):
         use_evidence=bool(config.model.use_evidence),
         seed=int(config.training.seed),
         device=str(config.training.device),
+        precision=str(config.training.precision),
     )
     return TradingFoundationTrainer(store, train_config).train(shard_path)
 
@@ -185,6 +186,8 @@ def _ablation_summary(run_name: str, config: DictConfig, manifest_path: str) -> 
             "learning_rate": float(config.training.learning_rate),
             "validation_fraction": float(config.training.validation_fraction),
             "eval_interval": int(config.training.eval_interval),
+            "device": str(config.training.device),
+            "precision": str(config.training.precision),
         },
         "model": {
             "hidden_dim": int(config.model.hidden_dim),

@@ -42,7 +42,7 @@ Each training run writes:
 - `runs/<run_id>/checkpoint.pt`
 - `manifests/runs/<run_id>-trading-foundation-model.json`
 
-The manifest records the shard path, stream contract, config hash, device, and step count.
+The manifest records the shard path, stream contract, config hash, requested/effective device, requested/effective precision, and step count.
 
 ## Metrics
 
@@ -61,17 +61,30 @@ The local trainer uses a time-ordered validation tail from the sample shard, so 
 
 ## Local And GPU Paths
 
-Local CPU training is the reviewer-friendly smoke path:
+Training uses Hydra config from `configs/train/default.yaml`. By default `training.device=auto` selects `cuda` first, then Apple Silicon `mps`, then `cpu`. `training.precision=auto` enables mixed precision on CUDA and keeps MPS/CPU in fp32.
+
+Local smoke training can pin CPU for deterministic reviewer runs:
 
 ```bash
 uv run mega-trading train \
   run.run_id=public-tfm \
   training.max_steps=200 \
+  training.device=cpu \
   model.hidden_dim=64 \
   training.batch_size=32
 ```
 
-Training config lives in `configs/train/default.yaml`. Ablations should use Hydra overrides so runs remain reproducible and easy to compare:
+A GPU run can rely on automatic device and precision selection:
+
+```bash
+uv run mega-trading train \
+  run.run_id=public-tfm-gpu \
+  training.device=auto \
+  training.precision=auto \
+  training.batch_size=128
+```
+
+Ablations should use Hydra overrides so runs remain reproducible and easy to compare:
 
 ```bash
 uv run mega-trading train model.hidden_dim=32 training.learning_rate=0.001

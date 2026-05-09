@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from time import perf_counter
+from typing import Any
 
 import torch
 from torch import nn
@@ -50,7 +52,10 @@ class TradingFoundationTrainer:
             DataLoader(validation_dataset, batch_size=self.config.batch_size, shuffle=False) if validation_dataset else None
         )
         iterator = iter(train_loader)
-        device = torch.device(self.config.device)
+        device = _resolve_device(self.config.device)
+        precision = _resolve_precision(self.config.precision, device)
+        amp_enabled = precision == "mixed" and device.type == "cuda"
+        scaler = _grad_scaler(amp_enabled)
         model = TradingFoundationModel(
             *sizes,
             hidden_dim=self.config.hidden_dim,
@@ -73,12 +78,14 @@ class TradingFoundationTrainer:
             started = perf_counter()
             batch = {key: value.to(device) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
-            return_logits, risk_logits = model(batch)
-            return_loss = loss_fn(return_logits, batch["return_label"])
-            risk_loss = loss_fn(risk_logits, batch["risk_label"])
-            loss = return_loss + risk_loss
-            loss.backward()
-            optimizer.step()
+            with _autocast_context(device, amp_enabled):
+                return_logits, risk_logits = model(batch)
+                return_loss = loss_fn(return_logits, batch["return_label"])
+                risk_loss = loss_fn(risk_logits, batch["risk_label"])
+                loss = return_loss + risk_loss
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             elapsed = max(perf_counter() - started, 1e-9)
             metrics.append(
                 {
@@ -94,7 +101,7 @@ class TradingFoundationTrainer:
                 }
             )
             if validation_loader is not None and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
-                metrics[-1].update(_evaluate(model, validation_loader, device, loss_fn))
+                metrics[-1].update(_evaluate(model, validation_loader, device, loss_fn, precision))
             self.store.write_jsonl(metrics_path, metrics)
 
         checkpoint_path = self.paths.run("checkpoint.pt")
@@ -120,6 +127,10 @@ class TradingFoundationTrainer:
                 "validation_sample_count": validation_count,
                 "step": self.config.max_steps,
                 "shard_path": shard_path,
+                "requested_device": self.config.device,
+                "device": device.type,
+                "requested_precision": self.config.precision,
+                "precision": precision,
             },
             checkpoint_target,
         )
@@ -141,7 +152,10 @@ class TradingFoundationTrainer:
                 "use_fundamentals": str(self.config.use_fundamentals),
                 "use_evidence": str(self.config.use_evidence),
                 "config_hash": self.config.content_hash(),
-                "device": self.config.device,
+                "requested_device": self.config.device,
+                "device": device.type,
+                "requested_precision": self.config.precision,
+                "precision": precision,
             },
         )
         manifest_path = self.paths.manifest("runs", f"{self.config.run_id}-trading-foundation-model")
@@ -159,8 +173,10 @@ def _evaluate(
     loader: DataLoader[dict[str, torch.Tensor]],
     device: torch.device,
     loss_fn: nn.Module,
+    precision: str = "fp32",
 ) -> dict[str, float]:
     model.eval()
+    amp_enabled = precision == "mixed" and device.type == "cuda"
     total_examples = 0
     total_loss = 0.0
     return_correct = 0
@@ -168,10 +184,11 @@ def _evaluate(
     with torch.no_grad():
         for batch in loader:
             batch = {key: value.to(device) for key, value in batch.items()}
-            return_logits, risk_logits = model(batch)
+            with _autocast_context(device, amp_enabled):
+                return_logits, risk_logits = model(batch)
+                return_loss = loss_fn(return_logits, batch["return_label"])
+                risk_loss = loss_fn(risk_logits, batch["risk_label"])
             batch_size = int(batch["return_label"].shape[0])
-            return_loss = loss_fn(return_logits, batch["return_label"])
-            risk_loss = loss_fn(risk_logits, batch["risk_label"])
             total_loss += float((return_loss + risk_loss).detach().cpu()) * batch_size
             return_correct += int((return_logits.argmax(dim=-1) == batch["return_label"]).sum().detach().cpu())
             risk_correct += int((risk_logits.argmax(dim=-1) == batch["risk_label"]).sum().detach().cpu())
@@ -184,6 +201,45 @@ def _evaluate(
         "validation_return_accuracy": return_correct / total_examples,
         "validation_risk_accuracy": risk_correct / total_examples,
     }
+
+
+def _resolve_device(requested_device: str) -> torch.device:
+    if requested_device == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if _mps_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+    if requested_device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is not available")
+    if requested_device == "mps" and not _mps_available():
+        raise RuntimeError("MPS was requested but is not available")
+    return torch.device(requested_device)
+
+
+def _resolve_precision(requested_precision: str, device: torch.device) -> str:
+    if requested_precision == "auto":
+        return "mixed" if device.type == "cuda" else "fp32"
+    if requested_precision == "mixed" and device.type != "cuda":
+        raise RuntimeError("mixed precision is only supported for CUDA training")
+    return requested_precision
+
+
+def _autocast_context(device: torch.device, enabled: bool) -> Any:
+    if enabled:
+        return torch.autocast(device_type=device.type, dtype=torch.float16)
+    return nullcontext()
+
+
+def _grad_scaler(enabled: bool) -> Any:
+    if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
+        return torch.amp.GradScaler("cuda", enabled=enabled)
+    return torch.cuda.amp.GradScaler(enabled=enabled)
+
+
+def _mps_available() -> bool:
+    mps = getattr(torch.backends, "mps", None)
+    return bool(mps is not None and mps.is_available())
 
 
 def _profile_shard(

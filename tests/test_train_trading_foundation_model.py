@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import torch
 
@@ -8,7 +9,7 @@ from mega_trading.core.store import LocalObjectStore
 from mega_trading.train.config import TradingFoundationTrainConfig
 from mega_trading.train.dataset import TradingFoundationDataset
 from mega_trading.train.model import SwiGLU, TradingFoundationModel
-from mega_trading.train.trainer import TradingFoundationTrainer
+from mega_trading.train.trainer import TradingFoundationTrainer, _resolve_device, _resolve_precision
 
 
 class TradingFoundationModelTests(unittest.TestCase):
@@ -96,6 +97,33 @@ class TradingFoundationModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TradingFoundationTrainConfig(run_id="bad", max_steps=1, eval_interval=0)
 
+    def test_config_requires_valid_device_and_precision(self) -> None:
+        with self.assertRaises(ValueError):
+            TradingFoundationTrainConfig(run_id="bad", max_steps=1, device="tpu")
+        with self.assertRaises(ValueError):
+            TradingFoundationTrainConfig(run_id="bad", max_steps=1, precision="bf16")
+
+    def test_auto_device_prefers_cuda_then_mps_then_cpu(self) -> None:
+        with patch("torch.cuda.is_available", return_value=True), patch(
+            "mega_trading.train.trainer._mps_available", return_value=True
+        ):
+            self.assertEqual(_resolve_device("auto").type, "cuda")
+        with patch("torch.cuda.is_available", return_value=False), patch(
+            "mega_trading.train.trainer._mps_available", return_value=True
+        ):
+            self.assertEqual(_resolve_device("auto").type, "mps")
+        with patch("torch.cuda.is_available", return_value=False), patch(
+            "mega_trading.train.trainer._mps_available", return_value=False
+        ):
+            self.assertEqual(_resolve_device("auto").type, "cpu")
+
+    def test_auto_precision_uses_mixed_only_on_cuda(self) -> None:
+        self.assertEqual(_resolve_precision("auto", torch.device("cuda")), "mixed")
+        self.assertEqual(_resolve_precision("auto", torch.device("mps")), "fp32")
+        self.assertEqual(_resolve_precision("auto", torch.device("cpu")), "fp32")
+        with self.assertRaises(RuntimeError):
+            _resolve_precision("mixed", torch.device("mps"))
+
     def test_trainer_consumes_stream_shards_and_writes_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
@@ -118,6 +146,7 @@ class TradingFoundationModelTests(unittest.TestCase):
                     batch_size=2,
                     validation_fraction=0.25,
                     eval_interval=1,
+                    device="cpu",
                 ),
             ).train("stage=05_shards/mixture=public/samples.jsonl")
             metrics = store.read_jsonl("runs/tfm-test/metrics.jsonl")
@@ -135,6 +164,10 @@ class TradingFoundationModelTests(unittest.TestCase):
             self.assertEqual(manifest.metadata["train_sample_count"], "3")
             self.assertEqual(manifest.metadata["validation_sample_count"], "1")
             self.assertEqual(manifest.metadata["use_price"], "True")
+            self.assertEqual(manifest.metadata["requested_device"], "cpu")
+            self.assertEqual(manifest.metadata["device"], "cpu")
+            self.assertEqual(manifest.metadata["requested_precision"], "auto")
+            self.assertEqual(manifest.metadata["precision"], "fp32")
 
 
 def _row(

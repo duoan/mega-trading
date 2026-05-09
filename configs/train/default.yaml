@@ -25,4 +25,5 @@ training:
   validation_fraction: 0.2
   eval_interval: 10
   seed: 7
-  device: cpu
+  device: auto
+  precision: auto

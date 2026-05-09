@@ -282,6 +282,7 @@ end = "2023-01-31"
                 "model.use_evidence=false",
                 "training.validation_fraction=0.3",
                 "training.eval_interval=2",
+                "training.precision=mixed",
             ],
         )
 
@@ -291,6 +292,8 @@ end = "2023-01-31"
         self.assertFalse(config.model.use_evidence)
         self.assertEqual(config.training.validation_fraction, 0.3)
         self.assertEqual(config.training.eval_interval, 2)
+        self.assertEqual(config.training.device, "auto")
+        self.assertEqual(config.training.precision, "mixed")
 
     def test_train_command_writes_run_artifacts_from_hydra_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -306,6 +309,7 @@ end = "2023-01-31"
                     "training.max_steps=2",
                     "model.hidden_dim=8",
                     "training.batch_size=2",
+                    "training.device=cpu",
                 ]
             )
 
@@ -334,6 +338,7 @@ base_overrides:
   - data.mixture=public
   - training.max_steps=1
   - training.batch_size=2
+  - training.device=cpu
   - model.hidden_dim=8
 runs:
   - name: price_only

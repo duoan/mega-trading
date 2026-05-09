@@ -30,7 +30,8 @@ class TradingFoundationTrainConfig:
     use_fundamentals: bool = True
     use_evidence: bool = True
     seed: int = 7
-    device: str = "cpu"
+    device: str = "auto"
+    precision: str = "auto"
 
     def __post_init__(self) -> None:
         if self.max_steps <= 0:
@@ -51,6 +52,10 @@ class TradingFoundationTrainConfig:
             raise ValueError("eval_interval must be positive")
         if not (self.use_price or self.use_fundamentals or self.use_evidence):
             raise ValueError("at least one modality must be enabled")
+        if self.device not in {"auto", "cpu", "cuda", "mps"}:
+            raise ValueError("device must be one of: auto, cpu, cuda, mps")
+        if self.precision not in {"auto", "fp32", "mixed"}:
+            raise ValueError("precision must be one of: auto, fp32, mixed")
 
     def content_hash(self) -> str:
         return stable_hash(
@@ -71,6 +76,7 @@ class TradingFoundationTrainConfig:
                 "use_evidence": self.use_evidence,
                 "seed": self.seed,
                 "device": self.device,
+                "precision": self.precision,
             }
         )
 
