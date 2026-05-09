@@ -317,6 +317,7 @@ name = "fixture"
                 "training.validation_fraction=0.3",
                 "training.eval_interval=2",
                 "training.precision=mixed",
+                "training.wandb_mode=online",
             ],
         )
 
@@ -328,6 +329,9 @@ name = "fixture"
         self.assertEqual(config.training.eval_interval, 2)
         self.assertEqual(config.training.device, "auto")
         self.assertEqual(config.training.precision, "mixed")
+        self.assertTrue(config.training.wandb_enabled)
+        self.assertEqual(config.training.wandb_project, "mega-trading")
+        self.assertEqual(config.training.wandb_mode, "online")
 
     def test_train_command_writes_run_artifacts_from_hydra_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -350,6 +354,7 @@ name = "fixture"
             self.assertEqual(exit_code, 0)
             self.assertTrue((root / "runs/tfm-cli/metrics.jsonl").exists())
             self.assertTrue((root / "runs/tfm-cli/checkpoint.pt").exists())
+            self.assertTrue((root / "runs/tfm-cli/wandb").exists())
 
     def test_materialize_labels_command_writes_labeled_predictions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

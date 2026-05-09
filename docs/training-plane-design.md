@@ -10,7 +10,8 @@ The primary workload is `TradingFoundationModel`:
 
 - market_data-window encoder over trailing adjusted-close returns and levels.
 - news encoder over precomputed financial-news embedding features.
-- filing encoder over SEC filing, earnings, and company-fact features visible at `as_of_time`.
+- SEC filing encoder over filing features visible at `as_of_time`.
+- earnings encoder over earnings-event features visible at `as_of_time`.
 - macro encoder over macro and regime features.
 - cross-attention fusion block.
 - prediction heads for forward-return and risk buckets.
@@ -28,6 +29,7 @@ Each stream shard row should include:
 - `market_levels`
 - `news_embeddings`
 - `sec_filing_features`
+- `earnings_features`
 - `macro_features`
 - `return_label`
 - `risk_label`
@@ -43,7 +45,7 @@ Each training run writes:
 - `runs/<run_id>/checkpoint.pt`
 - `manifests/runs/<run_id>-trading-foundation-model.json`
 
-The manifest records the shard path, stream contract, config hash, requested/effective device, requested/effective precision, and step count.
+The manifest records the shard path, stream contract, config hash, requested/effective device, requested/effective precision, training backend, and step count.
 
 ## Metrics
 
@@ -57,12 +59,26 @@ Training metrics should make both model progress and infrastructure efficiency v
 - validation risk-bucket accuracy.
 - examples/sec.
 - checkpoint path and manifest path.
+- W&B run ID and URL when tracking is enabled.
 
-The local trainer uses a time-ordered validation tail from the sample shard, so validation metrics measure later `as_of_time` samples instead of a random split that can hide temporal leakage. Future runs should add calibration, rank correlation, data-loader wait time, checkpoint duration, and GPU utilization.
+The local trainer writes the same metrics to `runs/<run_id>/metrics.jsonl` and to Weights & Biases. The default W&B mode is `offline`, so reviewer runs do not require credentials and can be synced later with `wandb sync`. The trainer uses a time-ordered validation tail from the sample shard, so validation metrics measure later `as_of_time` samples instead of a random split that can hide temporal leakage. Future runs should add calibration, rank correlation, data-loader wait time, checkpoint duration, and GPU utilization.
 
 ## Local And GPU Paths
 
-Training uses Hydra config from `configs/train/default.yaml`. By default `training.device=auto` selects `cuda` first, then Apple Silicon `mps`, then `cpu`. `training.precision=auto` enables mixed precision on CUDA and keeps MPS/CPU in fp32.
+Training uses Hydra config from `configs/train/default.yaml` and Hugging Face Accelerate for model, optimizer, dataloader, autocast, backward, and checkpoint-state handling. By default `training.device=auto` selects `cuda` first, then Apple Silicon `mps`, then `cpu`. `training.precision=auto` enables mixed precision on CUDA and keeps MPS/CPU in fp32.
+
+W&B tracking is enabled by default in offline mode:
+
+```bash
+uv run mega-trading train training.wandb_mode=offline
+```
+
+To stream metrics to the hosted W&B dashboard:
+
+```bash
+wandb login
+uv run mega-trading train training.wandb_mode=online
+```
 
 Local smoke training can pin CPU for deterministic reviewer runs:
 

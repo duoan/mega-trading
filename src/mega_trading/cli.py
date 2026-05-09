@@ -229,6 +229,10 @@ def _run_train_config(config: DictConfig):
         seed=int(config.training.seed),
         device=str(config.training.device),
         precision=str(config.training.precision),
+        wandb_enabled=bool(config.training.wandb_enabled),
+        wandb_project=str(config.training.wandb_project),
+        wandb_entity=_optional_string(config.training.wandb_entity),
+        wandb_mode=str(config.training.wandb_mode),
     )
     return TradingFoundationTrainer(store, train_config).train(shard_path)
 
@@ -303,6 +307,12 @@ def _optional_int(value: object) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
 
 
 def _string_list(value: object) -> list[str]:

@@ -144,6 +144,8 @@ class TradingFoundationModelTests(unittest.TestCase):
             TradingFoundationTrainConfig(run_id="bad", max_steps=1, device="tpu")
         with self.assertRaises(ValueError):
             TradingFoundationTrainConfig(run_id="bad", max_steps=1, precision="bf16")
+        with self.assertRaises(ValueError):
+            TradingFoundationTrainConfig(run_id="bad", max_steps=1, wandb_mode="local")
 
     def test_auto_device_prefers_cuda_then_mps_then_cpu(self) -> None:
         with patch("torch.cuda.is_available", return_value=True), patch(
@@ -218,6 +220,13 @@ class TradingFoundationModelTests(unittest.TestCase):
             self.assertEqual(manifest.metadata["device"], "cpu")
             self.assertEqual(manifest.metadata["requested_precision"], "auto")
             self.assertEqual(manifest.metadata["precision"], "fp32")
+            self.assertEqual(manifest.metadata["training_backend"], "accelerate")
+            self.assertEqual(manifest.metadata["accelerator_mixed_precision"], "no")
+            self.assertEqual(manifest.metadata["accelerator_num_processes"], "1")
+            self.assertEqual(manifest.metadata["wandb_enabled"], "True")
+            self.assertEqual(manifest.metadata["wandb_project"], "mega-trading")
+            self.assertEqual(manifest.metadata["wandb_mode"], "offline")
+            self.assertTrue((Path(tmp) / "runs/tfm-test/wandb").exists())
 
 
 def _row(

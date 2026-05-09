@@ -31,3 +31,7 @@ training:
   seed: 7
   device: auto
   precision: auto
+  wandb_enabled: true
+  wandb_project: mega-trading
+  wandb_entity: null
+  wandb_mode: offline

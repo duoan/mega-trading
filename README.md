@@ -23,7 +23,7 @@ uv run mega-trading ingest --config configs/ingest-public.toml
 uv run mega-trading train run.run_id=public-tfm
 ```
 
-Training uses Hydra config from `configs/train/default.yaml`, including a time-ordered train/validation split, validation metrics, automatic device selection, mixed precision on CUDA, checkpoints, manifests, and model registry records. Ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
+Training uses Hydra config from `configs/train/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, and Weights & Biases for metric tracking. By default W&B runs in offline mode under `runs/<run_id>/wandb`; use `training.wandb_mode=online` after `wandb login` to stream metrics to the dashboard. Ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
 
 The target-platform vertical slice then reuses the registered model version for replay inference, delayed labels, backtesting, online adaptation metadata, and serving-compatible local inference:
 

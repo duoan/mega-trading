@@ -36,6 +36,10 @@ class TradingFoundationTrainConfig:
     seed: int = 7
     device: str = "auto"
     precision: str = "auto"
+    wandb_enabled: bool = True
+    wandb_project: str = "mega-trading"
+    wandb_entity: str | None = None
+    wandb_mode: str = "offline"
 
     def __post_init__(self) -> None:
         if self.max_steps <= 0:
@@ -60,6 +64,10 @@ class TradingFoundationTrainConfig:
             raise ValueError("device must be one of: auto, cpu, cuda, mps")
         if self.precision not in {"auto", "fp32", "mixed"}:
             raise ValueError("precision must be one of: auto, fp32, mixed")
+        if not self.wandb_project:
+            raise ValueError("wandb_project must be non-empty")
+        if self.wandb_mode not in {"online", "offline", "disabled"}:
+            raise ValueError("wandb_mode must be one of: online, offline, disabled")
 
     def content_hash(self) -> str:
         return stable_hash(
@@ -85,6 +93,10 @@ class TradingFoundationTrainConfig:
                 "seed": self.seed,
                 "device": self.device,
                 "precision": self.precision,
+                "wandb_enabled": self.wandb_enabled,
+                "wandb_project": self.wandb_project,
+                "wandb_entity": self.wandb_entity,
+                "wandb_mode": self.wandb_mode,
             }
         )
 
