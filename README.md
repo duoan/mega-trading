@@ -21,7 +21,34 @@ uv run mega-trading ingest --config configs/ingest-public.toml
 uv run mega-trading train run.run_id=public-tfm
 ```
 
-Training uses Hydra config from `configs/train/default.yaml`, including a time-ordered train/validation split and validation metrics. Ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
+Training uses Hydra config from `configs/train/default.yaml`, including a time-ordered train/validation split, validation metrics, automatic device selection, mixed precision on CUDA, checkpoints, manifests, and model registry records. Ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
+
+The target-platform vertical slice then reuses the registered model version for replay inference, delayed labels, backtesting, online adaptation metadata, and serving-compatible local inference:
+
+```bash
+MODEL_VERSION_ID="<model_version_id_from_training_manifest>"
+
+uv run mega-trading replay \
+  --model-version-id "$MODEL_VERSION_ID" \
+  --replay-id public-replay \
+  --max-predictions 1000
+
+uv run mega-trading materialize-labels \
+  --prediction-path predictions/public-replay/predictions.jsonl \
+  --label-run-id public-labels
+
+uv run mega-trading backtest \
+  --labeled-prediction-path labels/public-labels/labeled-predictions.jsonl \
+  --backtest-id public-backtest
+
+uv run mega-trading online-update \
+  --labeled-prediction-path labels/public-labels/labeled-predictions.jsonl \
+  --base-model-version "base-$MODEL_VERSION_ID" \
+  --update-id public-online-update
+
+uv run mega-trading serve-smoke \
+  --model-version-id "$MODEL_VERSION_ID"
+```
 
 Run the default modality ablation suite and write a summary report:
 

@@ -30,6 +30,22 @@ The target platform extends this into:
 
 This separation is intentional: the MVP proves the core data and training contracts, while the target design shows the production scaling path.
 
+## Implemented Platform Slice
+
+The repository now implements a runnable target-platform vertical slice on top of the offline training path:
+
+- [x] Model registry records under `models/<model_version_id>/model-version.json`.
+- [x] Replay inference from registered checkpoints over stream shards.
+- [x] Append-only prediction logs under `predictions/<replay_id>/predictions.jsonl`.
+- [x] Delayed label materialization into separate `labels/<label_run_id>/...` artifacts.
+- [x] Cost-aware deterministic backtest reports under `evals/<backtest_id>/backtest-report.json`.
+- [x] Replay-buffer sampling for online adaptation.
+- [x] Online adapter/head/calibrator update artifact interface with frozen-backbone metadata.
+- [x] Serving-compatible local `ModelServer` request/response wrapper and `serve-smoke` CLI.
+- [ ] Production realtime feature service and HTTP model serving.
+- [ ] Real news, filing document, earnings transcript, and macro ingestion streams.
+- [ ] Actual LoRA or adapter optimization against live delayed labels.
+
 ## System Goals
 
 ### Functional Goals
