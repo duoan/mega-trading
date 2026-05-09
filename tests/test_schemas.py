@@ -57,14 +57,14 @@ class SchemaTests(unittest.TestCase):
     def test_manifest_hash_is_deterministic(self) -> None:
         left = Manifest(
             manifest_id="manifest-1",
-            artifact_type="samples",
-            paths=["stage=04_corpus/mixture=demo/samples.jsonl"],
+            artifact_type="events",
+            paths=["stage=04_corpus/mixture=demo/events.jsonl"],
             metadata={"b": 2, "a": 1},
         )
         right = Manifest(
             manifest_id="manifest-1",
-            artifact_type="samples",
-            paths=["stage=04_corpus/mixture=demo/samples.jsonl"],
+            artifact_type="events",
+            paths=["stage=04_corpus/mixture=demo/events.jsonl"],
             metadata={"a": 1, "b": 2},
         )
 

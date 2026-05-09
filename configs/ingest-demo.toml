@@ -8,13 +8,5 @@ fail_on_error = true
 [ingest.enrichment]
 enabled = true
 
-[ingest.training_data]
-enabled = true
-mixture_name = "demo"
-input_window_observations = 2
-horizon_observations = 2
-return_threshold = 0.05
-workers = 0
-
 [[ingest.sources]]
 name = "fixture"

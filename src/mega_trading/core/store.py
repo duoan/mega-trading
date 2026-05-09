@@ -33,22 +33,9 @@ class ArtifactPaths:
     def shard(self, mixture: str, name: str) -> str:
         return f"stage=05_shards/mixture={mixture}/{name}.jsonl"
 
-    def model(self, model_version_id: str) -> str:
-        return f"models/{model_version_id}/model-version.json"
-
-    def predictions(self, replay_id: str, name: str = "predictions") -> str:
-        return f"predictions/{replay_id}/{name}.jsonl"
-
-    def labels(self, label_run_id: str, name: str = "labels") -> str:
-        return f"labels/{label_run_id}/{name}.jsonl"
-
     def eval(self, eval_run_id: str, name: str) -> str:
         suffix = "" if Path(name).suffix else ".json"
         return f"evals/{eval_run_id}/{name}{suffix}"
-
-    def replay(self, replay_id: str, name: str) -> str:
-        suffix = "" if Path(name).suffix else ".jsonl"
-        return f"replay/{replay_id}/{name}{suffix}"
 
     def manifest(self, family: str, manifest_id: str) -> str:
         return f"manifests/{family}/{manifest_id}.json"
