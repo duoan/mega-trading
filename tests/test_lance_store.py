@@ -28,7 +28,7 @@ class LanceStoreTests(unittest.TestCase):
     def test_lance_table_names_are_stable(self) -> None:
         tables = LanceTables()
 
-        self.assertEqual(tables.normalized("fundamentals", "sec"), "stage_02_normalized_fundamentals_sec")
+        self.assertEqual(tables.normalized("sec_filings", "sec"), "stage_02_normalized_sec_filings_sec")
         self.assertEqual(tables.corpus("demo", "samples"), "stage_04_corpus_demo_samples")
 
     def test_fixture_ingestor_writes_normalized_lance_tables(self) -> None:
@@ -40,10 +40,10 @@ class LanceStoreTests(unittest.TestCase):
             FixtureIngestor(object_store, table_store=table_store).ingest()
 
             entities = table_store.read_rows("stage_02_normalized_entities_fixture")
-            evidence = table_store.read_rows("stage_02_normalized_evidence_fixture")
+            market_data = table_store.read_rows("stage_02_normalized_market_data_fixture")
 
             self.assertEqual(len(entities), 2)
-            self.assertEqual(evidence[0]["ticker"], "ACME")
+            self.assertEqual(market_data[0]["ticker"], "ACME")
 
 
 if __name__ == "__main__":

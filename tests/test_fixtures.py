@@ -9,16 +9,15 @@ class FixtureTests(unittest.TestCase):
 
         self.assertEqual(len(bundle.entities), 2)
         self.assertEqual(len(bundle.documents), 2)
-        self.assertEqual(len(bundle.fundamentals), 4)
-        self.assertEqual(len(bundle.prices), 8)
-        self.assertEqual(len(bundle.evidence), 4)
+        self.assertEqual(len(bundle.sec_filings), 4)
+        self.assertEqual(len(bundle.market_data), 8)
 
     def test_fixture_timestamps_are_deterministic(self) -> None:
         left = load_fixture_bundle()
         right = load_fixture_bundle()
 
         self.assertEqual(left.documents[0].as_of_time, right.documents[0].as_of_time)
-        self.assertEqual(left.evidence[0].timestamp, "2023-02-15T16:30:00Z")
+        self.assertEqual(left.sec_filings[0].as_of_time, "2023-02-15T16:30:00Z")
 
     def test_bad_fixtures_are_classified_by_reason(self) -> None:
         bundle = load_fixture_bundle()

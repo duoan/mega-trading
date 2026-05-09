@@ -12,33 +12,35 @@ base_overrides:
   - model.hidden_dim=32
 
 runs:
-  - name: price_only
+  - name: market_data_only
     overrides:
-      - run.run_id=ablation-price-only
-      - model.use_price=true
-      - model.use_fundamentals=false
-      - model.use_evidence=false
-  - name: fundamentals_only
+      - run.run_id=ablation-market_data-only
+      - model.use_market_data=true
+      - model.use_news=false
+      - model.use_sec_filings=false
+      - model.use_earnings=false
+      - model.use_macro=false
+  - name: sec_filings_only
     overrides:
-      - run.run_id=ablation-fundamentals-only
-      - model.use_price=false
-      - model.use_fundamentals=true
-      - model.use_evidence=false
-  - name: evidence_only
+      - run.run_id=ablation-sec_filings-only
+      - model.use_market_data=false
+      - model.use_news=false
+      - model.use_sec_filings=true
+      - model.use_earnings=false
+      - model.use_macro=false
+  - name: market_data_sec_filings
     overrides:
-      - run.run_id=ablation-evidence-only
-      - model.use_price=false
-      - model.use_fundamentals=false
-      - model.use_evidence=true
-  - name: price_fundamentals
-    overrides:
-      - run.run_id=ablation-price-fundamentals
-      - model.use_price=true
-      - model.use_fundamentals=true
-      - model.use_evidence=false
+      - run.run_id=ablation-market-data-sec-filings
+      - model.use_market_data=true
+      - model.use_news=false
+      - model.use_sec_filings=true
+      - model.use_earnings=false
+      - model.use_macro=false
   - name: all_modalities
     overrides:
       - run.run_id=ablation-all-modalities
-      - model.use_price=true
-      - model.use_fundamentals=true
-      - model.use_evidence=true
+      - model.use_market_data=true
+      - model.use_news=true
+      - model.use_sec_filings=true
+      - model.use_earnings=true
+      - model.use_macro=true

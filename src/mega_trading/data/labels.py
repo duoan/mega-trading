@@ -27,43 +27,43 @@ class LabelConfig:
 
 
 class ForwardLabelGenerator:
-    """Generate future labels without exposing future prices as inputs."""
+    """Generate future labels without exposing future market_data as inputs."""
 
     def __init__(self, config: LabelConfig | None = None) -> None:
         self.config = config or LabelConfig()
 
-    def generate(self, prices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def generate(self, market_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
         labels: list[dict[str, Any]] = []
-        for ticker, ticker_prices in _group_prices(prices).items():
-            labels.extend(self._generate_for_ticker(ticker, ticker_prices))
+        for ticker, ticker_market_data in _group_market_data(market_data).items():
+            labels.extend(self._generate_for_ticker(ticker, ticker_market_data))
         return labels
 
-    def _generate_for_ticker(self, ticker: str, prices: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _generate_for_ticker(self, ticker: str, market_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
         labels: list[dict[str, Any]] = []
-        stop_index = len(prices) - self.config.horizon_observations
+        stop_index = len(market_data) - self.config.horizon_observations
         for as_of_index in range(self.config.input_window_observations - 1, stop_index):
-            as_of_price = prices[as_of_index]
-            label_start = prices[as_of_index + 1]
-            label_end = prices[as_of_index + self.config.horizon_observations]
-            start_close = float(as_of_price["adjusted_close"])
+            as_of_market_data = market_data[as_of_index]
+            label_start = market_data[as_of_index + 1]
+            label_end = market_data[as_of_index + self.config.horizon_observations]
+            start_close = float(as_of_market_data["adjusted_close"])
             end_close = float(label_end["adjusted_close"])
             if start_close <= 0 or end_close <= 0:
                 continue
             forward_return = (end_close / start_close) - 1.0
-            future_prices = prices[as_of_index : as_of_index + self.config.horizon_observations + 1]
-            max_drawdown = _max_drawdown([float(row["adjusted_close"]) for row in future_prices])
-            realized_volatility = _realized_volatility([float(row["adjusted_close"]) for row in future_prices])
+            future_market_data = market_data[as_of_index : as_of_index + self.config.horizon_observations + 1]
+            max_drawdown = _max_drawdown([float(row["adjusted_close"]) for row in future_market_data])
+            realized_volatility = _realized_volatility([float(row["adjusted_close"]) for row in future_market_data])
             labels.append(
                 {
-                    "label_id": f"label-{ticker}-{as_of_price['date']}-{self.config.horizon_observations}d",
+                    "label_id": f"label-{ticker}-{as_of_market_data['date']}-{self.config.horizon_observations}d",
                     "ticker": ticker,
-                    "as_of_date": str(as_of_price["date"]),
-                    "as_of_time": f"{as_of_price['date']}T00:00:00Z",
+                    "as_of_date": str(as_of_market_data["date"]),
+                    "as_of_time": f"{as_of_market_data['date']}T00:00:00Z",
                     "label_start_date": str(label_start["date"]),
                     "label_end_date": str(label_end["date"]),
                     "horizon_observations": self.config.horizon_observations,
-                    "start_price_id": str(as_of_price["price_id"]),
-                    "end_price_id": str(label_end["price_id"]),
+                    "start_market_data_id": str(as_of_market_data["market_data_id"]),
+                    "end_market_data_id": str(label_end["market_data_id"]),
                     "forward_return": forward_return,
                     "forward_return_bucket": _return_bucket(forward_return, self.config.return_threshold),
                     "max_drawdown": max_drawdown,
@@ -74,9 +74,9 @@ class ForwardLabelGenerator:
         return labels
 
 
-def _group_prices(prices: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+def _group_market_data(market_data: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in prices:
+    for row in market_data:
         ticker = str(row.get("ticker", ""))
         if ticker:
             grouped.setdefault(ticker, []).append(row)

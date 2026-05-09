@@ -21,8 +21,8 @@ class IngestSourceConfig:
             raise ValueError("ingest source name is required")
         if not self.tickers:
             raise ValueError(f"ingest source {self.name} requires tickers")
-        if self.name in {"yahoo_prices", "stooq_prices"} and (not self.start or not self.end):
-            raise ValueError(f"price source {self.name} requires start and end")
+        if self.name in {"yahoo_market_data", "stooq_market_data"} and (not self.start or not self.end):
+            raise ValueError(f"market_data source {self.name} requires start and end")
 
 
 @dataclass(frozen=True)

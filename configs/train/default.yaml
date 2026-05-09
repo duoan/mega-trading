@@ -11,12 +11,16 @@ run:
 model:
   hidden_dim: 32
   attention_heads: 4
-  price_window_size: null
-  fundamental_size: null
-  evidence_size: null
-  use_price: true
-  use_fundamentals: true
-  use_evidence: true
+  market_window_size: null
+  news_size: null
+  sec_filing_size: null
+  earnings_size: null
+  macro_size: null
+  use_market_data: true
+  use_news: true
+  use_sec_filings: true
+  use_earnings: true
+  use_macro: true
 
 training:
   max_steps: 200

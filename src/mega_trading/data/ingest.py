@@ -31,7 +31,7 @@ class TickerIngestRequest:
 
 
 @dataclass(frozen=True)
-class PriceIngestRequest:
+class MarketDataIngestRequest:
     tickers: tuple[str, ...]
     start: str
     end: str
@@ -41,7 +41,7 @@ RequestT = TypeVar("RequestT")
 
 
 class Ingestor(ABC, Generic[RequestT]):
-    """Common ingestion contract for schedulers, CLIs, and ops workflows."""
+    """Common ingestion contract for config-driven CLIs and schedulers."""
 
     @abstractmethod
     def ingest(self, request: RequestT) -> IngestResult:
@@ -63,23 +63,20 @@ class FixtureIngestor(Ingestor[FixtureIngestRequest]):
         raw_paths = {
             "entities": self.paths.raw("fixture", "entities"),
             "documents": self.paths.raw("fixture", "documents"),
-            "fundamentals": self.paths.raw("fixture", "fundamentals"),
-            "prices": self.paths.raw("fixture", "prices"),
-            "evidence": self.paths.raw("fixture", "evidence"),
+            "sec_filings": self.paths.raw("fixture", "sec_filings"),
+            "market_data": self.paths.raw("fixture", "market_data"),
         }
 
         self.store.write_jsonl(raw_paths["entities"], [asdict(row) for row in bundle.entities])
         self.store.write_jsonl(raw_paths["documents"], [asdict(row) for row in bundle.documents])
-        self.store.write_jsonl(raw_paths["fundamentals"], [asdict(row) for row in bundle.fundamentals])
-        self.store.write_jsonl(raw_paths["prices"], [asdict(row) for row in bundle.prices])
-        self.store.write_jsonl(raw_paths["evidence"], [asdict(row) for row in bundle.evidence])
+        self.store.write_jsonl(raw_paths["sec_filings"], [asdict(row) for row in bundle.sec_filings])
+        self.store.write_jsonl(raw_paths["market_data"], [asdict(row) for row in bundle.market_data])
 
         normalized_paths = {
             "entities": self.paths.normalized("entities", "fixture"),
             "documents": self.paths.normalized("documents", "fixture"),
-            "fundamentals": self.paths.normalized("fundamentals", "fixture"),
-            "prices": self.paths.normalized("prices", "fixture"),
-            "evidence": self.paths.normalized("evidence", "fixture"),
+            "sec_filings": self.paths.normalized("sec_filings", "fixture"),
+            "market_data": self.paths.normalized("market_data", "fixture"),
         }
 
         # Fixture records are already normalized typed schemas. Live adapters will
@@ -105,9 +102,8 @@ class FixtureIngestor(Ingestor[FixtureIngestRequest]):
         normalized_counts = {
             "entities": len(bundle.entities),
             "documents": len(bundle.documents),
-            "fundamentals": len(bundle.fundamentals),
-            "prices": len(bundle.prices),
-            "evidence": len(bundle.evidence),
+            "sec_filings": len(bundle.sec_filings),
+            "market_data": len(bundle.market_data),
         }
         quality_summary = {
             "duplicate_records": 0,

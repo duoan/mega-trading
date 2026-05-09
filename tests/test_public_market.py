@@ -3,11 +3,11 @@ import unittest
 from pathlib import Path
 
 from mega_trading.core.store import LocalObjectStore
-from mega_trading.data.ingest import PriceIngestRequest
-from mega_trading.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
+from mega_trading.data.ingest import MarketDataIngestRequest
+from mega_trading.data.public.market import StooqClient, StooqMarketDataIngestor, YahooChartClient, YahooMarketDataIngestor
 
 
-class StooqPriceTests(unittest.TestCase):
+class StooqMarketDataTests(unittest.TestCase):
     def test_stooq_client_parses_daily_csv(self) -> None:
         def fetch_text(url: str) -> str:
             self.assertIn("aapl.us", url)
@@ -20,7 +20,7 @@ class StooqPriceTests(unittest.TestCase):
         self.assertEqual(rows[0]["date"], "2023-01-03")
         self.assertEqual(rows[0]["close"], 105.0)
 
-    def test_stooq_ingestor_writes_price_artifacts(self) -> None:
+    def test_stooq_ingestor_writes_market_data_artifacts(self) -> None:
         def fetch_text(_url: str) -> str:
             return "Date,Open,High,Low,Close,Volume\n2023-01-03,100,110,90,105,12345\n"
 
@@ -28,19 +28,19 @@ class StooqPriceTests(unittest.TestCase):
             store = LocalObjectStore(Path(tmp))
             client = StooqClient(fetch_text=fetch_text)
 
-            result = StooqPriceIngestor(store, client).ingest(
-                PriceIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
+            result = StooqMarketDataIngestor(store, client).ingest(
+                MarketDataIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
             )
-            prices = store.read_jsonl("stage=02_normalized/family=prices/source=stooq.jsonl")
+            market_data = store.read_jsonl("stage=02_normalized/family=market_data/source=stooq.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)
 
-            self.assertEqual(len(prices), 1)
-            self.assertEqual(prices[0]["ticker"], "AAPL")
-            self.assertEqual(prices[0]["adjusted_close"], 105.0)
+            self.assertEqual(len(market_data), 1)
+            self.assertEqual(market_data[0]["ticker"], "AAPL")
+            self.assertEqual(market_data[0]["adjusted_close"], 105.0)
             self.assertEqual(manifest.metadata["source"], "stooq_daily")
 
 
-class YahooPriceTests(unittest.TestCase):
+class YahooMarketDataTests(unittest.TestCase):
     def test_yahoo_client_parses_chart_payload(self) -> None:
         def fetch_json(url: str) -> dict:
             self.assertIn("query1.finance.yahoo.com", url)
@@ -72,7 +72,7 @@ class YahooPriceTests(unittest.TestCase):
         self.assertEqual(rows[0]["date"], "2023-01-03")
         self.assertEqual(rows[0]["adjusted_close"], 104.5)
 
-    def test_yahoo_ingestor_writes_price_artifacts(self) -> None:
+    def test_yahoo_ingestor_writes_market_data_artifacts(self) -> None:
         def fetch_json(_url: str) -> dict:
             return {
                 "chart": {
@@ -100,14 +100,14 @@ class YahooPriceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
 
-            result = YahooPriceIngestor(store, YahooChartClient(fetch_json=fetch_json)).ingest(
-                PriceIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
+            result = YahooMarketDataIngestor(store, YahooChartClient(fetch_json=fetch_json)).ingest(
+                MarketDataIngestRequest(tickers=("AAPL",), start="2023-01-01", end="2023-01-31")
             )
-            prices = store.read_jsonl("stage=02_normalized/family=prices/source=yahoo.jsonl")
+            market_data = store.read_jsonl("stage=02_normalized/family=market_data/source=yahoo.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)
 
-            self.assertEqual(len(prices), 1)
-            self.assertEqual(prices[0]["ticker"], "AAPL")
+            self.assertEqual(len(market_data), 1)
+            self.assertEqual(market_data[0]["ticker"], "AAPL")
             self.assertEqual(manifest.metadata["source"], "yahoo_chart")
 
 

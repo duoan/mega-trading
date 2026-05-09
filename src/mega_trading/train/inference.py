@@ -32,11 +32,20 @@ class ModelPredictor:
         self.model = _load_model(store, self.model_version, self.device)
 
     def predict_row(self, row: dict[str, object]) -> ModelPrediction:
-        item = row_to_item(_row_with_dummy_labels(row), self.model.price_window_size, self.model.fundamental_size, self.model.evidence_size)
+        item = row_to_item(
+            _row_with_dummy_labels(row),
+            self.model.market_window_size,
+            self.model.news_size,
+            self.model.sec_filing_size,
+            self.model.earnings_size,
+            self.model.macro_size,
+        )
         batch = {
-            "price": item["price"].unsqueeze(0).to(self.device),
-            "fundamentals": item["fundamentals"].unsqueeze(0).to(self.device),
-            "evidence": item["evidence"].unsqueeze(0).to(self.device),
+            "market_data": item["market_data"].unsqueeze(0).to(self.device),
+            "news": item["news"].unsqueeze(0).to(self.device),
+            "sec_filings": item["sec_filings"].unsqueeze(0).to(self.device),
+            "earnings": item["earnings"].unsqueeze(0).to(self.device),
+            "macro": item["macro"].unsqueeze(0).to(self.device),
         }
         with torch.no_grad():
             return_logits, risk_logits = self.model(batch)
@@ -61,14 +70,18 @@ def _load_model(store: LocalObjectStore, model_version: ModelVersionRecord, devi
     config = dict(checkpoint["config"])
     stream_sizes = dict(checkpoint["stream_sizes"])
     model = TradingFoundationModel(
-        price_window_size=int(stream_sizes["price_window_size"]),
-        fundamental_size=int(stream_sizes["fundamental_size"]),
-        evidence_size=int(stream_sizes["evidence_size"]),
+        market_window_size=int(stream_sizes["market_window_size"]),
+        news_size=int(stream_sizes["news_size"]),
+        sec_filing_size=int(stream_sizes["sec_filing_size"]),
+        earnings_size=int(stream_sizes["earnings_size"]),
+        macro_size=int(stream_sizes["macro_size"]),
         hidden_dim=int(config["hidden_dim"]),
         attention_heads=int(config["attention_heads"]),
-        use_price=bool(config["use_price"]),
-        use_fundamentals=bool(config["use_fundamentals"]),
-        use_evidence=bool(config["use_evidence"]),
+        use_market_data=bool(config["use_market_data"]),
+        use_news=bool(config["use_news"]),
+        use_sec_filings=bool(config["use_sec_filings"]),
+        use_earnings=bool(config["use_earnings"]),
+        use_macro=bool(config["use_macro"]),
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.ingest import TickerIngestRequest
-from mega_trading.data.public.sec import SecClient, SecCompanyFactsIngestor
+from mega_trading.data.public.sec import SecClient, SecFilingsIngestor
 
 
 class SecClientTests(unittest.TestCase):
@@ -49,7 +49,7 @@ class SecClientTests(unittest.TestCase):
         self.assertTrue(any("companyfacts/CIK0000320193.json" in url for url in calls))
         self.assertEqual(sum(url.endswith("/company_tickers.json") for url in calls), 1)
 
-    def test_sec_companyfacts_ingestor_writes_real_contract_artifacts(self) -> None:
+    def test_sec_filings_ingestor_writes_real_contract_artifacts(self) -> None:
         def fetch_json(url: str, _user_agent: str) -> dict:
             if url.endswith("/company_tickers.json"):
                 return {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
@@ -92,18 +92,18 @@ class SecClientTests(unittest.TestCase):
             store = LocalObjectStore(Path(tmp))
             client = SecClient(user_agent="Mega-Trading test@example.com", fetch_json=fetch_json)
 
-            result = SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
+            result = SecFilingsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
 
             entities = store.read_jsonl("stage=02_normalized/family=entities/source=sec.jsonl")
-            fundamentals = store.read_jsonl("stage=02_normalized/family=fundamentals/source=sec.jsonl")
+            sec_filings = store.read_jsonl("stage=02_normalized/family=sec_filings/source=sec.jsonl")
             manifest = store.read_manifest(result.normalization_manifest_path)
 
             self.assertEqual(entities[0]["ticker"], "AAPL")
-            self.assertEqual(len(fundamentals), 2)
-            self.assertEqual(fundamentals[0]["as_of_time"], "2023-11-03T00:00:00Z")
-            self.assertEqual(manifest.metadata["source"], "sec_companyfacts")
+            self.assertEqual(len(sec_filings), 2)
+            self.assertEqual(sec_filings[0]["as_of_time"], "2023-11-03T00:00:00Z")
+            self.assertEqual(manifest.metadata["source"], "sec_filings")
 
-    def test_sec_companyfacts_ingestor_generates_unique_ids_for_overlapping_facts(self) -> None:
+    def test_sec_filings_ingestor_generates_unique_ids_for_overlapping_facts(self) -> None:
         def fetch_json(url: str, _user_agent: str) -> dict:
             if url.endswith("/company_tickers.json"):
                 return {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
@@ -143,10 +143,10 @@ class SecClientTests(unittest.TestCase):
             store = LocalObjectStore(Path(tmp))
             client = SecClient(user_agent="Mega-Trading test@example.com", fetch_json=fetch_json)
 
-            SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
-            fundamentals = store.read_jsonl("stage=02_normalized/family=fundamentals/source=sec.jsonl")
+            SecFilingsIngestor(store, client).ingest(TickerIngestRequest(tickers=("AAPL",)))
+            sec_filings = store.read_jsonl("stage=02_normalized/family=sec_filings/source=sec.jsonl")
 
-            self.assertEqual(len({row["fundamental_id"] for row in fundamentals}), 2)
+            self.assertEqual(len({row["sec_filing_id"] for row in sec_filings}), 2)
 
     def test_sec_entity_ids_include_ticker_for_share_classes(self) -> None:
         def fetch_json(url: str, _user_agent: str) -> dict:
@@ -161,7 +161,7 @@ class SecClientTests(unittest.TestCase):
             store = LocalObjectStore(Path(tmp))
             client = SecClient(user_agent="Mega-Trading test@example.com", fetch_json=fetch_json)
 
-            SecCompanyFactsIngestor(store, client).ingest(TickerIngestRequest(tickers=("GOOG", "GOOGL")))
+            SecFilingsIngestor(store, client).ingest(TickerIngestRequest(tickers=("GOOG", "GOOGL")))
             entities = store.read_jsonl("stage=02_normalized/family=entities/source=sec.jsonl")
 
             self.assertEqual({row["entity_id"] for row in entities}, {"sec-0001652044-GOOG", "sec-0001652044-GOOGL"})

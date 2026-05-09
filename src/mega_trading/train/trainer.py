@@ -32,9 +32,11 @@ class TradingFoundationTrainer:
         total_rows = int(shard_profile["total_rows"])
         train_count, validation_count = _time_ordered_counts(total_rows, self.config.validation_fraction)
         sizes = (
-            int(shard_profile["price_window_size"]),
-            int(shard_profile["fundamental_size"]),
-            int(shard_profile["evidence_size"]),
+            int(shard_profile["market_window_size"]),
+            int(shard_profile["news_size"]),
+            int(shard_profile["sec_filing_size"]),
+            int(shard_profile["earnings_size"]),
+            int(shard_profile["macro_size"]),
         )
         train_dataset = TradingFoundationIterableDataset(
             lambda: _iter_row_slice(self.store, shard_path, 0, train_count),
@@ -61,9 +63,11 @@ class TradingFoundationTrainer:
             *sizes,
             hidden_dim=self.config.hidden_dim,
             attention_heads=self.config.attention_heads,
-            use_price=self.config.use_price,
-            use_fundamentals=self.config.use_fundamentals,
-            use_evidence=self.config.use_evidence,
+            use_market_data=self.config.use_market_data,
+            use_news=self.config.use_news,
+            use_sec_filings=self.config.use_sec_filings,
+            use_earnings=self.config.use_earnings,
+            use_macro=self.config.use_macro,
         ).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate)
         loss_fn = nn.CrossEntropyLoss()
@@ -117,14 +121,18 @@ class TradingFoundationTrainer:
                 "model_state_dict": model.state_dict(),
                 "config": self.config.__dict__,
                 "stream_sizes": {
-                    "price_window_size": sizes[0],
-                    "fundamental_size": sizes[1],
-                    "evidence_size": sizes[2],
+                    "market_window_size": sizes[0],
+                    "news_size": sizes[1],
+                    "sec_filing_size": sizes[2],
+                    "earnings_size": sizes[3],
+                    "macro_size": sizes[4],
                 },
                 "modalities": {
-                    "price": self.config.use_price,
-                    "fundamentals": self.config.use_fundamentals,
-                    "evidence": self.config.use_evidence,
+                    "market_data": self.config.use_market_data,
+                    "news": self.config.use_news,
+                    "sec_filings": self.config.use_sec_filings,
+                    "earnings": self.config.use_earnings,
+                    "macro": self.config.use_macro,
                 },
                 "attention_heads": self.config.attention_heads,
                 "train_sample_count": train_count,
@@ -147,15 +155,17 @@ class TradingFoundationTrainer:
                 "stage": "trading_foundation_model",
                 "steps": str(self.config.max_steps),
                 "shard_path": shard_path,
-                "stream_contract": "price_fundamental_text",
+                "stream_contract": "market_data_news_sec_filings_earnings_macro",
                 "attention_heads": str(self.config.attention_heads),
                 "train_sample_count": str(train_count),
                 "validation_sample_count": str(validation_count),
                 "validation_fraction": str(self.config.validation_fraction),
                 "eval_interval": str(self.config.eval_interval),
-                "use_price": str(self.config.use_price),
-                "use_fundamentals": str(self.config.use_fundamentals),
-                "use_evidence": str(self.config.use_evidence),
+                "use_market_data": str(self.config.use_market_data),
+                "use_news": str(self.config.use_news),
+                "use_sec_filings": str(self.config.use_sec_filings),
+                "use_earnings": str(self.config.use_earnings),
+                "use_macro": str(self.config.use_macro),
                 "config_hash": config_hash,
                 "model_version_id": model_version_id,
                 "model_version_path": model_version_path,
@@ -173,11 +183,11 @@ class TradingFoundationTrainer:
             manifest_path=manifest_path,
             metrics_path=metrics_path,
             config_hash=config_hash,
-            feature_version="price_fundamental_text-v1",
+            feature_version="market_data_news_sec_filings_earnings_macro-v1",
             label_version="forward_return_risk-v1",
             data_snapshot_version=shard_path,
             metadata={
-                "stream_contract": "price_fundamental_text",
+                "stream_contract": "market_data_news_sec_filings_earnings_macro",
                 "attention_heads": self.config.attention_heads,
                 "train_sample_count": train_count,
                 "validation_sample_count": validation_count,
@@ -271,22 +281,30 @@ def _profile_shard(
     config: TradingFoundationTrainConfig,
 ) -> dict[str, int]:
     total_rows = 0
-    price_window_size = config.price_window_size or 1
-    fundamental_size = config.fundamental_size or 1
-    evidence_size = config.evidence_size or 1
+    market_window_size = config.market_window_size or 1
+    news_size = config.news_size or 1
+    sec_filing_size = config.sec_filing_size or 1
+    earnings_size = config.earnings_size or 1
+    macro_size = config.macro_size or 1
     for row in store.iter_jsonl(shard_path):
         total_rows += 1
-        if config.price_window_size is None:
-            price_window_size = max(price_window_size, len(row.get("price_returns", [])))
-        if config.fundamental_size is None:
-            fundamental_size = max(fundamental_size, len(row.get("fundamental_values", [])))
-        if config.evidence_size is None:
-            evidence_size = max(evidence_size, len(row.get("evidence_token_ids", [])))
+        if config.market_window_size is None:
+            market_window_size = max(market_window_size, len(row.get("market_returns", [])))
+        if config.news_size is None:
+            news_size = max(news_size, len(row.get("news_embeddings", [])))
+        if config.sec_filing_size is None:
+            sec_filing_size = max(sec_filing_size, len(row.get("sec_filing_features", [])))
+        if config.earnings_size is None:
+            earnings_size = max(earnings_size, len(row.get("earnings_features", [])))
+        if config.macro_size is None:
+            macro_size = max(macro_size, len(row.get("macro_features", [])))
     return {
         "total_rows": total_rows,
-        "price_window_size": max(1, price_window_size),
-        "fundamental_size": max(1, fundamental_size),
-        "evidence_size": max(1, evidence_size),
+        "market_window_size": max(1, market_window_size),
+        "news_size": max(1, news_size),
+        "sec_filing_size": max(1, sec_filing_size),
+        "earnings_size": max(1, earnings_size),
+        "macro_size": max(1, macro_size),
     }
 
 

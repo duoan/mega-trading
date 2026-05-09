@@ -1,4 +1,4 @@
-"""Public historical price adapters."""
+"""Public historical market data adapters."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ from urllib.request import Request, urlopen
 
 import certifi
 
-from mega_trading.core.schemas import Manifest, PriceRecord
+from mega_trading.core.schemas import Manifest, MarketDataRecord
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
-from mega_trading.data.ingest import Ingestor, IngestResult, PriceIngestRequest
+from mega_trading.data.ingest import Ingestor, IngestResult, MarketDataIngestRequest
 from mega_trading.data.lance_store import LanceTableStore, LanceTables
 
 FetchText = Callable[[str], str]
@@ -51,7 +51,7 @@ class StooqClient:
         return rows
 
 
-class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
+class StooqMarketDataIngestor(Ingestor[MarketDataIngestRequest]):
     def __init__(self, store: LocalObjectStore, client: StooqClient, table_store: LanceTableStore | None = None) -> None:
         self.store = store
         self.client = client
@@ -59,28 +59,28 @@ class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
         self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
-    def ingest(self, request: PriceIngestRequest) -> IngestResult:
+    def ingest(self, request: MarketDataIngestRequest) -> IngestResult:
         tickers = list(request.tickers)
         start = request.start
         end = request.end
         raw_rows: list[dict[str, object]] = []
-        prices: list[PriceRecord] = []
+        market_data: list[MarketDataRecord] = []
         total = len(tickers)
         for index, ticker in enumerate(tickers, start=1):
             if index == 1 or index % 25 == 0 or index == total:
-                print(f"stooq_prices ingest progress: {index}/{total}")
+                print(f"stooq_market_data ingest progress: {index}/{total}")
             rows = self.client.daily(ticker, start, end)
             raw_rows.append({"ticker": ticker.upper(), "start": start, "end": end, "rows": rows})
             for row in rows:
-                price_id = f"stooq-{row['ticker']}-{row['date']}"
-                prices.append(
-                    PriceRecord(
-                        price_id=price_id,
+                market_data_id = f"stooq-{row['ticker']}-{row['date']}"
+                market_data.append(
+                    MarketDataRecord(
+                        market_data_id=market_data_id,
                         ticker=str(row["ticker"]),
                         date=str(row["date"]),
                         adjusted_close=float(row["adjusted_close"]),
                         provider="stooq",
-                        source_ids=[price_id],
+                        source_ids=[market_data_id],
                         open=float(row["open"]),
                         high=float(row["high"]),
                         low=float(row["low"]),
@@ -89,13 +89,13 @@ class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
                     )
                 )
 
-        raw_path = self.paths.raw("stooq", "daily_prices")
-        normalized_path = self.paths.normalized("prices", "stooq")
+        raw_path = self.paths.raw("stooq", "daily_market_data")
+        normalized_path = self.paths.normalized("market_data", "stooq")
         self.store.write_jsonl(raw_path, raw_rows)
-        price_rows = [asdict(price) for price in prices]
-        self.store.write_jsonl(normalized_path, price_rows)
+        market_data_rows = [asdict(row) for row in market_data]
+        self.store.write_jsonl(normalized_path, market_data_rows)
         if self.table_store:
-            self.table_store.write_table(self.tables.normalized("prices", "stooq"), price_rows)
+            self.table_store.write_table(self.tables.normalized("market_data", "stooq"), market_data_rows)
 
         raw_manifest = Manifest(
             manifest_id="stooq-daily-raw",
@@ -113,7 +113,7 @@ class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
             metadata={
                 "source": "stooq_daily",
                 "source_manifest_id": raw_manifest.manifest_id,
-                "prices": str(len(prices)),
+                "market_data": str(len(market_data)),
             },
         )
         normalization_manifest_path = self.paths.manifest("normalization", "stooq-daily-normalized")
@@ -122,7 +122,7 @@ class StooqPriceIngestor(Ingestor[PriceIngestRequest]):
         return IngestResult(
             raw_manifest_path=raw_manifest_path,
             normalization_manifest_path=normalization_manifest_path,
-            normalized_counts={"prices": len(prices)},
+            normalized_counts={"market_data": len(market_data)},
             quality_summary={"quarantined_records": 0, "duplicate_records": 0},
         )
 
@@ -169,7 +169,7 @@ class YahooChartClient:
         return rows
 
 
-class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
+class YahooMarketDataIngestor(Ingestor[MarketDataIngestRequest]):
     def __init__(self, store: LocalObjectStore, client: YahooChartClient, table_store: LanceTableStore | None = None) -> None:
         self.store = store
         self.client = client
@@ -177,28 +177,28 @@ class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
         self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
-    def ingest(self, request: PriceIngestRequest) -> IngestResult:
+    def ingest(self, request: MarketDataIngestRequest) -> IngestResult:
         tickers = list(request.tickers)
         start = request.start
         end = request.end
         raw_rows: list[dict[str, object]] = []
-        prices: list[PriceRecord] = []
+        market_data: list[MarketDataRecord] = []
         total = len(tickers)
         for index, ticker in enumerate(tickers, start=1):
             if index == 1 or index % 25 == 0 or index == total:
-                print(f"yahoo_prices ingest progress: {index}/{total}")
+                print(f"yahoo_market_data ingest progress: {index}/{total}")
             rows = self.client.daily(ticker, start, end)
             raw_rows.append({"ticker": ticker.upper(), "start": start, "end": end, "rows": rows})
             for row in rows:
-                price_id = f"yahoo-{row['ticker']}-{row['date']}"
-                prices.append(
-                    PriceRecord(
-                        price_id=price_id,
+                market_data_id = f"yahoo-{row['ticker']}-{row['date']}"
+                market_data.append(
+                    MarketDataRecord(
+                        market_data_id=market_data_id,
                         ticker=str(row["ticker"]),
                         date=str(row["date"]),
                         adjusted_close=float(row["adjusted_close"]),
                         provider="yahoo",
-                        source_ids=[price_id],
+                        source_ids=[market_data_id],
                         open=_optional_float(row["open"]),
                         high=_optional_float(row["high"]),
                         low=_optional_float(row["low"]),
@@ -207,13 +207,13 @@ class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
                     )
                 )
 
-        raw_path = self.paths.raw("yahoo", "daily_prices")
-        normalized_path = self.paths.normalized("prices", "yahoo")
+        raw_path = self.paths.raw("yahoo", "daily_market_data")
+        normalized_path = self.paths.normalized("market_data", "yahoo")
         self.store.write_jsonl(raw_path, raw_rows)
-        price_rows = [asdict(price) for price in prices]
-        self.store.write_jsonl(normalized_path, price_rows)
+        market_data_rows = [asdict(row) for row in market_data]
+        self.store.write_jsonl(normalized_path, market_data_rows)
         if self.table_store:
-            self.table_store.write_table(self.tables.normalized("prices", "yahoo"), price_rows)
+            self.table_store.write_table(self.tables.normalized("market_data", "yahoo"), market_data_rows)
 
         raw_manifest = Manifest(
             manifest_id="yahoo-daily-raw",
@@ -231,7 +231,7 @@ class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
             metadata={
                 "source": "yahoo_chart",
                 "source_manifest_id": raw_manifest.manifest_id,
-                "prices": str(len(prices)),
+                "market_data": str(len(market_data)),
             },
         )
         normalization_manifest_path = self.paths.manifest("normalization", "yahoo-daily-normalized")
@@ -240,7 +240,7 @@ class YahooPriceIngestor(Ingestor[PriceIngestRequest]):
         return IngestResult(
             raw_manifest_path=raw_manifest_path,
             normalization_manifest_path=normalization_manifest_path,
-            normalized_counts={"prices": len(prices)},
+            normalized_counts={"market_data": len(market_data)},
             quality_summary={"quarantined_records": 0, "duplicate_records": 0},
         )
 

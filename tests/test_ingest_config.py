@@ -16,11 +16,11 @@ output_dir = ".mega-trading/public"
 sec_user_agent = "Mega-Trading test@example.com"
 
 [[ingest.sources]]
-name = "sec_companyfacts"
+name = "sec_filings"
 tickers = ["AAPL", "AMZN"]
 
 [[ingest.sources]]
-name = "yahoo_prices"
+name = "yahoo_market_data"
 tickers = ["AAPL", "AMZN"]
 start = "2024-01-01"
 end = "2024-03-31"
@@ -33,7 +33,7 @@ end = "2024-03-31"
 
             self.assertEqual(config.output_dir, ".mega-trading/public")
             self.assertEqual(config.sec_user_agent, "Mega-Trading test@example.com")
-            self.assertEqual(config.sources[0].name, "sec_companyfacts")
+            self.assertEqual(config.sources[0].name, "sec_filings")
             self.assertEqual(config.sources[1].tickers, ("AAPL", "AMZN"))
             self.assertEqual(config.sources[1].start, "2024-01-01")
             self.assertTrue(config.quality_enabled)
@@ -41,12 +41,12 @@ end = "2024-03-31"
             self.assertTrue(config.training_data_enabled)
             self.assertEqual(config.training_mixture_name, "public")
 
-    def test_rejects_price_source_without_date_window(self) -> None:
+    def test_rejects_market_data_source_without_date_window(self) -> None:
         with self.assertRaises(ValueError):
             IngestPipelineConfig.from_dict(
                 {
                     "output_dir": ".mega-trading/public",
-                    "sources": [{"name": "yahoo_prices", "tickers": ["AAPL"]}],
+                    "sources": [{"name": "yahoo_market_data", "tickers": ["AAPL"]}],
                 }
             )
 
@@ -61,7 +61,7 @@ end = "2024-03-31"
 output_dir = ".mega-trading/public"
 
 [[ingest.sources]]
-name = "sec_companyfacts"
+name = "sec_filings"
 tickers = ["amzn"]
 ticker_file = "sp500.txt"
 """.strip()
@@ -98,7 +98,7 @@ return_threshold = 0.05
 workers = 4
 
 [[ingest.sources]]
-name = "yahoo_prices"
+name = "yahoo_market_data"
 tickers = ["AAPL"]
 start = "2024-01-01"
 end = "2024-01-31"

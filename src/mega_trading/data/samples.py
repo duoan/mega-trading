@@ -22,20 +22,24 @@ class SampleBuildResult:
 
 
 class MultiStreamSampleBuilder:
-    """Build point-in-time price/fundamental/text samples with future labels."""
+    """Build point-in-time market_data/news/sec_filings/earnings/macro samples with future labels."""
 
     def __init__(
         self,
         store: LocalObjectStore,
         label_config: LabelConfig | None = None,
-        max_fundamentals: int = 16,
-        max_evidence: int = 8,
+        max_news: int = 32,
+        max_sec_filings: int = 16,
+        max_earnings: int = 16,
+        max_macro: int = 16,
         num_workers: int = 0,
     ) -> None:
         self.store = store
         self.label_config = label_config or LabelConfig()
-        self.max_fundamentals = max_fundamentals
-        self.max_evidence = max_evidence
+        self.max_news = max_news
+        self.max_sec_filings = max_sec_filings
+        self.max_earnings = max_earnings
+        self.max_macro = max_macro
         self.num_workers = num_workers
         self.paths = ArtifactPaths()
 
@@ -45,24 +49,30 @@ class MultiStreamSampleBuilder:
             raise ValueError("data readiness report is not training_ready")
 
         entities = {str(row["ticker"]): row for row in self._read_first_available(("entities", ("sec", "fixture")))}
-        fundamentals = _group_by_ticker(self._read_first_available(("fundamentals", ("sec", "fixture"))))
-        prices = self._read_prices()
-        prices_by_ticker = _group_by_ticker(prices, sort_field="date")
-        evidence = _group_by_ticker(self._read_first_available(("evidence", ("fixture", "sec"))))
+        news = _group_by_ticker(self._read_all_available("news", ("fixture", "rss", "gdelt", "vendor")))
+        sec_filings = _group_by_ticker(self._read_first_available(("sec_filings", ("sec", "fixture"))))
+        earnings = _group_by_ticker(self._read_all_available("earnings", ("fixture", "sec", "vendor")))
+        macro = self._read_all_available("macro", ("fixture", "fred", "market_proxy"))
+        market_data = self._read_market_data()
+        market_data_by_ticker = _group_by_ticker(market_data, sort_field="date")
         tasks = [
             {
                 "ticker": ticker,
                 "entity": entities[ticker],
-                "fundamentals": fundamentals.get(ticker, []),
-                "prices": prices_by_ticker[ticker],
-                "evidence": evidence.get(ticker, []),
+                "news": news.get(ticker, []),
+                "sec_filings": sec_filings.get(ticker, []),
+                "earnings": earnings.get(ticker, []),
+                "macro": macro,
+                "market_data": market_data_by_ticker[ticker],
                 "mixture_name": mixture_name,
                 "label_config": self.label_config,
-                "max_fundamentals": self.max_fundamentals,
-                "max_evidence": self.max_evidence,
+                "max_news": self.max_news,
+                "max_sec_filings": self.max_sec_filings,
+                "max_earnings": self.max_earnings,
+                "max_macro": self.max_macro,
             }
             for ticker in sorted(entities)
-            if ticker in prices_by_ticker
+            if ticker in market_data_by_ticker
         ]
         workers = _worker_count(self.num_workers, len(tasks))
         if workers > 1:
@@ -116,11 +126,21 @@ class MultiStreamSampleBuilder:
                 return rows
         return []
 
-    def _read_prices(self) -> list[dict[str, Any]]:
+    def _read_all_available(self, family: str, sources: tuple[str, ...]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for source in sources:
+            path = self.paths.normalized(family, source)
+            try:
+                rows.extend(self.store.read_jsonl(path))
+            except ArtifactNotFoundError:
+                continue
+        return rows
+
+    def _read_market_data(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for source in ("yahoo", "stooq", "fixture"):
             try:
-                rows.extend(self.store.read_jsonl(self.paths.normalized("prices", source)))
+                rows.extend(self.store.read_jsonl(self.paths.normalized("market_data", source)))
             except ArtifactNotFoundError:
                 continue
         return rows
@@ -145,20 +165,24 @@ def _write_ticker_sample_partition(task: dict[str, Any]) -> tuple[str, int]:
 
 def _samples_for_ticker(task: dict[str, Any]) -> list[dict[str, Any]]:
     ticker = str(task["ticker"])
-    prices = list(task["prices"])
-    price_index_by_date = {str(row["date"]): index for index, row in enumerate(prices)}
-    labels = ForwardLabelGenerator(task["label_config"])._generate_for_ticker(ticker, prices)
+    market_data = list(task["market_data"])
+    market_data_index_by_date = {str(row["date"]): index for index, row in enumerate(market_data)}
+    labels = ForwardLabelGenerator(task["label_config"])._generate_for_ticker(ticker, market_data)
     return [
         _sample_from_label(
             label,
             task["entity"],
-            task["fundamentals"],
-            prices,
-            price_index_by_date,
-            task["evidence"],
+            task["news"],
+            task["sec_filings"],
+            task["earnings"],
+            task["macro"],
+            market_data,
+            market_data_index_by_date,
             str(task["mixture_name"]),
-            int(task["max_fundamentals"]),
-            int(task["max_evidence"]),
+            int(task["max_news"]),
+            int(task["max_sec_filings"]),
+            int(task["max_earnings"]),
+            int(task["max_macro"]),
             task["label_config"],
         )
         for label in labels
@@ -168,34 +192,46 @@ def _samples_for_ticker(task: dict[str, Any]) -> list[dict[str, Any]]:
 def _sample_from_label(
     label: dict[str, Any],
     entity: dict[str, Any],
-    fundamentals: list[dict[str, Any]],
-    prices: list[dict[str, Any]],
-    price_index_by_date: dict[str, int],
-    evidence: list[dict[str, Any]],
+    news: list[dict[str, Any]],
+    sec_filings: list[dict[str, Any]],
+    earnings: list[dict[str, Any]],
+    macro: list[dict[str, Any]],
+    market_data: list[dict[str, Any]],
+    market_data_index_by_date: dict[str, int],
     mixture_name: str,
-    max_fundamentals: int,
-    max_evidence: int,
+    max_news: int,
+    max_sec_filings: int,
+    max_earnings: int,
+    max_macro: int,
     label_config: LabelConfig,
 ) -> dict[str, Any]:
     ticker = str(label["ticker"])
     as_of_time = str(label["as_of_time"])
-    price_window = _price_window(prices, price_index_by_date, str(label["as_of_date"]), label_config.input_window_observations)
-    visible_fundamentals = _visible_by_as_of(fundamentals, as_of_time, "as_of_time", limit=max_fundamentals)
-    visible_evidence = _visible_by_as_of(evidence, as_of_time, "as_of_time", limit=max_evidence)
-    source_ids = _source_ids(price_window) + _source_ids(visible_fundamentals) + _source_ids(visible_evidence)
-    evidence_ids = [str(row["evidence_id"]) for row in visible_evidence if row.get("evidence_id")]
+    market_data_window = _market_data_window(market_data, market_data_index_by_date, str(label["as_of_date"]), label_config.input_window_observations)
+    visible_news = _visible_by_as_of(news, as_of_time, limit=max_news)
+    visible_sec_filings = _visible_by_as_of(sec_filings, as_of_time, "as_of_time", limit=max_sec_filings)
+    visible_earnings = _visible_by_as_of(earnings, as_of_time, "as_of_time", limit=max_earnings)
+    visible_macro = _visible_by_as_of(macro, as_of_time, limit=max_macro)
+    source_ids = (
+        _source_ids(market_data_window)
+        + _source_ids(visible_news)
+        + _source_ids(visible_sec_filings)
+        + _source_ids(visible_earnings)
+        + _source_ids(visible_macro)
+    )
     return {
         "sample_id": f"sample-{ticker}-{label['as_of_date']}",
         "mixture_name": mixture_name,
         "ticker": ticker,
         "entity_id": str(entity["entity_id"]),
         "as_of_time": as_of_time,
-        "price_window": price_window,
-        "fundamental_facts": visible_fundamentals,
-        "text_evidence": visible_evidence,
+        "market_data_window": market_data_window,
+        "news_window": visible_news,
+        "sec_filing_window": visible_sec_filings,
+        "earnings_window": visible_earnings,
+        "macro_window": visible_macro,
         "labels": label,
         "source_ids": source_ids,
-        "evidence_ids": evidence_ids,
         "metadata": {
             "input_window_observations": label_config.input_window_observations,
             "horizon_observations": label_config.horizon_observations,
@@ -214,21 +250,29 @@ def _group_by_ticker(rows: list[dict[str, Any]], sort_field: str | None = None) 
     return grouped
 
 
-def _price_window(prices: list[dict[str, Any]], index_by_date: dict[str, int], as_of_date: str, window: int) -> list[dict[str, Any]]:
+def _market_data_window(market_data: list[dict[str, Any]], index_by_date: dict[str, int], as_of_date: str, window: int) -> list[dict[str, Any]]:
     as_of_index = index_by_date[as_of_date]
-    return prices[as_of_index - window + 1 : as_of_index + 1]
+    return market_data[as_of_index - window + 1 : as_of_index + 1]
 
 
-def _visible_by_as_of(rows: list[dict[str, Any]], as_of_time: str, time_field: str, limit: int) -> list[dict[str, Any]]:
-    visible = [row for row in rows if str(row.get(time_field, "")) <= as_of_time]
-    return sorted(visible, key=lambda row: str(row.get(time_field, "")), reverse=True)[:limit]
+def _visible_by_as_of(rows: list[dict[str, Any]], as_of_time: str, time_field: str = "timestamp", limit: int = 16) -> list[dict[str, Any]]:
+    visible = [row for row in rows if _event_time(row, time_field) <= as_of_time]
+    return sorted(visible, key=lambda row: _event_time(row, time_field), reverse=True)[:limit]
+
+
+def _event_time(row: dict[str, Any], preferred_field: str) -> str:
+    for field in (preferred_field, "as_of_time", "timestamp", "accepted_at", "date"):
+        value = row.get(field)
+        if value:
+            return str(value)
+    return ""
 
 
 def _source_ids(rows: list[dict[str, Any]]) -> list[str]:
     source_ids: list[str] = []
     for row in rows:
         source_ids.extend(str(source_id) for source_id in row.get("source_ids", []))
-        for id_field in ("price_id", "fundamental_id", "evidence_id"):
+        for id_field in ("market_data_id", "event_id", "sec_filing_id", "earnings_id", "macro_id"):
             if row.get(id_field):
                 source_ids.append(str(row[id_field]))
     return sorted(set(source_ids))

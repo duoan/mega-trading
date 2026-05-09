@@ -7,9 +7,8 @@ from dataclasses import dataclass
 from mega_trading.core.schemas import (
     DocumentRecord,
     EntityRecord,
-    EvidenceRecord,
-    FundamentalRecord,
-    PriceRecord,
+    SecFilingRecord,
+    MarketDataRecord,
 )
 
 
@@ -17,9 +16,8 @@ from mega_trading.core.schemas import (
 class FixtureBundle:
     entities: list[EntityRecord]
     documents: list[DocumentRecord]
-    fundamentals: list[FundamentalRecord]
-    prices: list[PriceRecord]
-    evidence: list[EvidenceRecord]
+    sec_filings: list[SecFilingRecord]
+    market_data: list[MarketDataRecord]
     bad_records: list[dict[str, str]]
 
 
@@ -58,7 +56,7 @@ def load_fixture_bundle() -> FixtureBundle:
                 "ACME expanded recurring service revenue and improved operating margin. "
                 "Management noted supply chain risk and customer concentration."
             ),
-            source_uri="fixture://filings/acme-2022-10k",
+            source_uri="fixture://sec_filings/acme-2022-10k",
             published_at="2023-02-15T16:30:00Z",
             accepted_at="2023-02-15T16:30:00Z",
             as_of_time="2023-02-15T16:30:00Z",
@@ -74,7 +72,7 @@ def load_fixture_bundle() -> FixtureBundle:
                 "NOVA reported slowing same-store sales and higher inventory markdowns. "
                 "Management highlighted debt reduction as a priority."
             ),
-            source_uri="fixture://filings/nova-2022-10k",
+            source_uri="fixture://sec_filings/nova-2022-10k",
             published_at="2023-03-01T16:30:00Z",
             accepted_at="2023-03-01T16:30:00Z",
             as_of_time="2023-03-01T16:30:00Z",
@@ -82,9 +80,9 @@ def load_fixture_bundle() -> FixtureBundle:
         ),
     ]
 
-    fundamentals = [
-        FundamentalRecord(
-            fundamental_id="fact-acme-revenue-2022",
+    sec_filings = [
+        SecFilingRecord(
+            sec_filing_id="fact-acme-revenue-2022",
             entity_id="entity-acme",
             ticker="ACME",
             concept="Revenue",
@@ -95,8 +93,8 @@ def load_fixture_bundle() -> FixtureBundle:
             as_of_time="2023-02-15T16:30:00Z",
             source_ids=["raw:acme-10k"],
         ),
-        FundamentalRecord(
-            fundamental_id="fact-acme-net-income-2022",
+        SecFilingRecord(
+            sec_filing_id="fact-acme-net-income-2022",
             entity_id="entity-acme",
             ticker="ACME",
             concept="NetIncome",
@@ -107,8 +105,8 @@ def load_fixture_bundle() -> FixtureBundle:
             as_of_time="2023-02-15T16:30:00Z",
             source_ids=["raw:acme-10k"],
         ),
-        FundamentalRecord(
-            fundamental_id="fact-nova-revenue-2022",
+        SecFilingRecord(
+            sec_filing_id="fact-nova-revenue-2022",
             entity_id="entity-nova",
             ticker="NOVA",
             concept="Revenue",
@@ -119,8 +117,8 @@ def load_fixture_bundle() -> FixtureBundle:
             as_of_time="2023-03-01T16:30:00Z",
             source_ids=["raw:nova-10k"],
         ),
-        FundamentalRecord(
-            fundamental_id="fact-nova-net-income-2022",
+        SecFilingRecord(
+            sec_filing_id="fact-nova-net-income-2022",
             entity_id="entity-nova",
             ticker="NOVA",
             concept="NetIncome",
@@ -133,75 +131,27 @@ def load_fixture_bundle() -> FixtureBundle:
         ),
     ]
 
-    prices = [
-        PriceRecord("px-acme-2023-01-31", "ACME", "2023-01-31", 40.0, "fixture", ["raw:prices"]),
-        PriceRecord("px-acme-2023-02-28", "ACME", "2023-02-28", 42.0, "fixture", ["raw:prices"]),
-        PriceRecord("px-acme-2023-08-31", "ACME", "2023-08-31", 48.0, "fixture", ["raw:prices"]),
-        PriceRecord("px-acme-2024-02-29", "ACME", "2024-02-29", 55.0, "fixture", ["raw:prices"]),
-        PriceRecord("px-nova-2023-01-31", "NOVA", "2023-01-31", 30.0, "fixture", ["raw:prices"]),
-        PriceRecord("px-nova-2023-03-31", "NOVA", "2023-03-31", 28.0, "fixture", ["raw:prices"]),
-        PriceRecord("px-nova-2023-09-29", "NOVA", "2023-09-29", 24.0, "fixture", ["raw:prices"]),
-        PriceRecord("px-nova-2024-03-29", "NOVA", "2024-03-29", 22.0, "fixture", ["raw:prices"]),
-    ]
-
-    evidence = [
-        EvidenceRecord(
-            evidence_id="ev-acme-margin",
-            entity_id="entity-acme",
-            ticker="ACME",
-            source_type="10-K",
-            document_id="doc-acme-2022-10k",
-            timestamp="2023-02-15T16:30:00Z",
-            as_of_time="2023-02-15T16:30:00Z",
-            text="ACME improved operating margin while expanding recurring service revenue.",
-            uri="fixture://filings/acme-2022-10k#item7",
-        ),
-        EvidenceRecord(
-            evidence_id="ev-acme-risk",
-            entity_id="entity-acme",
-            ticker="ACME",
-            source_type="10-K",
-            document_id="doc-acme-2022-10k",
-            timestamp="2023-02-15T16:30:00Z",
-            as_of_time="2023-02-15T16:30:00Z",
-            text="Management noted supply chain risk and customer concentration.",
-            uri="fixture://filings/acme-2022-10k#risk",
-        ),
-        EvidenceRecord(
-            evidence_id="ev-nova-sales",
-            entity_id="entity-nova",
-            ticker="NOVA",
-            source_type="10-K",
-            document_id="doc-nova-2022-10k",
-            timestamp="2023-03-01T16:30:00Z",
-            as_of_time="2023-03-01T16:30:00Z",
-            text="NOVA reported slowing same-store sales and higher inventory markdowns.",
-            uri="fixture://filings/nova-2022-10k#item7",
-        ),
-        EvidenceRecord(
-            evidence_id="ev-nova-debt",
-            entity_id="entity-nova",
-            ticker="NOVA",
-            source_type="10-K",
-            document_id="doc-nova-2022-10k",
-            timestamp="2023-03-01T16:30:00Z",
-            as_of_time="2023-03-01T16:30:00Z",
-            text="Management highlighted debt reduction as a priority.",
-            uri="fixture://filings/nova-2022-10k#liquidity",
-        ),
+    market_data = [
+        MarketDataRecord("px-acme-2023-01-31", "ACME", "2023-01-31", 40.0, "fixture", ["raw:market_data"]),
+        MarketDataRecord("px-acme-2023-02-28", "ACME", "2023-02-28", 42.0, "fixture", ["raw:market_data"]),
+        MarketDataRecord("px-acme-2023-08-31", "ACME", "2023-08-31", 48.0, "fixture", ["raw:market_data"]),
+        MarketDataRecord("px-acme-2024-02-29", "ACME", "2024-02-29", 55.0, "fixture", ["raw:market_data"]),
+        MarketDataRecord("px-nova-2023-01-31", "NOVA", "2023-01-31", 30.0, "fixture", ["raw:market_data"]),
+        MarketDataRecord("px-nova-2023-03-31", "NOVA", "2023-03-31", 28.0, "fixture", ["raw:market_data"]),
+        MarketDataRecord("px-nova-2023-09-29", "NOVA", "2023-09-29", 24.0, "fixture", ["raw:market_data"]),
+        MarketDataRecord("px-nova-2024-03-29", "NOVA", "2024-03-29", 22.0, "fixture", ["raw:market_data"]),
     ]
 
     bad_records = [
         {"record_id": "bad-stale-news", "reason": "stale_feed"},
-        {"record_id": "bad-future-evidence", "reason": "future_leakage"},
+        {"record_id": "bad-future-feature", "reason": "future_leakage"},
         {"record_id": "bad-missing-entity", "reason": "missing_entity"},
     ]
 
     return FixtureBundle(
         entities=entities,
         documents=documents,
-        fundamentals=fundamentals,
-        prices=prices,
-        evidence=evidence,
+        sec_filings=sec_filings,
+        market_data=market_data,
         bad_records=bad_records,
     )

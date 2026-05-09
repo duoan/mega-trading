@@ -23,12 +23,16 @@ class TradingFoundationTrainConfig:
     learning_rate: float = 1e-3
     validation_fraction: float = 0.2
     eval_interval: int = 10
-    price_window_size: int | None = None
-    fundamental_size: int | None = None
-    evidence_size: int | None = None
-    use_price: bool = True
-    use_fundamentals: bool = True
-    use_evidence: bool = True
+    market_window_size: int | None = None
+    news_size: int | None = None
+    sec_filing_size: int | None = None
+    earnings_size: int | None = None
+    macro_size: int | None = None
+    use_market_data: bool = True
+    use_news: bool = True
+    use_sec_filings: bool = True
+    use_earnings: bool = True
+    use_macro: bool = True
     seed: int = 7
     device: str = "auto"
     precision: str = "auto"
@@ -50,7 +54,7 @@ class TradingFoundationTrainConfig:
             raise ValueError("validation_fraction must be in [0.0, 1.0)")
         if self.eval_interval <= 0:
             raise ValueError("eval_interval must be positive")
-        if not (self.use_price or self.use_fundamentals or self.use_evidence):
+        if not (self.use_market_data or self.use_news or self.use_sec_filings or self.use_earnings or self.use_macro):
             raise ValueError("at least one modality must be enabled")
         if self.device not in {"auto", "cpu", "cuda", "mps"}:
             raise ValueError("device must be one of: auto, cpu, cuda, mps")
@@ -68,12 +72,16 @@ class TradingFoundationTrainConfig:
                 "learning_rate": self.learning_rate,
                 "validation_fraction": self.validation_fraction,
                 "eval_interval": self.eval_interval,
-                "price_window_size": self.price_window_size,
-                "fundamental_size": self.fundamental_size,
-                "evidence_size": self.evidence_size,
-                "use_price": self.use_price,
-                "use_fundamentals": self.use_fundamentals,
-                "use_evidence": self.use_evidence,
+                "market_window_size": self.market_window_size,
+                "news_size": self.news_size,
+                "sec_filing_size": self.sec_filing_size,
+                "earnings_size": self.earnings_size,
+                "macro_size": self.macro_size,
+                "use_market_data": self.use_market_data,
+                "use_news": self.use_news,
+                "use_sec_filings": self.use_sec_filings,
+                "use_earnings": self.use_earnings,
+                "use_macro": self.use_macro,
                 "seed": self.seed,
                 "device": self.device,
                 "precision": self.precision,

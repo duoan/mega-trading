@@ -50,10 +50,10 @@ class CliTests(unittest.TestCase):
                     ],
                 )
                 self.store.write_jsonl(
-                    "stage=02_normalized/family=fundamentals/source=sec.jsonl",
+                    "stage=02_normalized/family=sec_filings/source=sec.jsonl",
                     [
                         {
-                            "fundamental_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
+                            "sec_filing_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
                             "entity_id": "sec-1",
                             "ticker": request.tickers[0],
                             "concept": "Revenue",
@@ -73,7 +73,7 @@ class CliTests(unittest.TestCase):
                         "artifact_type": "normalized",
                         "paths": [
                             "stage=02_normalized/family=entities/source=sec.jsonl",
-                            "stage=02_normalized/family=fundamentals/source=sec.jsonl",
+                            "stage=02_normalized/family=sec_filings/source=sec.jsonl",
                         ],
                         "metadata": {},
                     },
@@ -87,16 +87,16 @@ class CliTests(unittest.TestCase):
                     quality_summary={"duplicate_records": 0, "quarantined_records": 0},
                 )
 
-        class FakePriceIngestor:
+        class FakeMarketDataIngestor:
             def __init__(self, store, client, table_store=None):
                 self.store = store
 
             def ingest(self, request):
                 self.store.write_jsonl(
-                    "stage=02_normalized/family=prices/source=stooq.jsonl",
+                    "stage=02_normalized/family=market_data/source=stooq.jsonl",
                     [
                         {
-                            "price_id": "yahoo-AAPL-2023-01-03",
+                            "market_data_id": "yahoo-AAPL-2023-01-03",
                             "ticker": request.tickers[0],
                             "date": request.start,
                             "adjusted_close": 105.0,
@@ -106,10 +106,10 @@ class CliTests(unittest.TestCase):
                     ],
                 )
                 self.store.write_jsonl(
-                    "stage=02_normalized/family=fundamentals/source=sec.jsonl",
+                    "stage=02_normalized/family=sec_filings/source=sec.jsonl",
                     [
                         {
-                            "fundamental_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
+                            "sec_filing_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
                             "entity_id": "sec-1",
                             "ticker": request.tickers[0],
                             "concept": "Revenue",
@@ -127,7 +127,7 @@ class CliTests(unittest.TestCase):
                     {
                         "manifest_id": "yahoo-daily-normalized",
                         "artifact_type": "normalized",
-                        "paths": ["stage=02_normalized/family=prices/source=stooq.jsonl"],
+                        "paths": ["stage=02_normalized/family=market_data/source=stooq.jsonl"],
                         "metadata": {},
                     },
                 )
@@ -136,13 +136,13 @@ class CliTests(unittest.TestCase):
                 return IngestResult(
                     raw_manifest_path="manifests/ingest/yahoo-daily-raw.json",
                     normalization_manifest_path="manifests/normalization/yahoo-daily-normalized.json",
-                    normalized_counts={"prices": 1},
+                    normalized_counts={"market_data": 1},
                     quality_summary={"duplicate_records": 0, "quarantined_records": 0},
                 )
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("mega_trading.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
-                "mega_trading.cli.YahooPriceIngestor", FakePriceIngestor
+            with patch("mega_trading.cli.SecFilingsIngestor", FakeSecIngestor), patch(
+                "mega_trading.cli.YahooMarketDataIngestor", FakeMarketDataIngestor
             ):
                 exit_code = main(
                     [
@@ -162,7 +162,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertTrue((Path(tmp) / "stage=02_normalized/family=entities/source=sec.jsonl").exists())
-            self.assertTrue((Path(tmp) / "stage=02_normalized/family=prices/source=stooq.jsonl").exists())
+            self.assertTrue((Path(tmp) / "stage=02_normalized/family=market_data/source=stooq.jsonl").exists())
 
     def test_ingest_command_runs_from_config(self) -> None:
         class FakeSecIngestor:
@@ -199,16 +199,16 @@ class CliTests(unittest.TestCase):
                     quality_summary={"duplicate_records": 0, "quarantined_records": 0},
                 )
 
-        class FakePriceIngestor:
+        class FakeMarketDataIngestor:
             def __init__(self, store, client, table_store=None):
                 self.store = store
 
             def ingest(self, request):
                 self.store.write_jsonl(
-                    "stage=02_normalized/family=prices/source=yahoo.jsonl",
+                    "stage=02_normalized/family=market_data/source=yahoo.jsonl",
                     [
                         {
-                            "price_id": "yahoo-AAPL-2023-01-03",
+                            "market_data_id": "yahoo-AAPL-2023-01-03",
                             "ticker": request.tickers[0],
                             "date": request.start,
                             "adjusted_close": 105.0,
@@ -222,7 +222,7 @@ class CliTests(unittest.TestCase):
                     {
                         "manifest_id": "yahoo-daily-normalized",
                         "artifact_type": "normalized",
-                        "paths": ["stage=02_normalized/family=prices/source=yahoo.jsonl"],
+                        "paths": ["stage=02_normalized/family=market_data/source=yahoo.jsonl"],
                         "metadata": {},
                     },
                 )
@@ -231,7 +231,7 @@ class CliTests(unittest.TestCase):
                 return IngestResult(
                     raw_manifest_path="manifests/ingest/yahoo-daily-raw.json",
                     normalization_manifest_path="manifests/normalization/yahoo-daily-normalized.json",
-                    normalized_counts={"prices": 1},
+                    normalized_counts={"market_data": 1},
                     quality_summary={"duplicate_records": 0, "quarantined_records": 0},
                 )
 
@@ -245,11 +245,11 @@ output_dir = "{output_dir}"
 sec_user_agent = "Mega-Trading test@example.com"
 
 [[ingest.sources]]
-name = "sec_companyfacts"
+name = "sec_filings"
 tickers = ["AAPL"]
 
 [[ingest.sources]]
-name = "yahoo_prices"
+name = "yahoo_market_data"
 tickers = ["AAPL"]
 start = "2023-01-01"
 end = "2023-01-31"
@@ -258,14 +258,14 @@ end = "2023-01-31"
                 encoding="utf-8",
             )
 
-            with patch("mega_trading.cli.SecCompanyFactsIngestor", FakeSecIngestor), patch(
-                "mega_trading.cli.YahooPriceIngestor", FakePriceIngestor
+            with patch("mega_trading.cli.SecFilingsIngestor", FakeSecIngestor), patch(
+                "mega_trading.cli.YahooMarketDataIngestor", FakeMarketDataIngestor
             ):
                 exit_code = main(["ingest", "--config", str(config_path)])
 
             self.assertEqual(exit_code, 0)
             self.assertTrue((output_dir / "stage=02_normalized/family=entities/source=sec.jsonl").exists())
-            self.assertTrue((output_dir / "stage=02_normalized/family=prices/source=yahoo.jsonl").exists())
+            self.assertTrue((output_dir / "stage=02_normalized/family=market_data/source=yahoo.jsonl").exists())
             self.assertTrue((output_dir / "reports/data-readiness.json").exists())
             self.assertTrue((output_dir / "stage=03_enriched/company_snapshots.jsonl").exists())
             self.assertTrue((output_dir / "stage=04_corpus/mixture=public/samples.jsonl").exists())
@@ -279,7 +279,7 @@ end = "2023-01-31"
                 "run.run_id=ablation-a",
                 "training.max_steps=3",
                 "model.hidden_dim=16",
-                "model.use_evidence=false",
+                "model.use_news=false",
                 "training.validation_fraction=0.3",
                 "training.eval_interval=2",
                 "training.precision=mixed",
@@ -289,7 +289,7 @@ end = "2023-01-31"
         self.assertEqual(config.run.run_id, "ablation-a")
         self.assertEqual(config.training.max_steps, 3)
         self.assertEqual(config.model.hidden_dim, 16)
-        self.assertFalse(config.model.use_evidence)
+        self.assertFalse(config.model.use_news)
         self.assertEqual(config.training.validation_fraction, 0.3)
         self.assertEqual(config.training.eval_interval, 2)
         self.assertEqual(config.training.device, "auto")
@@ -468,12 +468,14 @@ base_overrides:
   - training.device=cpu
   - model.hidden_dim=8
 runs:
-  - name: price_only
+  - name: market_data_only
     overrides:
-      - run.run_id=price-only
-      - model.use_price=true
-      - model.use_fundamentals=false
-      - model.use_evidence=false
+      - run.run_id=market_data-only
+      - model.use_market_data=true
+      - model.use_news=false
+      - model.use_sec_filings=false
+      - model.use_earnings=false
+      - model.use_macro=false
   - name: all_modalities
     overrides:
       - run.run_id=all-modalities
@@ -489,10 +491,10 @@ runs:
             self.assertEqual(config.ablation_id, "test-ablation")
             self.assertEqual(exit_code, 0)
             self.assertEqual(len(report["runs"]), 2)
-            self.assertEqual(report["runs"][0]["name"], "price_only")
+            self.assertEqual(report["runs"][0]["name"], "market_data_only")
             self.assertEqual(report["runs"][0]["sample_count"], 2)
             self.assertEqual(report["runs"][0]["return_label_distribution"]["outperform"], 1)
-            self.assertTrue((root / "runs/price-only/checkpoint.pt").exists())
+            self.assertTrue((root / "runs/market_data-only/checkpoint.pt").exists())
 
 
 if __name__ == "__main__":
@@ -503,10 +505,10 @@ def _write_stream_shard(root: Path) -> None:
     (root / "stage=05_shards/mixture=public").mkdir(parents=True)
     (root / "stage=05_shards/mixture=public/samples.jsonl").write_text(
         '{"sample_id":"sample-a","ticker":"AAPL","as_of_time":"2024-01-02T00:00:00Z",'
-        '"price_returns":[0.0,0.01],"price_levels":[0.0,0.01],"fundamental_values":[100.0],'
-        '"evidence_token_ids":[],"return_label":"outperform","risk_label":"low"}\n'
+        '"market_returns":[0.0,0.01],"market_levels":[0.0,0.01],"news_embeddings":[],'
+        '"sec_filing_features":[100.0],"earnings_features":[],"macro_features":[],"return_label":"outperform","risk_label":"low"}\n'
         '{"sample_id":"sample-b","ticker":"AMZN","as_of_time":"2024-01-02T00:00:00Z",'
-        '"price_returns":[0.0,-0.01],"price_levels":[0.0,-0.01],"fundamental_values":[50.0],'
-        '"evidence_token_ids":[],"return_label":"underperform","risk_label":"high"}\n',
+        '"market_returns":[0.0,-0.01],"market_levels":[0.0,-0.01],"news_embeddings":[],'
+        '"sec_filing_features":[50.0],"earnings_features":[],"macro_features":[],"return_label":"underperform","risk_label":"high"}\n',
         encoding="utf-8",
     )

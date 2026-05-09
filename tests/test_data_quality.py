@@ -12,10 +12,10 @@ class DataQualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             store.write_jsonl(
-                "stage=02_normalized/family=prices/source=yahoo.jsonl",
+                "stage=02_normalized/family=market_data/source=yahoo.jsonl",
                 [
                     {
-                        "price_id": "yahoo-AAPL-2024-01-02",
+                        "market_data_id": "yahoo-AAPL-2024-01-02",
                         "ticker": "AAPL",
                         "date": "2024-01-02",
                         "adjusted_close": 185.0,
@@ -30,7 +30,7 @@ class DataQualityTests(unittest.TestCase):
                 Manifest(
                     manifest_id="yahoo-daily-normalized",
                     artifact_type="normalized",
-                    paths=["stage=02_normalized/family=prices/source=yahoo.jsonl"],
+                    paths=["stage=02_normalized/family=market_data/source=yahoo.jsonl"],
                 ),
             )
 
@@ -72,10 +72,10 @@ class DataQualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             store.write_jsonl(
-                "stage=02_normalized/family=fundamentals/source=sec.jsonl",
+                "stage=02_normalized/family=sec_filings/source=sec.jsonl",
                 [
                     {
-                        "fundamental_id": "f1",
+                        "sec_filing_id": "f1",
                         "entity_id": "sec-1",
                         "ticker": "AAPL",
                         "concept": "Revenue",
@@ -87,7 +87,7 @@ class DataQualityTests(unittest.TestCase):
                         "source_ids": ["f1"],
                     },
                     {
-                        "fundamental_id": "f2",
+                        "sec_filing_id": "f2",
                         "entity_id": "sec-1",
                         "ticker": "AAPL",
                         "concept": "Revenue",
@@ -106,7 +106,7 @@ class DataQualityTests(unittest.TestCase):
                 Manifest(
                     manifest_id="sec-companyfacts-normalized",
                     artifact_type="normalized",
-                    paths=["stage=02_normalized/family=fundamentals/source=sec.jsonl"],
+                    paths=["stage=02_normalized/family=sec_filings/source=sec.jsonl"],
                 ),
             )
 
@@ -114,19 +114,19 @@ class DataQualityTests(unittest.TestCase):
 
             self.assertTrue(result.passed)
 
-    def test_quality_checker_fails_on_bad_price_values(self) -> None:
+    def test_quality_checker_fails_on_bad_market_data_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
             store.write_jsonl(
-                "stage=02_normalized/family=prices/source=yahoo.jsonl",
+                "stage=02_normalized/family=market_data/source=yahoo.jsonl",
                 [
                     {
-                        "price_id": "bad-price",
+                        "market_data_id": "bad-market_data",
                         "ticker": "AAPL",
                         "date": "2024-01-02",
                         "adjusted_close": -1.0,
                         "provider": "yahoo",
-                        "source_ids": ["bad-price"],
+                        "source_ids": ["bad-market_data"],
                     }
                 ],
             )
@@ -136,14 +136,14 @@ class DataQualityTests(unittest.TestCase):
                 Manifest(
                     manifest_id="yahoo-daily-normalized",
                     artifact_type="normalized",
-                    paths=["stage=02_normalized/family=prices/source=yahoo.jsonl"],
+                    paths=["stage=02_normalized/family=market_data/source=yahoo.jsonl"],
                 ),
             )
 
             result = DataQualityChecker(store).run([manifest_path], run_id="unit")
 
             self.assertFalse(result.passed)
-            self.assertEqual(store.read_json(result.report_path)["issues_by_reason"], {"invalid_price": 1})
+            self.assertEqual(store.read_json(result.report_path)["issues_by_reason"], {"invalid_market_data": 1})
 
 
 if __name__ == "__main__":

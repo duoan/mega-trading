@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 import certifi
 
 from mega_trading.core.hashing import stable_hash
-from mega_trading.core.schemas import EntityRecord, FundamentalRecord, Manifest
+from mega_trading.core.schemas import EntityRecord, SecFilingRecord, Manifest
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
 from mega_trading.data.ingest import Ingestor, IngestResult, TickerIngestRequest
 from mega_trading.data.lance_store import LanceTableStore, LanceTables
@@ -53,7 +53,7 @@ class SecClient:
         return self._ticker_payload
 
 
-class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
+class SecFilingsIngestor(Ingestor[TickerIngestRequest]):
     concepts = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "NetIncomeLoss", "Assets", "Liabilities")
 
     def __init__(self, store: LocalObjectStore, client: SecClient, table_store: LanceTableStore | None = None) -> None:
@@ -67,12 +67,12 @@ class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
         tickers = list(request.tickers)
         raw_rows: list[dict] = []
         entities: list[EntityRecord] = []
-        fundamentals: list[FundamentalRecord] = []
+        sec_filings: list[SecFilingRecord] = []
 
         total = len(tickers)
         for index, ticker in enumerate(tickers, start=1):
             if index == 1 or index % 25 == 0 or index == total:
-                print(f"sec_companyfacts ingest progress: {index}/{total}")
+                print(f"sec_filings ingest progress: {index}/{total}")
             entity = self.client.resolve_ticker(ticker)
             facts = self.client.company_facts_for_cik(entity["cik"])
             raw_rows.append({"ticker": entity["ticker"], "cik": entity["cik"], "payload": facts})
@@ -85,25 +85,25 @@ class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
                     source_ids=[f"sec:company_tickers:{entity['cik']}"],
                 )
             )
-            fundamentals.extend(_fundamentals_from_companyfacts(entity, facts, self.concepts))
+            sec_filings.extend(_sec_filings_from_companyfacts(entity, facts, self.concepts))
 
         raw_path = self.paths.raw("sec", "companyfacts")
         entity_path = self.paths.normalized("entities", "sec")
-        fundamental_path = self.paths.normalized("fundamentals", "sec")
+        sec_filing_path = self.paths.normalized("sec_filings", "sec")
         self.store.write_jsonl(raw_path, raw_rows)
         entity_rows = [asdict(row) for row in entities]
-        fundamental_rows = [asdict(row) for row in fundamentals]
+        sec_filing_rows = [asdict(row) for row in sec_filings]
         self.store.write_jsonl(entity_path, entity_rows)
-        self.store.write_jsonl(fundamental_path, fundamental_rows)
+        self.store.write_jsonl(sec_filing_path, sec_filing_rows)
         if self.table_store:
             self.table_store.write_table(self.tables.normalized("entities", "sec"), entity_rows)
-            self.table_store.write_table(self.tables.normalized("fundamentals", "sec"), fundamental_rows)
+            self.table_store.write_table(self.tables.normalized("sec_filings", "sec"), sec_filing_rows)
 
         raw_manifest = Manifest(
             manifest_id="sec-companyfacts-raw",
             artifact_type="raw",
             paths=[raw_path],
-            metadata={"source": "sec_companyfacts", "tickers": ",".join(tickers), "record_count": str(len(raw_rows))},
+            metadata={"source": "sec_filings", "tickers": ",".join(tickers), "record_count": str(len(raw_rows))},
         )
         raw_manifest_path = self.paths.manifest("ingest", "sec-companyfacts-raw")
         self.store.write_manifest(raw_manifest_path, raw_manifest)
@@ -111,12 +111,12 @@ class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
         normalization_manifest = Manifest(
             manifest_id="sec-companyfacts-normalized",
             artifact_type="normalized",
-            paths=[entity_path, fundamental_path],
+            paths=[entity_path, sec_filing_path],
             metadata={
-                "source": "sec_companyfacts",
+                "source": "sec_filings",
                 "source_manifest_id": raw_manifest.manifest_id,
                 "entities": str(len(entities)),
-                "fundamentals": str(len(fundamentals)),
+                "sec_filings": str(len(sec_filings)),
             },
         )
         normalization_manifest_path = self.paths.manifest("normalization", "sec-companyfacts-normalized")
@@ -125,13 +125,13 @@ class SecCompanyFactsIngestor(Ingestor[TickerIngestRequest]):
         return IngestResult(
             raw_manifest_path=raw_manifest_path,
             normalization_manifest_path=normalization_manifest_path,
-            normalized_counts={"entities": len(entities), "fundamentals": len(fundamentals)},
+            normalized_counts={"entities": len(entities), "sec_filings": len(sec_filings)},
             quality_summary={"quarantined_records": 0, "duplicate_records": 0},
         )
 
 
-def _fundamentals_from_companyfacts(entity: dict[str, str], payload: dict, concepts: tuple[str, ...]) -> list[FundamentalRecord]:
-    records: list[FundamentalRecord] = []
+def _sec_filings_from_companyfacts(entity: dict[str, str], payload: dict, concepts: tuple[str, ...]) -> list[SecFilingRecord]:
+    records: list[SecFilingRecord] = []
     gaap = payload.get("facts", {}).get("us-gaap", {})
     for concept in concepts:
         concept_payload = gaap.get(concept)
@@ -146,10 +146,10 @@ def _fundamentals_from_companyfacts(entity: dict[str, str], payload: dict, conce
                 accepted_at = f"{filed}T00:00:00Z"
                 period_end = str(fact["end"])
                 form = str(fact.get("form", "unknown"))
-                fact_id = _fundamental_id(entity, concept, unit, fact)
+                fact_id = _sec_filing_id(entity, concept, unit, fact)
                 records.append(
-                    FundamentalRecord(
-                        fundamental_id=fact_id,
+                    SecFilingRecord(
+                        sec_filing_id=fact_id,
                         entity_id=_entity_id(entity),
                         ticker=entity["ticker"],
                         concept=label,
@@ -164,7 +164,7 @@ def _fundamentals_from_companyfacts(entity: dict[str, str], payload: dict, conce
     return records
 
 
-def _fundamental_id(entity: dict[str, str], concept: str, unit: str, fact: dict) -> str:
+def _sec_filing_id(entity: dict[str, str], concept: str, unit: str, fact: dict) -> str:
     identity = {
         "ticker": entity["ticker"],
         "cik": entity["cik"],

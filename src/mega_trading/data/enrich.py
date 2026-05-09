@@ -22,31 +22,31 @@ class DataEnricher:
 
     def run(self, run_id: str = "latest") -> DataEnrichmentResult:
         entities = self._read_optional("stage=02_normalized/family=entities/source=sec.jsonl")
-        fundamentals = self._read_optional("stage=02_normalized/family=fundamentals/source=sec.jsonl")
-        prices = self._read_optional("stage=02_normalized/family=prices/source=yahoo.jsonl") + self._read_optional(
-            "stage=02_normalized/family=prices/source=stooq.jsonl"
+        sec_filings = self._read_optional("stage=02_normalized/family=sec_filings/source=sec.jsonl")
+        market_data = self._read_optional("stage=02_normalized/family=market_data/source=yahoo.jsonl") + self._read_optional(
+            "stage=02_normalized/family=market_data/source=stooq.jsonl"
         )
 
-        fundamentals_by_ticker = _group_by_ticker(fundamentals)
-        prices_by_ticker = _group_by_ticker(prices)
+        sec_filings_by_ticker = _group_by_ticker(sec_filings)
+        market_data_by_ticker = _group_by_ticker(market_data)
 
         snapshots: list[dict[str, Any]] = []
         for entity in entities:
             ticker = str(entity["ticker"])
-            ticker_fundamentals = fundamentals_by_ticker.get(ticker, [])
-            ticker_prices = prices_by_ticker.get(ticker, [])
-            latest_fundamental = max(ticker_fundamentals, key=lambda row: str(row.get("as_of_time", "")), default={})
-            price_dates = sorted(str(row["date"]) for row in ticker_prices if row.get("date"))
+            ticker_sec_filings = sec_filings_by_ticker.get(ticker, [])
+            ticker_market_data = market_data_by_ticker.get(ticker, [])
+            latest_sec_filing = max(ticker_sec_filings, key=lambda row: str(row.get("as_of_time", "")), default={})
+            market_data_dates = sorted(str(row["date"]) for row in ticker_market_data if row.get("date"))
             snapshots.append(
                 {
                     "snapshot_id": f"snapshot-{ticker}",
                     "entity_id": entity["entity_id"],
                     "ticker": ticker,
                     "company_name": entity["company_name"],
-                    "latest_fundamental_as_of_time": latest_fundamental.get("as_of_time"),
-                    "price_start": price_dates[0] if price_dates else None,
-                    "price_end": price_dates[-1] if price_dates else None,
-                    "price_observations": len(ticker_prices),
+                    "latest_sec_filing_as_of_time": latest_sec_filing.get("as_of_time"),
+                    "market_data_start": market_data_dates[0] if market_data_dates else None,
+                    "market_data_end": market_data_dates[-1] if market_data_dates else None,
+                    "market_data_observations": len(ticker_market_data),
                     "source_ids": list(entity.get("source_ids", [])),
                 }
             )

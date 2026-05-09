@@ -34,11 +34,11 @@ class IngestTests(unittest.TestCase):
 
             entities = store.read_jsonl("stage=02_normalized/family=entities/source=fixture.jsonl")
             documents = store.read_jsonl("stage=02_normalized/family=documents/source=fixture.jsonl")
-            fundamentals = store.read_jsonl("stage=02_normalized/family=fundamentals/source=fixture.jsonl")
+            sec_filings = store.read_jsonl("stage=02_normalized/family=sec_filings/source=fixture.jsonl")
 
             self.assertEqual(len(entities), 2)
             self.assertEqual(documents[0]["ticker"], "ACME")
-            self.assertEqual(fundamentals[0]["concept"], "Revenue")
+            self.assertEqual(sec_filings[0]["concept"], "Revenue")
             self.assertEqual(result.normalized_counts["documents"], 2)
 
     def test_bad_records_go_to_quarantine(self) -> None:

@@ -12,15 +12,15 @@ from omegaconf import DictConfig, OmegaConf
 
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.enrich import DataEnricher
-from mega_trading.data.ingest import PriceIngestRequest, TickerIngestRequest
+from mega_trading.data.ingest import MarketDataIngestRequest, TickerIngestRequest
 from mega_trading.data.ingest_config import IngestPipelineConfig, IngestSourceConfig, load_ingest_config
 from mega_trading.data.labels import LabelConfig
 from mega_trading.data.lance_store import LanceTableStore
-from mega_trading.data.public.prices import StooqClient, StooqPriceIngestor, YahooChartClient, YahooPriceIngestor
-from mega_trading.data.public.sec import SecClient, SecCompanyFactsIngestor
+from mega_trading.data.public.market import StooqClient, StooqMarketDataIngestor, YahooChartClient, YahooMarketDataIngestor
+from mega_trading.data.public.sec import SecClient, SecFilingsIngestor
 from mega_trading.data.quality import DataQualityChecker
 from mega_trading.data.samples import MultiStreamSampleBuilder
-from mega_trading.data.tokenize import StreamShardBuilder
+from mega_trading.data.shards import StreamShardBuilder
 from mega_trading.eval.backtest import BacktestConfig, run_backtest
 from mega_trading.eval.delayed_labels import materialize_delayed_labels
 from mega_trading.eval.replay_buffer import ReplayBufferConfig
@@ -44,10 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
     ingest = subparsers.add_parser("ingest", help="run config-driven data ingestion")
     ingest.add_argument("--config", required=True, help="path to ingest TOML config")
-    ingest_public = subparsers.add_parser("ingest-public", help="ingest public SEC fundamentals and Yahoo prices")
+    ingest_public = subparsers.add_parser("ingest-public", help="ingest public SEC filings and Yahoo market data")
     ingest_public.add_argument("--tickers", required=True, help="comma-separated ticker symbols")
-    ingest_public.add_argument("--start", required=True, help="price start date YYYY-MM-DD")
-    ingest_public.add_argument("--end", required=True, help="price end date YYYY-MM-DD")
+    ingest_public.add_argument("--start", required=True, help="market data start date YYYY-MM-DD")
+    ingest_public.add_argument("--end", required=True, help="market data end date YYYY-MM-DD")
     ingest_public.add_argument("--out", default=".mega-trading/public", help="artifact output directory")
     ingest_public.add_argument("--sec-user-agent", required=True, help="SEC-compliant User-Agent, including contact email")
     train = subparsers.add_parser("train", help="run TradingFoundationModel training from Hydra config")
@@ -117,8 +117,8 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=args.out,
             sec_user_agent=args.sec_user_agent,
             sources=(
-                IngestSourceConfig(name="sec_companyfacts", tickers=tuple(tickers)),
-                IngestSourceConfig(name="yahoo_prices", tickers=tuple(tickers), start=args.start, end=args.end),
+                IngestSourceConfig(name="sec_filings", tickers=tuple(tickers)),
+                IngestSourceConfig(name="yahoo_market_data", tickers=tuple(tickers), start=args.start, end=args.end),
             ),
         )
         _run_ingest_config(config)
@@ -216,12 +216,16 @@ def _run_train_config(config: DictConfig):
         learning_rate=float(config.training.learning_rate),
         validation_fraction=float(config.training.validation_fraction),
         eval_interval=int(config.training.eval_interval),
-        price_window_size=_optional_int(config.model.price_window_size),
-        fundamental_size=_optional_int(config.model.fundamental_size),
-        evidence_size=_optional_int(config.model.evidence_size),
-        use_price=bool(config.model.use_price),
-        use_fundamentals=bool(config.model.use_fundamentals),
-        use_evidence=bool(config.model.use_evidence),
+        market_window_size=_optional_int(config.model.market_window_size),
+        news_size=_optional_int(config.model.news_size),
+        sec_filing_size=_optional_int(config.model.sec_filing_size),
+        earnings_size=_optional_int(config.model.earnings_size),
+        macro_size=_optional_int(config.model.macro_size),
+        use_market_data=bool(config.model.use_market_data),
+        use_news=bool(config.model.use_news),
+        use_sec_filings=bool(config.model.use_sec_filings),
+        use_earnings=bool(config.model.use_earnings),
+        use_macro=bool(config.model.use_macro),
         seed=int(config.training.seed),
         device=str(config.training.device),
         precision=str(config.training.precision),
@@ -272,9 +276,11 @@ def _ablation_summary(run_name: str, config: DictConfig, manifest_path: str) -> 
         "return_label_distribution": _distribution(samples, "return_label"),
         "risk_label_distribution": _distribution(samples, "risk_label"),
         "modalities": {
-            "price": bool(config.model.use_price),
-            "fundamentals": bool(config.model.use_fundamentals),
-            "evidence": bool(config.model.use_evidence),
+            "market_data": bool(config.model.use_market_data),
+            "news": bool(config.model.use_news),
+            "sec_filings": bool(config.model.use_sec_filings),
+            "earnings": bool(config.model.use_earnings),
+            "macro": bool(config.model.use_macro),
         },
         "training": {
             "max_steps": int(config.training.max_steps),
@@ -325,19 +331,19 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
     table_store = LanceTableStore(Path(config.output_dir) / "lancedb")
     normalization_manifests: list[str] = []
     for source in config.enabled_sources():
-        if source.name == "sec_companyfacts":
+        if source.name == "sec_filings":
             if not config.sec_user_agent:
-                raise ValueError("sec_companyfacts requires ingest.sec_user_agent")
-            result = SecCompanyFactsIngestor(store, SecClient(user_agent=config.sec_user_agent), table_store=table_store).ingest(
+                raise ValueError("sec_filings requires ingest.sec_user_agent")
+            result = SecFilingsIngestor(store, SecClient(user_agent=config.sec_user_agent), table_store=table_store).ingest(
                 TickerIngestRequest(tickers=source.tickers)
             )
-        elif source.name == "yahoo_prices":
-            result = YahooPriceIngestor(store, YahooChartClient(), table_store=table_store).ingest(
-                PriceIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
+        elif source.name == "yahoo_market_data":
+            result = YahooMarketDataIngestor(store, YahooChartClient(), table_store=table_store).ingest(
+                MarketDataIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
             )
-        elif source.name == "stooq_prices":
-            result = StooqPriceIngestor(store, StooqClient(), table_store=table_store).ingest(
-                PriceIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
+        elif source.name == "stooq_market_data":
+            result = StooqMarketDataIngestor(store, StooqClient(), table_store=table_store).ingest(
+                MarketDataIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
             )
         else:
             raise ValueError(f"unsupported ingest source: {source.name}")

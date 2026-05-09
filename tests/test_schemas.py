@@ -3,9 +3,8 @@ import unittest
 from mega_trading.core.hashing import stable_hash
 from mega_trading.core.schemas import (
     DocumentRecord,
-    EvidenceRecord,
     Manifest,
-    PriceRecord,
+    MarketDataRecord,
     SchemaValidationError,
 )
 
@@ -29,26 +28,28 @@ class SchemaTests(unittest.TestCase):
 
     def test_invalid_timestamp_fails(self) -> None:
         with self.assertRaises(SchemaValidationError):
-            EvidenceRecord(
-                evidence_id="ev-1",
+            DocumentRecord(
+                document_id="doc-1",
                 entity_id="entity-1",
                 ticker="ACME",
                 source_type="10-K",
-                document_id="doc-1",
-                timestamp="not-a-date",
+                title="ACME 10-K",
+                published_at="not-a-date",
+                accepted_at="2023-02-01T00:00:00Z",
                 as_of_time="2023-02-01T00:00:00Z",
                 text="Revenue increased.",
-                uri="fixture://doc-1",
+                source_uri="fixture://doc-1",
+                source_ids=["raw-1"],
             )
 
-    def test_price_record_allows_date_without_time(self) -> None:
-        record = PriceRecord(
-            price_id="px-1",
+    def test_market_data_record_allows_date_without_time(self) -> None:
+        record = MarketDataRecord(
+            market_data_id="px-1",
             ticker="ACME",
             date="2023-01-03",
             adjusted_close=100.0,
             provider="fixture",
-            source_ids=["raw-price-1"],
+            source_ids=["raw-market_data-1"],
         )
 
         self.assertEqual(record.date, "2023-01-03")

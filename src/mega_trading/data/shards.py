@@ -1,58 +1,19 @@
-"""Deterministic tokenization and shard building."""
+"""Feature shard building for TradingFoundationModel training."""
 
 from __future__ import annotations
 
-import re
 import json
+import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
-import os
 from typing import Iterable
 
-from mega_trading.core.hashing import stable_hash
 from mega_trading.core.schemas import Manifest
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
 
 
 class MalformedSampleError(ValueError):
-    """Raised when a model sample cannot be tokenized into a stream shard."""
-
-
-@dataclass(frozen=True)
-class SimpleTokenizer:
-    """Small deterministic tokenizer for the fixture demo.
-
-    This intentionally keeps the interface tiny so a Hugging Face tokenizer can
-    replace it later without changing shard manifests.
-    """
-
-    vocab: dict[str, int]
-    name: str = "simple-v1"
-
-    @classmethod
-    def fit(cls, texts: list[str]) -> "SimpleTokenizer":
-        tokens: list[str] = []
-        seen: set[str] = set()
-        for text in texts:
-            for token in _tokens(text):
-                if token not in seen:
-                    seen.add(token)
-                    tokens.append(token)
-        vocab = {"<pad>": 0, "<unk>": 1}
-        vocab.update({token: index for index, token in enumerate(tokens, start=2)})
-        return cls(vocab=vocab)
-
-    def encode(self, text: str) -> list[int]:
-        return [self.vocab.get(token, self.vocab["<unk>"]) for token in _tokens(text)]
-
-    def decode(self, token_ids: list[int]) -> str:
-        inverse = {token_id: token for token, token_id in self.vocab.items()}
-        decoded = [inverse.get(token_id, "<unk>") for token_id in token_ids if token_id != 0]
-        text = " ".join(decoded)
-        return re.sub(r"\s+([.,;:!?])", r"\1", text)
-
-    def vocab_hash(self) -> str:
-        return stable_hash(self.vocab)
+    """Raised when a model sample cannot be packed into a stream shard."""
 
 
 @dataclass(frozen=True)
@@ -97,10 +58,6 @@ class StreamShardBuilder:
         return StreamShardBuildResult(shard_path=shard_path, manifest_path=manifest_path, num_samples=shard_count)
 
 
-def _tokens(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+|[^\w\s]", text.lower())
-
-
 def _sample_paths(store: LocalObjectStore, mixture_name: str, fallback_sample_path: str) -> list[str]:
     partition_root = store.root / f"stage=04_corpus/mixture={mixture_name}/partitions"
     if partition_root.exists():
@@ -133,9 +90,11 @@ def _stream_partition(task: tuple[str, str]) -> list[dict[str, object]]:
 
 
 def _stream_row(sample: dict[str, object]) -> dict[str, object]:
-    prices = _list_of_dicts(sample, "price_window")
-    fundamentals = _list_of_dicts(sample, "fundamental_facts")
-    evidence = _list_of_dicts(sample, "text_evidence")
+    market_data = _list_of_dicts(sample, "market_data_window")
+    news = _list_of_dicts(sample, "news_window")
+    sec_filings = _list_of_dicts(sample, "sec_filing_window")
+    earnings = _list_of_dicts(sample, "earnings_window")
+    macro = _list_of_dicts(sample, "macro_window")
     labels = sample.get("labels")
     if not isinstance(labels, dict):
         raise MalformedSampleError("sample row missing labels")
@@ -143,16 +102,16 @@ def _stream_row(sample: dict[str, object]) -> dict[str, object]:
         "sample_id": _required_sample_string(sample, "sample_id"),
         "ticker": _required_sample_string(sample, "ticker"),
         "as_of_time": _required_sample_string(sample, "as_of_time"),
-        "price_returns": _price_returns(prices),
-        "price_levels": _price_levels(prices),
-        "fundamental_concepts": [str(row.get("concept", "")) for row in fundamentals],
-        "fundamental_values": [float(row["value"]) for row in fundamentals if row.get("value") is not None],
-        "evidence_token_ids": SimpleTokenizer.fit([_evidence_text(evidence)]).encode(_evidence_text(evidence)),
+        "market_returns": _market_returns(market_data),
+        "market_levels": _market_levels(market_data),
+        "news_embeddings": _flatten_numeric(news, ("embedding", "sentiment", "importance_score")),
+        "sec_filing_features": _flatten_numeric(sec_filings, ("embedding", "sentiment", "importance_score", "value")),
+        "earnings_features": _flatten_numeric(earnings, ("embedding", "surprise", "eps_actual", "eps_estimate", "revenue_actual", "revenue_estimate")),
+        "macro_features": _flatten_numeric(macro, ("regime_features", "vix", "interest_rate", "cpi", "yield_curve", "oil", "dxy")),
         "return_label": str(labels.get("forward_return_bucket", "")),
         "risk_label": str(labels.get("risk_bucket", "")),
         "forward_return": float(labels.get("forward_return", 0.0)),
         "source_ids": [str(source_id) for source_id in sample.get("source_ids", [])],
-        "evidence_ids": [str(evidence_id) for evidence_id in sample.get("evidence_ids", [])],
     }
 
 
@@ -170,8 +129,8 @@ def _required_sample_string(row: dict[str, object], field: str) -> str:
     return value
 
 
-def _price_returns(prices: list[dict[str, object]]) -> list[float]:
-    closes = _adjusted_closes(prices)
+def _market_returns(market_data: list[dict[str, object]]) -> list[float]:
+    closes = _adjusted_closes(market_data)
     returns = [0.0]
     for index in range(1, len(closes)):
         previous = closes[index - 1]
@@ -179,20 +138,34 @@ def _price_returns(prices: list[dict[str, object]]) -> list[float]:
     return returns
 
 
-def _price_levels(prices: list[dict[str, object]]) -> list[float]:
-    closes = _adjusted_closes(prices)
+def _market_levels(market_data: list[dict[str, object]]) -> list[float]:
+    closes = _adjusted_closes(market_data)
     if not closes or closes[0] == 0:
         return [0.0 for _ in closes]
     base = closes[0]
     return [_round_feature((close / base) - 1.0) for close in closes]
 
 
-def _adjusted_closes(prices: list[dict[str, object]]) -> list[float]:
-    return [float(row["adjusted_close"]) for row in prices if row.get("adjusted_close") is not None]
+def _adjusted_closes(market_data: list[dict[str, object]]) -> list[float]:
+    return [float(row["adjusted_close"]) for row in market_data if row.get("adjusted_close") is not None]
 
 
-def _evidence_text(evidence: list[dict[str, object]]) -> str:
-    return "\n".join(str(row.get("text", "")) for row in evidence)
+def _flatten_numeric(rows: list[dict[str, object]], fields: tuple[str, ...]) -> list[float]:
+    values: list[float] = []
+    for row in rows:
+        for field in fields:
+            values.extend(_numeric_values(row.get(field)))
+    return values
+
+
+def _numeric_values(value: object) -> list[float]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [number for item in value for number in _numeric_values(item)]
+    if isinstance(value, (int, float)):
+        return [_round_feature(float(value))]
+    return []
 
 
 def _round_feature(value: float) -> float:

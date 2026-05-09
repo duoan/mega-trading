@@ -79,8 +79,8 @@ class DocumentRecord:
 
 
 @dataclass(frozen=True)
-class FundamentalRecord:
-    fundamental_id: str
+class SecFilingRecord:
+    sec_filing_id: str
     entity_id: str
     ticker: str
     concept: str
@@ -92,7 +92,7 @@ class FundamentalRecord:
     source_ids: list[str]
 
     def __post_init__(self) -> None:
-        for name in ("fundamental_id", "entity_id", "ticker", "concept", "unit"):
+        for name in ("sec_filing_id", "entity_id", "ticker", "concept", "unit"):
             _require(getattr(self, name), name)
         _validate_date(self.period_end, "period_end")
         _validate_datetime(self.accepted_at, "accepted_at")
@@ -101,8 +101,8 @@ class FundamentalRecord:
 
 
 @dataclass(frozen=True)
-class PriceRecord:
-    price_id: str
+class MarketDataRecord:
+    market_data_id: str
     ticker: str
     date: str
     adjusted_close: float
@@ -115,30 +115,10 @@ class PriceRecord:
     volume: int | None = None
 
     def __post_init__(self) -> None:
-        for name in ("price_id", "ticker", "provider"):
+        for name in ("market_data_id", "ticker", "provider"):
             _require(getattr(self, name), name)
         _validate_date(self.date, "date")
         _require(self.source_ids, "source_ids")
-
-
-@dataclass(frozen=True)
-class EvidenceRecord:
-    evidence_id: str
-    entity_id: str
-    ticker: str
-    source_type: str
-    document_id: str
-    timestamp: str
-    as_of_time: str
-    text: str
-    uri: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        for name in ("evidence_id", "entity_id", "ticker", "source_type", "document_id", "text", "uri"):
-            _require(getattr(self, name), name)
-        _validate_datetime(self.timestamp, "timestamp")
-        _validate_datetime(self.as_of_time, "as_of_time")
 
 
 @dataclass(frozen=True)

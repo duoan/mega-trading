@@ -34,8 +34,8 @@ class SwiGLU(nn.Module):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
-class PriceEncoder(nn.Module):
-    """Encode price return/level windows into temporal market tokens."""
+class MarketDataEncoder(nn.Module):
+    """Encode market_data return/level windows into temporal market tokens."""
 
     def __init__(self, hidden_dim: int, attention_heads: int) -> None:
         super().__init__()
@@ -43,12 +43,12 @@ class PriceEncoder(nn.Module):
         self.temporal_encoder = _transformer_block(hidden_dim, attention_heads)
         self.norm = nn.LayerNorm(hidden_dim)
 
-    def forward(self, price: torch.Tensor) -> torch.Tensor:
-        return self.norm(self.temporal_encoder(self.input_proj(price)))
+    def forward(self, market_data: torch.Tensor) -> torch.Tensor:
+        return self.norm(self.temporal_encoder(self.input_proj(market_data)))
 
 
-class MarketEventEncoder(nn.Module):
-    """Encode scalar event streams such as fundamentals or evidence token ids."""
+class FeatureSequenceEncoder(nn.Module):
+    """Encode a per-modality numeric feature sequence into tokens."""
 
     def __init__(self, hidden_dim: int, attention_heads: int) -> None:
         super().__init__()
@@ -59,6 +59,22 @@ class MarketEventEncoder(nn.Module):
     def forward(self, values: torch.Tensor) -> torch.Tensor:
         tokens = self.input_proj(values.unsqueeze(-1))
         return self.norm(self.event_encoder(tokens))
+
+
+class NewsEncoder(FeatureSequenceEncoder):
+    """Encode financial-news embedding features."""
+
+
+class SecFilingEncoder(FeatureSequenceEncoder):
+    """Encode SEC filing and company-fact features."""
+
+
+class EarningsEncoder(FeatureSequenceEncoder):
+    """Encode earnings-call and earnings-event features."""
+
+
+class MacroEncoder(FeatureSequenceEncoder):
+    """Encode macro and regime features."""
 
 
 class GatedCrossAttentionFusion(nn.Module):
@@ -99,24 +115,44 @@ class SharedMarketMemory(nn.Module):
         return self.norm(memory + self.output_ffn(memory))
 
 
-class TaskDecoder(nn.Module):
-    """Decode a task-specific prediction from shared market memory."""
+class ForwardReturnDecoder(nn.Module):
+    """Predict forward-return bucket labels from shared market memory."""
 
-    def __init__(self, hidden_dim: int, attention_heads: int, output_dim: int) -> None:
+    def __init__(self, hidden_dim: int, attention_heads: int) -> None:
         super().__init__()
-        self.query = nn.Parameter(torch.randn(1, hidden_dim) * 0.02)
+        self.return_query = nn.Parameter(torch.randn(1, hidden_dim) * 0.02)
         self.attention = nn.MultiheadAttention(hidden_dim, num_heads=attention_heads, batch_first=True)
         self.output_ffn = SwiGLU(hidden_dim, hidden_dim * 4)
         self.norm = nn.LayerNorm(hidden_dim)
-        self.head = nn.Linear(hidden_dim, output_dim)
+        self.return_bucket_head = nn.Linear(hidden_dim, len(RETURN_LABELS))
 
     def forward(self, memory: torch.Tensor) -> torch.Tensor:
         batch_size = memory.shape[0]
-        query = self.query.unsqueeze(0).expand(batch_size, -1, -1)
+        query = self.return_query.unsqueeze(0).expand(batch_size, -1, -1)
         attended, _ = self.attention(query, memory, memory)
         decoded = self.norm(query + attended)
         decoded = self.norm(decoded + self.output_ffn(decoded))
-        return self.head(decoded.squeeze(1))
+        return self.return_bucket_head(decoded.squeeze(1))
+
+
+class RiskDecoder(nn.Module):
+    """Predict risk bucket labels from shared market memory."""
+
+    def __init__(self, hidden_dim: int, attention_heads: int) -> None:
+        super().__init__()
+        self.risk_query = nn.Parameter(torch.randn(1, hidden_dim) * 0.02)
+        self.attention = nn.MultiheadAttention(hidden_dim, num_heads=attention_heads, batch_first=True)
+        self.output_ffn = SwiGLU(hidden_dim, hidden_dim * 4)
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.risk_bucket_head = nn.Linear(hidden_dim, len(RISK_LABELS))
+
+    def forward(self, memory: torch.Tensor) -> torch.Tensor:
+        batch_size = memory.shape[0]
+        query = self.risk_query.unsqueeze(0).expand(batch_size, -1, -1)
+        attended, _ = self.attention(query, memory, memory)
+        decoded = self.norm(query + attended)
+        decoded = self.norm(decoded + self.output_ffn(decoded))
+        return self.risk_bucket_head(decoded.squeeze(1))
 
 
 class TradingFoundationModel(nn.Module):
@@ -124,61 +160,79 @@ class TradingFoundationModel(nn.Module):
 
     def __init__(
         self,
-        price_window_size: int,
-        fundamental_size: int,
-        evidence_size: int,
+        market_window_size: int,
+        news_size: int,
+        sec_filing_size: int,
+        earnings_size: int,
+        macro_size: int,
         hidden_dim: int,
         attention_heads: int = 4,
-        use_price: bool = True,
-        use_fundamentals: bool = True,
-        use_evidence: bool = True,
+        use_market_data: bool = True,
+        use_news: bool = True,
+        use_sec_filings: bool = True,
+        use_earnings: bool = True,
+        use_macro: bool = True,
     ) -> None:
         super().__init__()
-        if not (use_price or use_fundamentals or use_evidence):
+        if not (use_market_data or use_news or use_sec_filings or use_earnings or use_macro):
             raise ValueError("at least one modality must be enabled")
         if attention_heads <= 0:
             raise ValueError("attention_heads must be positive")
         if hidden_dim % attention_heads != 0:
             raise ValueError("hidden_dim must be divisible by attention_heads")
-        self.price_encoder = PriceEncoder(hidden_dim, attention_heads)
-        self.fundamental_encoder = MarketEventEncoder(hidden_dim, attention_heads)
-        self.evidence_encoder = MarketEventEncoder(hidden_dim, attention_heads)
+        self.market_data_encoder = MarketDataEncoder(hidden_dim, attention_heads)
+        self.news_encoder = NewsEncoder(hidden_dim, attention_heads)
+        self.sec_filing_encoder = SecFilingEncoder(hidden_dim, attention_heads)
+        self.earnings_encoder = EarningsEncoder(hidden_dim, attention_heads)
+        self.macro_encoder = MacroEncoder(hidden_dim, attention_heads)
         self.query_seed = nn.Parameter(torch.randn(1, hidden_dim) * 0.02)
         self.fusion = GatedCrossAttentionFusion(hidden_dim, attention_heads)
         self.market_memory = SharedMarketMemory(hidden_dim, attention_heads)
-        self.return_decoder = TaskDecoder(hidden_dim, attention_heads, len(RETURN_LABELS))
-        self.risk_decoder = TaskDecoder(hidden_dim, attention_heads, len(RISK_LABELS))
-        self.price_window_size = price_window_size
-        self.fundamental_size = fundamental_size
-        self.evidence_size = evidence_size
+        self.forward_return_decoder = ForwardReturnDecoder(hidden_dim, attention_heads)
+        self.risk_decoder = RiskDecoder(hidden_dim, attention_heads)
+        self.market_window_size = market_window_size
+        self.news_size = news_size
+        self.sec_filing_size = sec_filing_size
+        self.earnings_size = earnings_size
+        self.macro_size = macro_size
         self.hidden_dim = hidden_dim
         self.attention_heads = attention_heads
-        self.use_price = use_price
-        self.use_fundamentals = use_fundamentals
-        self.use_evidence = use_evidence
+        self.use_market_data = use_market_data
+        self.use_news = use_news
+        self.use_sec_filings = use_sec_filings
+        self.use_earnings = use_earnings
+        self.use_macro = use_macro
 
     def forward(self, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        batch_size = batch["price"].shape[0]
-        query_tokens = self.price_encoder(batch["price"]) if self.use_price else self._learned_query(batch_size, batch["price"])
+        batch_size = batch["market_data"].shape[0]
+        query_tokens = self.market_data_encoder(batch["market_data"]) if self.use_market_data else self._learned_query(batch_size, batch["market_data"])
         context_tokens = self._context_tokens(batch)
         fused_query = self.fusion(query_tokens, context_tokens)
         all_tokens = torch.cat([fused_query] + context_tokens, dim=1) if context_tokens else fused_query
         memory = self.market_memory(all_tokens)
-        return self.return_decoder(memory), self.risk_decoder(memory)
+        return self.forward_return_decoder(memory), self.risk_decoder(memory)
 
     def _context_tokens(self, batch: dict[str, torch.Tensor]) -> list[torch.Tensor]:
         tokens: list[torch.Tensor] = []
-        if self.use_fundamentals:
-            tokens.append(self.fundamental_encoder(batch["fundamentals"]))
-        if self.use_evidence:
-            tokens.append(self.evidence_encoder(batch["evidence"]))
+        if self.use_news:
+            tokens.append(self.news_encoder(batch["news"]))
+        if self.use_sec_filings:
+            tokens.append(self.sec_filing_encoder(batch["sec_filings"]))
+        if self.use_earnings:
+            tokens.append(self.earnings_encoder(batch["earnings"]))
+        if self.use_macro:
+            tokens.append(self.macro_encoder(batch["macro"]))
         return tokens
 
     def _learned_query(self, batch_size: int, reference: torch.Tensor) -> torch.Tensor:
-        if self.use_fundamentals:
-            length = self.fundamental_size
-        elif self.use_evidence:
-            length = self.evidence_size
+        if self.use_news:
+            length = self.news_size
+        elif self.use_sec_filings:
+            length = self.sec_filing_size
+        elif self.use_earnings:
+            length = self.earnings_size
+        elif self.use_macro:
+            length = self.macro_size
         else:
             length = 1
         query = self.query_seed.to(dtype=reference.dtype, device=reference.device)

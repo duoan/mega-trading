@@ -71,14 +71,15 @@ def _row(sample_id: str, return_label: str, risk_label: str) -> dict[str, object
         "sample_id": f"sample-{sample_id}",
         "ticker": "ACME",
         "as_of_time": "2024-01-02T00:00:00Z",
-        "price_returns": [0.0, 0.01, -0.02],
-        "price_levels": [0.0, 0.01, -0.01],
-        "fundamental_values": [100.0],
-        "evidence_token_ids": [2, 3, 4],
+        "market_returns": [0.0, 0.01, -0.02],
+        "market_levels": [0.0, 0.01, -0.01],
+        "news_embeddings": [],
+        "sec_filing_features": [100.0],
+        "earnings_features": [],
+        "macro_features": [],
         "return_label": return_label,
         "risk_label": risk_label,
         "source_ids": [sample_id],
-        "evidence_ids": [],
     }
 
 

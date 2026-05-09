@@ -123,8 +123,8 @@ class DataQualityChecker:
         for field in _required_fields(path):
             if row.get(field) in (None, "", []):
                 reasons.append(f"missing_{field}")
-        if "family=prices" in path and float(row.get("adjusted_close") or 0.0) <= 0.0:
-            reasons.append("invalid_price")
+        if "family=market_data" in path and float(row.get("adjusted_close") or 0.0) <= 0.0:
+            reasons.append("invalid_market_data")
         if "date" in row and not _valid_date(str(row["date"])):
             reasons.append("invalid_date")
         for field in ("as_of_time", "accepted_at", "timestamp", "published_at"):
@@ -143,12 +143,10 @@ class DataQualityError(ValueError):
 def _required_fields(path: str) -> tuple[str, ...]:
     if "family=entities" in path:
         return ("entity_id", "ticker", "company_name")
-    if "family=fundamentals" in path:
-        return ("fundamental_id", "entity_id", "ticker", "concept", "period_end", "accepted_at", "as_of_time", "source_ids")
-    if "family=prices" in path:
-        return ("price_id", "ticker", "date", "adjusted_close", "provider", "source_ids")
-    if "family=evidence" in path:
-        return ("evidence_id", "entity_id", "ticker", "source_type", "document_id", "timestamp", "as_of_time", "text", "uri")
+    if "family=sec_filings" in path:
+        return ("sec_filing_id", "entity_id", "ticker", "concept", "period_end", "accepted_at", "as_of_time", "source_ids")
+    if "family=market_data" in path:
+        return ("market_data_id", "ticker", "date", "adjusted_close", "provider", "source_ids")
     if "family=documents" in path:
         return ("document_id", "entity_id", "ticker", "source_type", "text", "source_uri", "as_of_time", "source_ids")
     return ()
@@ -165,15 +163,13 @@ def _record_id(path: str, row: dict[str, Any]) -> str | None:
 def _id_fields(path: str) -> tuple[str, ...]:
     if "family=entities" in path:
         return ("entity_id",)
-    if "family=fundamentals" in path:
-        return ("fundamental_id",)
-    if "family=prices" in path:
-        return ("price_id",)
-    if "family=evidence" in path:
-        return ("evidence_id",)
+    if "family=sec_filings" in path:
+        return ("sec_filing_id",)
+    if "family=market_data" in path:
+        return ("market_data_id",)
     if "family=documents" in path:
         return ("document_id",)
-    return ("entity_id", "fundamental_id", "price_id", "evidence_id", "document_id")
+    return ("entity_id", "sec_filing_id", "market_data_id", "document_id")
 
 
 def _valid_date(value: str) -> bool:
