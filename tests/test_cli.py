@@ -409,6 +409,41 @@ end = "2023-01-31"
             self.assertEqual(exit_code, 0)
             self.assertTrue((root / "evals/bt-cli/backtest-report.json").exists())
 
+    def test_online_update_command_writes_adapter_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            labeled_path = root / "labels/demo/labeled-predictions.jsonl"
+            labeled_path.parent.mkdir(parents=True)
+            labeled_path.write_text(
+                json.dumps(
+                    {
+                        "prediction_id": "pred-1",
+                        "prediction_time": "2024-01-02T00:00:00Z",
+                        "ticker": "AAPL",
+                        "sample_id": "sample-a",
+                        "label_status": "ready",
+                        "actual_return_bucket": "outperform",
+                        "actual_risk_bucket": "low",
+                        "actual_forward_return": 0.03,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            exit_code = main(
+                [
+                    "online-update",
+                    f"--data-dir={root}",
+                    "--labeled-prediction-path=labels/demo/labeled-predictions.jsonl",
+                    "--base-model-version=base-v1",
+                    "--update-id=update-cli",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((root / "models/adapters/update-cli.json").exists())
+
     def test_ablate_command_writes_summary_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -23,8 +23,10 @@ from mega_trading.data.samples import MultiStreamSampleBuilder
 from mega_trading.data.tokenize import StreamShardBuilder
 from mega_trading.eval.backtest import BacktestConfig, run_backtest
 from mega_trading.eval.delayed_labels import materialize_delayed_labels
+from mega_trading.eval.replay_buffer import ReplayBufferConfig
 from mega_trading.eval.replay import run_replay_inference
 from mega_trading.train.config import TradingFoundationTrainConfig
+from mega_trading.train.online import OnlineAdaptationConfig, run_online_adapter_update
 from mega_trading.train.trainer import TradingFoundationTrainer
 
 
@@ -78,6 +80,12 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--fee-bps", type=float, default=1.0, help="round-trip fee in basis points")
     backtest.add_argument("--slippage-bps", type=float, default=1.0, help="slippage in basis points")
     backtest.add_argument("--confidence-threshold", type=float, default=0.0, help="minimum confidence for a trade")
+    online = subparsers.add_parser("online-update", help="run online adapter/head update interface")
+    online.add_argument("--data-dir", default=".mega-trading/public", help="artifact data directory")
+    online.add_argument("--labeled-prediction-path", required=True, help="labeled prediction artifact path")
+    online.add_argument("--base-model-version", required=True, help="base model version to adapt")
+    online.add_argument("--update-id", default="online-update", help="online update id")
+    online.add_argument("--max-samples", type=int, default=128, help="replay buffer sample budget")
     return parser
 
 
@@ -147,6 +155,17 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
         print(f"wrote backtest report to {args.data_dir}/{result.report_path}")
+        print(f"manifest: {result.manifest_path}")
+    elif args.command == "online-update":
+        store = LocalObjectStore(Path(args.data_dir))
+        result = run_online_adapter_update(
+            store,
+            update_id=args.update_id,
+            labeled_prediction_path=args.labeled_prediction_path,
+            base_model_version=args.base_model_version,
+            config=OnlineAdaptationConfig(replay_buffer=ReplayBufferConfig(max_samples=args.max_samples)),
+        )
+        print(f"wrote online adapter update to {args.data_dir}/{result.adapter_path}")
         print(f"manifest: {result.manifest_path}")
     return 0
 
