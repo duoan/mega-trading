@@ -2,39 +2,32 @@
 
 ## Purpose
 
-The primary model path is a generative event model. It consumes tokenized market event streams and learns next-token prediction over scale-normalized trading proxies. This is the core modeling path because the project is about learning market event structure, not maintaining a separate classifier.
-
-Exact microstructure reproduction needs event-level L3/TAQ/ITCH-style messages. The public MVP derives event-like rows from OHLCV market data so the repo can demonstrate the tokenizer, shard contract, decoder-only model, trainer, and evaluation loop without private credentials.
+The model is a generative order-flow model. It learns the conditional distribution of the next paper-style event token from prior event tokens.
 
 ## Inputs
 
-`EventBuilder` writes two main artifacts:
+`EventBuilder` consumes normalized `order_flow` rows and writes:
 
-- `stage=04_corpus/mixture=<name>/events.jsonl`: event-like rows with ticker, date, side proxy, return, range, gap, volume ratio, and calendar-time fields.
-- `stage=05_shards/mixture=<name>/tokens.jsonl`: fixed-length autoregressive token blocks with `tokens`.
+- `events.jsonl`: event rows containing action, side, relative price, price depth, relative size, and interarrival time.
+- `tokenizer.json`: fitted composite-token vocabulary metadata.
+- `tokens.jsonl`: fixed-length autoregressive token blocks.
 
-The tokenizer uses stable buckets for:
+The tokenizer emits one joint token per event over:
 
-- side/action proxy.
-- signed return bps.
-- intraday range proxy.
-- open gap proxy.
-- log volume ratio.
-- interarrival/calendar time.
+```text
+action x side x relative_price_bucket x price_depth_bucket x size_bucket x time_bucket
+```
+
+Relative price, price depth, log relative size, and interarrival time bins are fitted during build with clipping and quantile or histogram binning.
 
 ## Architecture
 
 ```text
-public market data
-  -> event-like stream builder
-  -> scale-invariant tokenizer
+paper-style order_flow events
+  -> fitted composite tokenizer
   -> autoregressive token blocks
-  -> decoder-only Transformer
-  -> perplexity + stylized-fact evaluation
+  -> Llama 3-style decoder
+  -> generated event-feature evaluation
 ```
 
-`TradingModel` is a causal Transformer with token embeddings, learned positional embeddings, Transformer blocks with a causal mask, layer norm, and a vocabulary projection head. The training loss is next-token cross entropy.
-
-## Extension Path
-
-Future multimodal work should bridge news, filings, earnings, macro, and real trade-flow adapters into the event/token contract first. New objectives should only be added after the Data Plane materializes the required event fields and tests cover the token contract.
+`TradingModel` is a Llama 3-style causal decoder: token embeddings, RoPE positional encoding, pre-norm decoder blocks, RMSNorm, grouped-query capable causal self-attention, SwiGLU feed-forward layers, tied output embeddings, and next-token cross entropy.

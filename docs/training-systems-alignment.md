@@ -131,7 +131,7 @@ Project response:
 Failure modes to simulate or document:
 
 - Stale source feed.
-- Missing market_data/sec_filing coverage.
+- Missing order_flow coverage.
 - Future leakage detected.
 - Slow dataloader.
 - NaN loss.
@@ -216,7 +216,7 @@ This gives the project a training-infra signature rather than a notebook-demo si
 
 Use this framing in the README and submission:
 
-> Mega-Trading is a foundation model of trading. It demonstrates how offline and continuously updated financial data becomes traceable event-token training signal, how a decoder-only trading model consumes that signal, and how training efficiency, checkpoint reliability, and end-to-end time-to-result are measured.
+> Mega-Trading is a foundation model of trading. It demonstrates how offline and continuously updated financial data becomes traceable event-token training signal, how a Llama 3-style trading model consumes that signal, and how training efficiency, checkpoint reliability, and end-to-end time-to-result are measured.
 
 Avoid this framing:
 

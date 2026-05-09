@@ -2,80 +2,89 @@
 
 ## Purpose
 
-The Data Plane turns public market data into the event/token contract consumed by the training path:
+The Data Plane now has one job: produce paper-style order-flow events for next-token training.
 
 ```text
-normalized market_data records
-  -> event-like stream rows
-  -> scale-normalized token blocks
-  -> decoder-only next-token training
+raw source rows
+  -> mid-price estimation
+  -> scale-invariant order_flow events
+  -> fitted composite tokenizer
+  -> autoregressive token blocks
 ```
-
-No reasoning runtime, evidence corpus, or text-only tokenization path is part of the primary training data plane.
 
 ## Implemented Sources
 
-Current real public sources:
+- `fixture`: deterministic local order-flow events for smoke tests.
+- `hf_ohlcv_1m`: Hugging Face minute OHLCV bars mapped into the same order-flow feature contract for public no-credential runs.
 
-- Yahoo/Stooq chart data for market_data history.
-- SEC EDGAR company facts for future multimodal context adapters.
+No non-order-flow data family is part of the active data plane.
 
-The current no-credential MVP uses market data only. Future adapters can add real L3/TAQ/ITCH-style trade/order-flow events and multimodal context from news, SEC filings, earnings, and macro data.
+## Event Contract
 
-## Event Construction
+`stage=02_normalized/family=order_flow/source=<source>.jsonl` contains:
 
-`EventBuilder` reads normalized `family=market_data` records and builds one event-like row per ticker/date:
-
-- side/action proxy from signed daily return.
-- signed return bps.
-- intraday range proxy.
-- open gap proxy.
-- log volume ratio.
-- calendar/interarrival-time fields.
-- source IDs from current and previous market records.
-
-Leakage rule:
-
-```text
-event_date is derived only from current and prior market records
-```
-
-## Shard Contract
-
-The builder packs token blocks into JSONL rows for training:
-
-- `sequence_id`
+- `event_id`
 - `ticker`
-- `start_date`
-- `end_date`
-- `tokens`
+- `timestamp`
+- `date`
+- `action`
+- `side`
+- `midprice`
+- `relative_price_bps`
+- `price_depth_bps`
+- `size`
+- `interarrival_seconds`
+- `provider`
+- `source_ids`
+- optional `midprice_return_bps` for diagnostics only
 
-The expected training shard is:
+The model-visible feature contract is exactly:
 
 ```text
-stage=05_shards/mixture=public/tokens.jsonl
+action, side, relative_price, price_depth, size, time
 ```
 
-The matching profile is:
+## Mid-Price Estimation
+
+The paper defines mid-price as the midpoint of the best bid and ask. For real L3 data, the adapter should compute:
 
 ```text
-stage=05_shards/mixture=public/tokens-profile.json
+midprice = (best_bid + best_ask) / 2
 ```
 
-Any future real event feed or multimodal adapter must first map into this contract and be covered by tests before the model consumes it.
+The public `hf_ohlcv_1m` adapter has no order book, so it uses a conservative proxy:
 
-## Real Data Run
+```text
+estimated_midprice = (minute_high + minute_low) / 2
+```
 
-Full configured public run:
+and falls back to close only when high/low are unavailable.
+
+## Scale-Invariant Features
+
+The normalized event contract stores features in scale-stable units:
+
+- `relative_price_bps = 10000 * log(order_price / midprice)`.
+- `price_depth_bps = abs(relative_price_bps)`.
+- `size = current_volume / causal_median(previous_volume)`.
+- `interarrival_seconds = timestamp - previous_ticker_timestamp`.
+
+For the OHLCV proxy, `order_price` is the minute close and the volume baseline is computed only from previous rows for that ticker to avoid future leakage.
+
+## Build Artifacts
+
+```text
+stage=04_corpus/mixture=<name>/events.jsonl
+stage=05_shards/mixture=<name>/tokenizer.json
+stage=05_shards/mixture=<name>/tokens.jsonl
+stage=05_shards/mixture=<name>/tokens-profile.json
+```
+
+`tokenizer.json` stores fitted bin edges for relative price, price depth, log relative size, and interarrival time.
+
+## Run
 
 ```bash
-uv run mega-trading ingest --config configs/ingest-public.toml
-uv run mega-trading build data.data_dir=.mega-trading/public
+uv run mega-trading ingest --config configs/ingest-hf-ohlcv-1m.toml
+uv run mega-trading build data.data_dir=.mega-trading/hf-1m data.source=hf_ohlcv_1m
 ```
-
-## Tests
-
-The primary path is covered by:
-
-- `tests/test_training.py`: event building, tokenizer determinism, model shape, small training, and stylized-fact evaluation.
-- `tests/test_cli.py`: config-driven ingest plus build/train/eval CLI integration.
