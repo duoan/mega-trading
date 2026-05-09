@@ -16,7 +16,7 @@ Mega-Trading should show that the builder can turn data and compute into model c
 - Time from idea to evaluated model.
 - Learning per unit of compute.
 
-The multi-stream finance model provides the domain. The training system and model architecture are the joint signal: the project should show that data contracts, labels, model inputs, training loops, and metrics were designed together.
+The event model provides the domain. The training system and model architecture are the joint signal: the project should show that data contracts, tokenization, model inputs, training loops, and metrics were designed together.
 
 ## Role Requirements And Project Response
 
@@ -24,7 +24,7 @@ The multi-stream finance model provides the domain. The training system and mode
 
 Project response:
 
-- Provide training entry points for multi-stream supervised training.
+- Provide training entry points for generative event-sequence training.
 - Keep training stages config-driven so model requirements can be translated into system configurations.
 - Support local CPU smoke tests and future GPU jobs through the same artifact contracts.
 - Design the training loop so it can later scale to FSDP/DeepSpeed/Ray without rewriting data contracts.
@@ -216,7 +216,7 @@ This gives the project a training-infra signature rather than a notebook-demo si
 
 Use this framing in the README and submission:
 
-> Mega-Trading is a foundation model of trading. It demonstrates how offline and continuously updated financial data becomes traceable model training signal, how supervised training consumes that signal, and how training efficiency, checkpoint reliability, and end-to-end time-to-result are measured.
+> Mega-Trading is a foundation model of trading. It demonstrates how offline and continuously updated financial data becomes traceable event-token training signal, how a decoder-only trading model consumes that signal, and how training efficiency, checkpoint reliability, and end-to-end time-to-result are measured.
 
 Avoid this framing:
 
@@ -228,7 +228,7 @@ The model is the domain workload. The infrastructure is the evaluation signal fo
 
 The training-system-specific deliverables should be:
 
-- `configs/train/*.yaml` for model training jobs.
+- `configs/*.yaml` for model training jobs.
 - A local training loop that emits training metrics.
 - A GPU-ready training entry point.
 - Numeric feature shards with manifests.

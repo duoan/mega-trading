@@ -1,8 +1,8 @@
 # Mega-Trading
 
-Mega-Trading is a foundation model of trading. It is an end-to-end infra-model co-design prototype that designs the data contracts, training system, model architecture, evaluation loop, and operations layer together, because the model can only learn useful market behavior if the infrastructure gives it time-correct multi-stream inputs, labels, lineage, and fast feedback.
+Mega-Trading is a foundation model of trading. The primary path uses generative event modeling: public market data is converted into scale-normalized event-like streams, tokenized into autoregressive blocks, trained with a decoder-only Transformer, and evaluated with perplexity plus market stylized facts.
 
-The target model is a multi-input market foundation model for long-term investment research. It is not a next-tick trading predictor and it is not a pure LLM over finance text. The core model follows the target data modalities: market time series, financial news, SEC filings/earnings, and macro data, each through a dedicated encoder before gated cross-attention fusion and task decoders.
+Exact paper reproduction requires event-level L3/TAQ/ITCH-style data. The no-credential MVP uses public OHLCV proxy events while keeping clean extension points for real trade/order-flow feeds and future multimodal trading FM inputs.
 
 ## Quickstart
 
@@ -14,51 +14,20 @@ make test
 make demo
 ```
 
-`make demo` is the no-network Day 1 path: it ingests deterministic fixture market and SEC filing data, runs readiness checks, builds samples/shards, and trains one CPU step.
+`make demo` is the no-network smoke path. The public path starts from normalized market data:
 
-Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, deterministic enrichment artifacts, and multi-stream prediction samples/shards under the output directory:
+Public ingestion writes replayable stage-based JSONL/manifests, LanceDB normalized tables, a data-readiness report, and staged training artifacts under the output directory:
 
 ```bash
 uv run mega-trading ingest --config configs/ingest-public.toml
-uv run mega-trading train run.run_id=public-tfm
+uv run mega-trading build data.data_dir=.mega-trading/public
+uv run mega-trading train run.run_id=public training.max_steps=100
+uv run mega-trading eval --run-id public
 ```
 
-Training uses Hydra config from `configs/train/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, and Weights & Biases for metric tracking. By default W&B runs in offline mode under `runs/<run_id>/wandb`; use `training.wandb_mode=online` after `wandb login` to stream metrics to the dashboard. Ablations are standard overrides such as `model.hidden_dim=64 training.batch_size=16`.
+Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar for step-level visibility, and Weights & Biases for metric tracking. By default W&B runs in offline mode under `runs/<run_id>/wandb`; use `training.wandb_mode=online` after `wandb login` to stream metrics to the dashboard. Standard overrides include `model.hidden_dim=64 training.batch_size=16 training.max_steps=10`.
 
-The target-platform vertical slice then reuses the registered model version for replay inference, delayed labels, backtesting, online adaptation metadata, and serving-compatible local inference:
-
-```bash
-MODEL_VERSION_ID="<model_version_id_from_training_manifest>"
-
-uv run mega-trading replay \
-  --model-version-id "$MODEL_VERSION_ID" \
-  --replay-id public-replay \
-  --max-predictions 1000
-
-uv run mega-trading materialize-labels \
-  --prediction-path predictions/public-replay/predictions.jsonl \
-  --label-run-id public-labels
-
-uv run mega-trading backtest \
-  --labeled-prediction-path labels/public-labels/labeled-predictions.jsonl \
-  --backtest-id public-backtest
-
-uv run mega-trading online-update \
-  --labeled-prediction-path labels/public-labels/labeled-predictions.jsonl \
-  --base-model-version "base-$MODEL_VERSION_ID" \
-  --update-id public-online-update
-
-uv run mega-trading serve-smoke \
-  --model-version-id "$MODEL_VERSION_ID"
-```
-
-Run the default modality ablation suite and write a summary report:
-
-```bash
-uv run mega-trading ablate
-```
-
-The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, training sample settings, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
+The config-driven API is the preferred path: a reviewer can inspect one TOML file and know exactly which sources, tickers, date windows, quality gates, enrichment steps, and output location will be used. The older flag-based shortcut is still available for quick SEC + Yahoo runs:
 
 ```bash
 uv run mega-trading ingest-public \
@@ -69,19 +38,19 @@ uv run mega-trading ingest-public \
   --sec-user-agent "your-name your-email@example.com"
 ```
 
-The default checked-in ingest config uses `configs/universes/sp500.txt`, pulls a 10-year S&P 500 market_data window, and uses multiprocessing for sample/shard construction. Use the shortcut only for quick targeted runs.
+The default checked-in ingest config uses `configs/universes/sp500.txt` and pulls a 10-year S&P 500 market_data window. Use the shortcut only for quick targeted runs.
 
 ## Documents
 
-- [End-to-End Platform Design](docs/end-to-end-platform-design.md): target platform architecture for realtime inference, delayed labels, online adaptation, replay training, multimodal fusion, and model registry.
-- [Model Design](docs/model-design.md): multi-stream market foundation model, cross-attention fusion, prediction heads, labels, and MVP architecture.
-- [Project Structure](docs/project-structure.md): source tree conventions that map code packages to data, training, evaluation, and serving.
+- [End-to-End Platform Design](docs/end-to-end-platform-design.md): target platform architecture for event modeling, training, evaluation, and multimodal extension.
+- [Model Design](docs/model-design.md): event tokenization and decoder-only next-token modeling.
+- [Project Structure](docs/project-structure.md): source tree conventions that map code packages to data, training, and evaluation.
 - [Training Systems Alignment](docs/training-systems-alignment.md): mapping from the AI Infrastructure Engineer JD to project design choices, training efficiency metrics, checkpointing, failure modes, and learning-per-compute goals.
 
 ### Module Designs
 
 - [Data Plane Design](docs/data-plane-design.md): ingestion, normalization, quality checks, leakage controls, corpus construction, lineage, and data health metrics.
-- [Training Plane Design](docs/training-plane-design.md): multi-stream supervised training, dataloading, checkpointing, training efficiency, and learning per unit of compute.
+- [Training Plane Design](docs/training-plane-design.md): next-token training, metrics, checkpointing, and learning per unit of compute.
 
 ## Goals
 
@@ -90,11 +59,11 @@ The default checked-in ingest config uses `configs/universes/sp500.txt`, pulls a
 Within the 72-hour submission window, the goal is to build a credible end-to-end prototype that proves the core contracts of a finance foundation model lab for long-term investment research:
 
 - Consume both offline and continuously updated market data sources into a unified object-store-backed data plane.
-- Convert raw market, news, filing/earnings, macro, and market_data records into versioned multi-stream training examples with data quality checks, deduplication, entity mapping, label manifests, and replayable lineage.
-- Produce trainable shards for market_data windows, news embeddings, filing features, macro features, forward-return labels, and risk labels.
-- Demonstrate a small fusion model path over the same artifact contracts: modality encoders, cross-attention fusion, prediction heads, checkpointing, and metrics.
-- Build the model interface around prediction contracts: forward return bucket, risk bucket, confidence, source IDs, model version, and as-of timestamp.
-- Evaluate model outputs with long-horizon investing and portfolio backtesting metrics, not only NLP metrics.
+- Convert public market data into versioned event streams, token shards, manifests, profiles, and replayable lineage.
+- Train a decoder-only next-token model over scale-normalized side/action, return, range, gap, volume, and calendar-time proxy tokens.
+- Evaluate with loss, perplexity, top-k accuracy, and generated-vs-real stylized facts.
+- Preserve an extension path for news, filings, earnings, macro, and real event-level trade/order-flow data.
+- Keep evaluation focused on generative market-sequence quality, including perplexity and stylized facts.
 - Run local smoke tests quickly and keep the training path ready for scalable GPU execution.
 - Emit data and training metrics that show data health, checkpointing, and end-to-end time-to-result.
 - Make the repository stand alone: a reviewer can run the fixture demo, inspect generated artifacts, and understand the scaling path without private data or credentials.
@@ -106,36 +75,32 @@ If extended into a real Deeter-scale system, the prototype should evolve into a 
 - Scale ingestion across proprietary research feeds, sec_filings, news, transcripts, macro releases, sec_filings, market_data, ownership data, options, credit data, real estate data, and alternative datasets.
 - Maintain a governed market data lake with dataset versioning, entitlements, quality scoring, lineage, leakage controls, and reproducible corpus mixtures.
 - Support large-scale distributed training for multi-stream models with streaming shards, async prefetch, elastic workers, FSDP/DeepSpeed, checkpoint orchestration, and automated failure recovery.
-- Enable rapid research iteration across supervised model training, evaluations, ablations, and model/data experiments.
+- Enable rapid research iteration across generative event modeling, evaluations, ablations, and model/data experiments.
 - Build a robust evaluation stack for prediction quality, temporal robustness, and downstream portfolio research signals.
 - Support traceable predictions where every output can be audited back to source IDs, source timestamps, market data windows, feature snapshots, and model/data versions.
-- Integrate realistic backtesting workflows that account for transaction costs, slippage, turnover, exposure, liquidity constraints, and time-aware data leakage prevention.
+- Integrate realistic event-level evaluation workflows that account for liquidity, timestamp quality, event ordering, and time-aware leakage prevention.
 - Operate the platform with production-grade service metrics, training metrics, data drift, freshness SLOs, cost dashboards, and incident workflows.
 - Minimize time from new information to model feedback, so researchers can evaluate new data, new objectives, and new model variants in hours rather than weeks.
 - Provide a secure path to shared object storage and GPU training clusters, with least-privilege access, auditability, and private-data isolation.
 
-## Prediction And Backtesting
+## Evaluation
 
-Mega-Trading should evaluate whether the model can learn useful long-horizon market structure from multiple data streams without leaking future information.
+Mega-Trading evaluates whether the model can learn useful market microstructure proxies without leaking future information.
 
 ### Model Output Contract
 
-Each prediction should include:
+Each run should include:
 
-- `prediction`: forward return bucket, ranking score, risk bucket, volatility estimate, or drawdown estimate.
-- `confidence`: calibrated confidence or uncertainty score.
-- `as_of_time`: the timestamp boundary proving the model did not use future information.
-- `source_ids`: source record IDs used by the feature sample.
-- `lineage`: model version, data mixture version, shard IDs, and evaluation run ID.
+- `checkpoint`: decoder-only model weights.
+- `metrics`: next-token loss, perplexity, top-1 accuracy, and top-5 accuracy.
+- `lineage`: source data, token profile, run manifest, and evaluation run ID.
+- `stylized_facts`: generated-vs-real return distribution checks.
 
-### Backtesting Metrics
+### Evaluation Metrics
 
-The evaluation stack should include real finance and long-horizon portfolio metrics where applicable:
+The evaluation stack should include:
 
-- Return metrics: cumulative return, annualized return, alpha, beta, and benchmark-relative return.
-- Risk metrics: volatility, Sharpe ratio, Sortino ratio, max drawdown, Calmar ratio, and downside deviation.
-- Portfolio metrics: hit rate, precision@k for ranked ideas, turnover, average holding period, exposure, concentration, capacity proxy, transaction costs, and slippage.
-- Signal metrics: information coefficient, rank IC, IC decay, long/short spread, calibration, and bucketed 3-month/6-month/12-month forward-return analysis.
-- Value-investing metrics: thesis hit rate, downside capture, upside/downside ratio, drawdown recovery, valuation multiple change, earnings revision alignment, and catalyst realization.
-- Robustness metrics: walk-forward performance, market regime split, sector split, market-cap split, event-type split, and time-aware train/test leakage checks.
+- Language-model metrics: train/validation loss, perplexity, top-k token accuracy, and tokens/sec.
+- Stylized facts: heavy tails, volatility clustering, return autocorrelation, and distribution distance between real and generated proxy returns.
+- Robustness metrics: ticker split, market regime split, event-type split once real event feeds are connected, and time-aware train/test leakage checks.
 

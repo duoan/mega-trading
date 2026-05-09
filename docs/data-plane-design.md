@@ -2,102 +2,80 @@
 
 ## Purpose
 
-The Data Plane turns public market data into the exact feature contract consumed by `TradingFoundationModel`. The code path is intentionally narrow:
+The Data Plane turns public market data into the event/token contract consumed by the training path:
 
 ```text
-normalized records
-  -> point-in-time feature samples
-  -> numeric feature shards
-  -> offline training
+normalized market_data records
+  -> event-like stream rows
+  -> scale-normalized token blocks
+  -> decoder-only next-token training
 ```
 
-No reasoning runtime, evidence corpus, or text-only tokenization path is part of the training data plane.
+No reasoning runtime, evidence corpus, or text-only tokenization path is part of the primary training data plane.
 
 ## Implemented Sources
 
 Current real public sources:
 
-- Yahoo chart data for market_data history.
-- SEC EDGAR company facts for filing-style structured features.
+- Yahoo/Stooq chart data for market_data history.
+- SEC EDGAR company facts for future multimodal context adapters.
 
-Target modality slots already exist in the feature contract:
+The current no-credential MVP uses market data only. Future adapters can add real L3/TAQ/ITCH-style trade/order-flow events and multimodal context from news, SEC filings, earnings, and macro data.
 
-- `news_window` from normalized `family=news` records.
-- `macro_window` from normalized `family=macro` records.
+## Event Construction
 
-If a target source is not present, the sample builder writes an empty window. The shard builder then emits an empty numeric vector, and the dataset pads it to the configured size. Missing data is explicit; it is not replaced by evidence text or mock tokens.
+`EventBuilder` reads normalized `family=market_data` records and builds one event-like row per ticker/date:
 
-## Feature Construction
-
-`MultiStreamSampleBuilder` reads normalized records and builds one point-in-time sample per ticker/date label:
-
-- `market_data_window`: trailing market_data records ending at `as_of_time`.
-- `news_window`: normalized news events with `timestamp <= as_of_time`.
-- `sec_filing_window`: SEC company facts with `as_of_time <= sample.as_of_time`.
-- `macro_window`: normalized macro records with `timestamp <= as_of_time`.
-- `labels`: forward-return and risk labels generated from future market_data.
-- `source_ids`: lineage from every included feature record.
+- side/action proxy from signed daily return.
+- signed return bps.
+- intraday range proxy.
+- open gap proxy.
+- log volume ratio.
+- calendar/interarrival-time fields.
+- source IDs from current and previous market records.
 
 Leakage rule:
 
 ```text
-feature_time <= sample.as_of_time < label_window_start
+event_date is derived only from current and prior market records
 ```
 
 ## Shard Contract
 
-`StreamShardBuilder` packs samples into numeric JSONL rows for training:
+The builder packs token blocks into JSONL rows for training:
 
-- `sample_id`
+- `sequence_id`
 - `ticker`
-- `as_of_time`
-- `market_returns`
-- `market_levels`
-- `news_embeddings`
-- `sec_filing_features`
-- `macro_features`
-- `return_label`
-- `risk_label`
-- `forward_return`
-- `source_ids`
-
-The trainer reads only this shard contract. Any future feature must first be added here and covered by tests before the model consumes it.
-
-## Real Data Run
-
-Small public-data smoke run:
-
-```bash
-uv run mega-trading ingest-public \
-  --tickers AAPL,MSFT \
-  --start 2023-01-01 \
-  --end 2024-12-31 \
-  --out .mega-trading/public-smoke \
-  --sec-user-agent "Mega-Trading your-email@example.com"
-```
-
-Full configured run:
-
-```bash
-uv run mega-trading ingest --config configs/ingest-public.toml
-```
-
-Both commands run:
-
-```text
-ingest -> quality -> enrichment -> samples -> shards
-```
+- `start_date`
+- `end_date`
+- `tokens`
 
 The expected training shard is:
 
 ```text
-stage=05_shards/mixture=public/samples.jsonl
+stage=05_shards/mixture=public/tokens.jsonl
+```
+
+The matching profile is:
+
+```text
+stage=05_shards/mixture=public/tokens-profile.json
+```
+
+Any future real event feed or multimodal adapter must first map into this contract and be covered by tests before the model consumes it.
+
+## Real Data Run
+
+Full configured public run:
+
+```bash
+uv run mega-trading ingest --config configs/ingest-public.toml
+uv run mega-trading build data.data_dir=.mega-trading/public
 ```
 
 ## Tests
 
-The feature construction path is covered by:
+The primary path is covered by:
 
-- `tests/test_samples.py`: point-in-time sample windows and leakage filtering.
-- `tests/test_shards.py`: numeric feature shard packing.
-- `tests/test_cli.py`: config-driven ingest and training CLI integration.
+- `tests/test_training.py`: event building, tokenizer determinism, model shape, small training, and stylized-fact evaluation.
+- `tests/test_cli.py`: config-driven ingest plus build/train/eval CLI integration.

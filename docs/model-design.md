@@ -2,55 +2,39 @@
 
 ## Purpose
 
-`TradingFoundationModel` is a supervised multi-stream market model. It consumes the numeric feature shard emitted by the Data Plane and predicts the labels that are actually materialized today:
+The primary model path is a generative event model. It consumes tokenized market event streams and learns next-token prediction over scale-normalized trading proxies. This is the core modeling path because the project is about learning market event structure, not maintaining a separate classifier.
 
-- forward-return bucket.
-- risk bucket.
-
-No text-only reasoning path, evidence runtime, or generic task decoder is part of the model implementation.
+Exact microstructure reproduction needs event-level L3/TAQ/ITCH-style messages. The public MVP derives event-like rows from OHLCV market data so the repo can demonstrate the tokenizer, shard contract, decoder-only model, trainer, and evaluation loop without private credentials.
 
 ## Inputs
 
-The model input contract is:
+`EventBuilder` writes two main artifacts:
 
-- `market_data`: padded tensor from `market_returns` and `market_levels`.
-- `news`: padded tensor from `news_embeddings`.
-- `sec_filings`: padded tensor from `sec_filing_features`.
-- `macro`: padded tensor from `macro_features`.
+- `stage=04_corpus/mixture=<name>/events.jsonl`: event-like rows with ticker, date, side proxy, return, range, gap, volume ratio, and calendar-time fields.
+- `stage=05_shards/mixture=<name>/tokens.jsonl`: fixed-length autoregressive token blocks with `tokens`.
 
-`news` and `macro` are enabled by default. If the current public ingest has no real records for those families, the Data Plane emits empty vectors and the dataset pads them to zeros.
+The tokenizer uses stable buckets for:
+
+- side/action proxy.
+- signed return bps.
+- intraday range proxy.
+- open gap proxy.
+- log volume ratio.
+- interarrival/calendar time.
 
 ## Architecture
 
 ```text
-MarketDataEncoder    NewsEncoder    SecFilingEncoder    MacroEncoder
-      \             |              |              /
-       \            |              |             /
-        +------ GatedCrossAttentionFusion ------+
-                          |
-                  SharedMarketMemory
-                          |
-          +---------------+---------------+
-          |                               |
- ForwardReturnDecoder              RiskDecoder
+public market data
+  -> event-like stream builder
+  -> scale-invariant tokenizer
+  -> autoregressive token blocks
+  -> decoder-only Transformer
+  -> perplexity + stylized-fact evaluation
 ```
 
-Encoders:
+`TradingModel` is a causal Transformer with token embeddings, learned positional embeddings, Transformer blocks with a causal mask, layer norm, and a vocabulary projection head. The training loss is next-token cross entropy.
 
-- `MarketDataEncoder`: temporal transformer over market_data return/level tokens.
-- `NewsEncoder`: feature-sequence encoder over precomputed news features.
-- `SecFilingEncoder`: feature-sequence encoder over SEC facts and SEC filing features.
-- `MacroEncoder`: feature-sequence encoder over macro/regime features.
+## Extension Path
 
-Fusion:
-
-- Query-based cross-attention starts from market_data tokens when market_data is enabled.
-- Other modalities are fused as context tokens through a learned gate.
-- The fused token set is compressed into `SharedMarketMemory`.
-
-Decoders:
-
-- `ForwardReturnDecoder` maps shared memory to `RETURN_LABELS`.
-- `RiskDecoder` maps shared memory to `RISK_LABELS`.
-
-Future tasks should only be added after the Data Plane materializes labels for them.
+Future multimodal work should bridge news, filings, earnings, macro, and real trade-flow adapters into the event/token contract first. New objectives should only be added after the Data Plane materializes the required event fields and tests cover the token contract.
