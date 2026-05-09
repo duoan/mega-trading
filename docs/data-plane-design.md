@@ -75,13 +75,13 @@ return_threshold = 0.02
 
 [[ingest.sources]]
 name = "sec_companyfacts"
-tickers = ["AAPL", "AMZN", "MSFT", "GOOGL", "META", "NVDA", "TSLA", "JPM", "UNH", "XOM"]
+ticker_file = "universes/sp500.txt"
 
 [[ingest.sources]]
 name = "yahoo_prices"
-tickers = ["AAPL", "AMZN", "MSFT", "GOOGL", "META", "NVDA", "TSLA", "JPM", "UNH", "XOM"]
-start = "2020-01-01"
-end = "2025-12-31"
+ticker_file = "universes/sp500.txt"
+start = "2015-01-01"
+end = "2026-05-08"
 ```
 
 Supported source names:
@@ -91,6 +91,8 @@ Supported source names:
 - `stooq_prices`
 
 The config is the ingestion API contract: by reading it, an operator should know which data will be fetched, which quality gates and enrichment steps will run, which trainable samples/shards will be produced, where artifacts will be written, and which source-specific requirements apply.
+
+Sources can use either inline `tickers = [...]` for small experiments or `ticker_file = "universes/sp500.txt"` for larger universes. Ticker files are newline-delimited, support `#` comments, and normalize class-share symbols like `BRK.B` to `BRK-B` for SEC/Yahoo compatibility.
 
 Config-driven ingestion should produce:
 

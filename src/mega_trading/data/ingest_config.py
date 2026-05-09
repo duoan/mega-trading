@@ -47,8 +47,9 @@ class IngestPipelineConfig:
             raise ValueError("at least one ingest source is required")
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "IngestPipelineConfig":
-        sources = tuple(_source_from_dict(source) for source in value.get("sources", []))
+    def from_dict(cls, value: dict[str, Any], base_path: Path | None = None) -> "IngestPipelineConfig":
+        config_base_path = base_path or Path.cwd()
+        sources = tuple(_source_from_dict(source, config_base_path) for source in value.get("sources", []))
         quality = value.get("quality", {})
         if not isinstance(quality, dict):
             quality = {}
@@ -82,17 +83,41 @@ def load_ingest_config(path: Path) -> IngestPipelineConfig:
     ingest = payload.get("ingest")
     if not isinstance(ingest, dict):
         raise ValueError("config must contain an [ingest] section")
-    return IngestPipelineConfig.from_dict(ingest)
+    return IngestPipelineConfig.from_dict(ingest, base_path=path.parent)
 
 
-def _source_from_dict(value: dict[str, Any]) -> IngestSourceConfig:
+def _source_from_dict(value: dict[str, Any], base_path: Path) -> IngestSourceConfig:
     return IngestSourceConfig(
         name=str(value.get("name", "")),
-        tickers=tuple(str(ticker).upper() for ticker in value.get("tickers", [])),
+        tickers=_source_tickers(value, base_path),
         enabled=bool(value.get("enabled", True)),
         start=_optional_string(value.get("start")),
         end=_optional_string(value.get("end")),
     )
+
+
+def _source_tickers(value: dict[str, Any], base_path: Path) -> tuple[str, ...]:
+    tickers = [_normalize_ticker(str(ticker)) for ticker in value.get("tickers", [])]
+    ticker_file = _optional_string(value.get("ticker_file"))
+    if ticker_file:
+        ticker_path = Path(ticker_file)
+        if not ticker_path.is_absolute():
+            ticker_path = base_path / ticker_path
+        tickers.extend(_load_ticker_file(ticker_path))
+    return tuple(sorted(set(ticker for ticker in tickers if ticker)))
+
+
+def _load_ticker_file(path: Path) -> list[str]:
+    rows: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        value = line.split("#", 1)[0].strip()
+        if value:
+            rows.append(_normalize_ticker(value))
+    return rows
+
+
+def _normalize_ticker(value: str) -> str:
+    return value.upper().replace(".", "-")
 
 
 def _optional_string(value: object) -> str | None:

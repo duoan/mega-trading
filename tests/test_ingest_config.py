@@ -50,6 +50,29 @@ end = "2024-03-31"
                 }
             )
 
+    def test_loads_source_tickers_from_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.joinpath("sp500.txt").write_text("aapl\nbrk.b\n# comment\nMSFT\n", encoding="utf-8")
+            config_path = root / "ingest.toml"
+            config_path.write_text(
+                """
+[ingest]
+output_dir = ".mega-trading/public"
+
+[[ingest.sources]]
+name = "sec_companyfacts"
+tickers = ["amzn"]
+ticker_file = "sp500.txt"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config = load_ingest_config(config_path)
+
+            self.assertEqual(config.sources[0].tickers, ("AAPL", "AMZN", "BRK-B", "MSFT"))
+
     def test_loads_quality_options(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "ingest.toml"

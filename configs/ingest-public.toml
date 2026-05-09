@@ -19,10 +19,10 @@ return_threshold = 0.02
 
 [[ingest.sources]]
 name = "sec_companyfacts"
-tickers = ["AAPL", "AMZN", "MSFT", "GOOGL", "META", "NVDA", "TSLA", "JPM", "UNH", "XOM"]
+ticker_file = "universes/sp500.txt"
 
 [[ingest.sources]]
 name = "yahoo_prices"
-tickers = ["AAPL", "AMZN", "MSFT", "GOOGL", "META", "NVDA", "TSLA", "JPM", "UNH", "XOM"]
-start = "2020-01-01"
-end = "2025-12-31"
+ticker_file = "universes/sp500.txt"
+start = "2015-01-01"
+end = "2026-05-08"

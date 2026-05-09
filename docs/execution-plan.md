@@ -62,7 +62,7 @@ Development rules:
 
 ## Current MVP Success Criteria
 
-- `uv run mega-trading ingest --config configs/ingest-public.toml` produces readiness, enrichment, samples, and stream shards.
+- `uv run mega-trading ingest --config configs/ingest-public.toml` pulls the 10-year S&P 500 public universe and produces readiness, enrichment, samples, and stream shards.
 - `uv run mega-trading train` trains from Hydra config and writes train/validation metrics plus checkpoint artifacts.
 - `uv run mega-trading ablate` compares modality configurations and writes an ablation summary report.
 - No text-only training artifacts are produced by default.

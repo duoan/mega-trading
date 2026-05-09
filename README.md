@@ -33,12 +33,14 @@ The config-driven API is the preferred path: a reviewer can inspect one TOML fil
 
 ```bash
 uv run mega-trading ingest-public \
-  --tickers AAPL,AMZN,MSFT,GOOGL,META,NVDA,TSLA,JPM,UNH,XOM \
-  --start 2020-01-01 \
-  --end 2025-12-31 \
+  --tickers AAPL,MSFT,NVDA \
+  --start 2015-01-01 \
+  --end 2026-05-08 \
   --out .mega-trading/public \
   --sec-user-agent "your-name your-email@example.com"
 ```
+
+The default checked-in ingest config uses `configs/universes/sp500.txt` and pulls a 10-year S&P 500 price window. Use the shortcut only for quick targeted runs.
 
 ## Documents
 
