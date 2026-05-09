@@ -1,12 +1,11 @@
 import io
-import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from mega_trading.cli import build_parser, load_ablation_config, load_train_config, main
+from mega_trading.cli import build_parser, load_config, main
 
 
 class CliTests(unittest.TestCase):
@@ -32,139 +31,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("0.1.0", output.getvalue())
 
-    def test_ingest_public_command_writes_artifacts(self) -> None:
-        class FakeSecIngestor:
-            def __init__(self, store, client, table_store=None):
-                self.store = store
-
-            def ingest(self, request):
-                self.store.write_jsonl(
-                    "stage=02_normalized/family=entities/source=sec.jsonl",
-                    [
-                        {
-                            "entity_id": "sec-1",
-                            "ticker": request.tickers[0],
-                            "company_name": "Apple Inc.",
-                            "source_ids": ["sec:company_tickers:1"],
-                        }
-                    ],
-                )
-                self.store.write_jsonl(
-                    "stage=02_normalized/family=sec_filings/source=sec.jsonl",
-                    [
-                        {
-                            "sec_filing_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
-                            "entity_id": "sec-1",
-                            "ticker": request.tickers[0],
-                            "concept": "Revenue",
-                            "value": 100.0,
-                            "unit": "USD",
-                            "period_end": "2022-12-31",
-                            "accepted_at": "2023-02-01T00:00:00Z",
-                            "as_of_time": "2023-02-01T00:00:00Z",
-                            "source_ids": ["sec:f1"],
-                        }
-                    ],
-                )
-                self.store.write_json(
-                    "manifests/normalization/sec-companyfacts-normalized.json",
-                    {
-                        "manifest_id": "sec-companyfacts-normalized",
-                        "artifact_type": "normalized",
-                        "paths": [
-                            "stage=02_normalized/family=entities/source=sec.jsonl",
-                            "stage=02_normalized/family=sec_filings/source=sec.jsonl",
-                        ],
-                        "metadata": {},
-                    },
-                )
-                from mega_trading.data.ingest import IngestResult
-
-                return IngestResult(
-                    raw_manifest_path="manifests/ingest/sec-companyfacts-raw.json",
-                    normalization_manifest_path="manifests/normalization/sec-companyfacts-normalized.json",
-                    normalized_counts={"entities": 1},
-                    quality_summary={"duplicate_records": 0, "quarantined_records": 0},
-                )
-
-        class FakeMarketDataIngestor:
-            def __init__(self, store, client, table_store=None):
-                self.store = store
-
-            def ingest(self, request):
-                self.store.write_jsonl(
-                    "stage=02_normalized/family=market_data/source=stooq.jsonl",
-                    [
-                        {
-                            "market_data_id": "yahoo-AAPL-2023-01-03",
-                            "ticker": request.tickers[0],
-                            "date": request.start,
-                            "adjusted_close": 105.0,
-                            "provider": "yahoo",
-                            "source_ids": ["yahoo-AAPL-2023-01-03"],
-                        }
-                    ],
-                )
-                self.store.write_jsonl(
-                    "stage=02_normalized/family=sec_filings/source=sec.jsonl",
-                    [
-                        {
-                            "sec_filing_id": "sec-AAPL-Revenue-2022-12-31-2023-02-01",
-                            "entity_id": "sec-1",
-                            "ticker": request.tickers[0],
-                            "concept": "Revenue",
-                            "value": 100.0,
-                            "unit": "USD",
-                            "period_end": "2022-12-31",
-                            "accepted_at": "2023-02-01T00:00:00Z",
-                            "as_of_time": "2023-02-01T00:00:00Z",
-                            "source_ids": ["sec:f1"],
-                        }
-                    ],
-                )
-                self.store.write_json(
-                    "manifests/normalization/yahoo-daily-normalized.json",
-                    {
-                        "manifest_id": "yahoo-daily-normalized",
-                        "artifact_type": "normalized",
-                        "paths": ["stage=02_normalized/family=market_data/source=stooq.jsonl"],
-                        "metadata": {},
-                    },
-                )
-                from mega_trading.data.ingest import IngestResult
-
-                return IngestResult(
-                    raw_manifest_path="manifests/ingest/yahoo-daily-raw.json",
-                    normalization_manifest_path="manifests/normalization/yahoo-daily-normalized.json",
-                    normalized_counts={"market_data": 1},
-                    quality_summary={"duplicate_records": 0, "quarantined_records": 0},
-                )
-
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch("mega_trading.cli.SecFilingsIngestor", FakeSecIngestor), patch(
-                "mega_trading.cli.YahooMarketDataIngestor", FakeMarketDataIngestor
-            ):
-                exit_code = main(
-                    [
-                        "ingest-public",
-                        "--tickers",
-                        "AAPL",
-                        "--start",
-                        "2023-01-01",
-                        "--end",
-                        "2023-01-31",
-                        "--out",
-                        tmp,
-                        "--sec-user-agent",
-                        "Mega-Trading test@example.com",
-                    ]
-                )
-
-            self.assertEqual(exit_code, 0)
-            self.assertTrue((Path(tmp) / "stage=02_normalized/family=entities/source=sec.jsonl").exists())
-            self.assertTrue((Path(tmp) / "stage=02_normalized/family=market_data/source=stooq.jsonl").exists())
-
-    def test_ingest_command_runs_from_config(self) -> None:
+    def test_ingest_public_command_writes_normalized_artifacts(self) -> None:
         class FakeSecIngestor:
             def __init__(self, store, client, table_store=None):
                 self.store = store
@@ -236,42 +103,30 @@ class CliTests(unittest.TestCase):
                 )
 
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "ingest.toml"
-            output_dir = Path(tmp) / "out"
-            config_path.write_text(
-                f"""
-[ingest]
-output_dir = "{output_dir}"
-sec_user_agent = "Mega-Trading test@example.com"
-
-[[ingest.sources]]
-name = "sec_filings"
-tickers = ["AAPL"]
-
-[[ingest.sources]]
-name = "yahoo_market_data"
-tickers = ["AAPL"]
-start = "2023-01-01"
-end = "2023-01-31"
-""".strip()
-                + "\n",
-                encoding="utf-8",
-            )
-
             with patch("mega_trading.cli.SecFilingsIngestor", FakeSecIngestor), patch(
                 "mega_trading.cli.YahooMarketDataIngestor", FakeMarketDataIngestor
             ):
-                exit_code = main(["ingest", "--config", str(config_path)])
+                exit_code = main(
+                    [
+                        "ingest-public",
+                        "--tickers",
+                        "AAPL",
+                        "--start",
+                        "2023-01-01",
+                        "--end",
+                        "2023-01-31",
+                        "--out",
+                        tmp,
+                        "--sec-user-agent",
+                        "Mega-Trading test@example.com",
+                    ]
+                )
 
             self.assertEqual(exit_code, 0)
-            self.assertTrue((output_dir / "stage=02_normalized/family=entities/source=sec.jsonl").exists())
-            self.assertTrue((output_dir / "stage=02_normalized/family=market_data/source=yahoo.jsonl").exists())
-            self.assertTrue((output_dir / "reports/data-readiness.json").exists())
-            self.assertTrue((output_dir / "stage=03_enriched/company_snapshots.jsonl").exists())
-            self.assertTrue((output_dir / "stage=04_corpus/mixture=public/samples.jsonl").exists())
-            self.assertTrue((output_dir / "stage=05_shards/mixture=public/samples.jsonl").exists())
+            self.assertTrue((Path(tmp) / "stage=02_normalized/family=entities/source=sec.jsonl").exists())
+            self.assertTrue((Path(tmp) / "stage=02_normalized/family=market_data/source=yahoo.jsonl").exists())
 
-    def test_ingest_command_runs_fixture_demo_config(self) -> None:
+    def test_ingest_command_runs_config_without_building_token_shards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "ingest-demo.toml"
             output_dir = Path(tmp) / "demo"
@@ -284,13 +139,6 @@ output_dir = "{output_dir}"
 enabled = true
 fail_on_error = true
 
-[ingest.training_data]
-enabled = true
-mixture_name = "demo"
-input_window_observations = 2
-horizon_observations = 2
-return_threshold = 0.05
-
 [[ingest.sources]]
 name = "fixture"
 """.strip()
@@ -299,255 +147,30 @@ name = "fixture"
             )
 
             exit_code = main(["ingest", "--config", str(config_path)])
-            samples = (output_dir / "stage=05_shards/mixture=demo/samples.jsonl").read_text(encoding="utf-8")
 
             self.assertEqual(exit_code, 0)
             self.assertTrue((output_dir / "reports/data-readiness.json").exists())
-            self.assertIn("market_returns", samples)
+            self.assertFalse((output_dir / "stage=05_shards/mixture=demo/tokens.jsonl").exists())
 
-    def test_train_config_applies_hydra_overrides(self) -> None:
-        config = load_train_config(
-            Path("configs/train"),
+    def test_config_applies_hydra_overrides(self) -> None:
+        config = load_config(
+            Path("configs"),
             "default",
             [
-                "run.run_id=ablation-a",
+                "run.run_id=train-a",
                 "training.max_steps=3",
                 "model.hidden_dim=16",
-                "model.use_news=false",
-                "training.validation_fraction=0.3",
-                "training.eval_interval=2",
-                "training.precision=mixed",
-                "training.wandb_mode=online",
+                "build.block_size=16",
+                "eval.rollouts=2",
             ],
         )
 
-        self.assertEqual(config.run.run_id, "ablation-a")
+        self.assertEqual(config.run.run_id, "train-a")
         self.assertEqual(config.training.max_steps, 3)
         self.assertEqual(config.model.hidden_dim, 16)
-        self.assertFalse(config.model.use_news)
-        self.assertEqual(config.training.validation_fraction, 0.3)
-        self.assertEqual(config.training.eval_interval, 2)
-        self.assertEqual(config.training.device, "auto")
-        self.assertEqual(config.training.precision, "mixed")
-        self.assertTrue(config.training.wandb_enabled)
-        self.assertEqual(config.training.wandb_project, "mega-trading")
-        self.assertEqual(config.training.wandb_mode, "online")
-
-    def test_train_command_writes_run_artifacts_from_hydra_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            _write_stream_shard(root)
-
-            exit_code = main(
-                [
-                    "train",
-                    f"data.data_dir={root}",
-                    "data.mixture=public",
-                    "run.run_id=tfm-cli",
-                    "training.max_steps=2",
-                    "model.hidden_dim=8",
-                    "training.batch_size=2",
-                    "training.device=cpu",
-                ]
-            )
-
-            self.assertEqual(exit_code, 0)
-            self.assertTrue((root / "runs/tfm-cli/metrics.jsonl").exists())
-            self.assertTrue((root / "runs/tfm-cli/checkpoint.pt").exists())
-            self.assertTrue((root / "runs/tfm-cli/wandb").exists())
-
-    def test_materialize_labels_command_writes_labeled_predictions(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            _write_stream_shard(root)
-            prediction_path = "predictions/replay/predictions.jsonl"
-            root.joinpath("predictions/replay").mkdir(parents=True)
-            root.joinpath(prediction_path).write_text(
-                json.dumps(
-                    {
-                        "prediction_id": "pred-1",
-                        "prediction_time": "2024-01-02T00:00:00Z",
-                        "ticker": "AAPL",
-                        "sample_id": "sample-a",
-                        "model_version_id": "model-v1",
-                        "base_model_version": "base-v1",
-                        "adapter_version": "adapter-none",
-                        "head_version": "head-v1",
-                        "feature_version": "features-v1",
-                        "label_version": "labels-v1",
-                        "pred_return_bucket": "outperform",
-                        "pred_risk_bucket": "low",
-                        "confidence": 0.7,
-                        "return_probabilities": {"outperform": 0.7, "neutral": 0.2, "underperform": 0.1},
-                        "risk_probabilities": {"low": 0.7, "medium": 0.2, "high": 0.1},
-                        "source_ids": ["sample-a"],
-                        "label_status": "pending",
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            exit_code = main(
-                [
-                    "materialize-labels",
-                    f"--data-dir={root}",
-                    f"--prediction-path={prediction_path}",
-                    "--label-run-id=labels-cli",
-                ]
-            )
-            labeled_path = root / "labels/labels-cli/labeled-predictions.jsonl"
-
-            self.assertEqual(exit_code, 0)
-            self.assertTrue(labeled_path.exists())
-            self.assertEqual(json.loads(labeled_path.read_text(encoding="utf-8").splitlines()[0])["label_status"], "ready")
-
-    def test_backtest_command_writes_report(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            labeled_path = root / "labels/demo/labeled-predictions.jsonl"
-            labeled_path.parent.mkdir(parents=True)
-            labeled_path.write_text(
-                json.dumps(
-                    {
-                        "prediction_id": "pred-1",
-                        "prediction_time": "2024-01-02T00:00:00Z",
-                        "ticker": "AAPL",
-                        "sample_id": "sample-a",
-                        "model_version_id": "model-v1",
-                        "base_model_version": "base-v1",
-                        "adapter_version": "adapter-none",
-                        "head_version": "head-v1",
-                        "feature_version": "features-v1",
-                        "label_version": "labels-v1",
-                        "pred_return_bucket": "outperform",
-                        "pred_risk_bucket": "low",
-                        "confidence": 0.8,
-                        "return_probabilities": {"outperform": 0.8},
-                        "risk_probabilities": {"low": 0.8},
-                        "source_ids": ["sample-a"],
-                        "label_status": "ready",
-                        "actual_return_bucket": "outperform",
-                        "actual_risk_bucket": "low",
-                        "actual_forward_return": 0.03,
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            exit_code = main(
-                [
-                    "backtest",
-                    f"--data-dir={root}",
-                    "--labeled-prediction-path=labels/demo/labeled-predictions.jsonl",
-                    "--backtest-id=bt-cli",
-                ]
-            )
-
-            self.assertEqual(exit_code, 0)
-            self.assertTrue((root / "evals/bt-cli/backtest-report.json").exists())
-
-    def test_online_update_command_writes_adapter_record(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            labeled_path = root / "labels/demo/labeled-predictions.jsonl"
-            labeled_path.parent.mkdir(parents=True)
-            labeled_path.write_text(
-                json.dumps(
-                    {
-                        "prediction_id": "pred-1",
-                        "prediction_time": "2024-01-02T00:00:00Z",
-                        "ticker": "AAPL",
-                        "sample_id": "sample-a",
-                        "label_status": "ready",
-                        "actual_return_bucket": "outperform",
-                        "actual_risk_bucket": "low",
-                        "actual_forward_return": 0.03,
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            exit_code = main(
-                [
-                    "online-update",
-                    f"--data-dir={root}",
-                    "--labeled-prediction-path=labels/demo/labeled-predictions.jsonl",
-                    "--base-model-version=base-v1",
-                    "--update-id=update-cli",
-                ]
-            )
-
-            self.assertEqual(exit_code, 0)
-            self.assertTrue((root / "models/adapters/update-cli.json").exists())
-
-    def test_ablate_command_writes_summary_report(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            _write_stream_shard(root)
-            config_dir = root / "ablation-config"
-            config_dir.mkdir()
-            report_path = root / "reports/ablation-summary.json"
-            config_dir.joinpath("public.yaml").write_text(
-                f"""
-defaults:
-  - _self_
-
-ablation_id: test-ablation
-train_config_dir: {Path.cwd() / "configs/train"}
-train_config_name: default
-report_path: {report_path}
-base_overrides:
-  - data.data_dir={root}
-  - data.mixture=public
-  - training.max_steps=1
-  - training.batch_size=2
-  - training.device=cpu
-  - model.hidden_dim=8
-runs:
-  - name: market_data_only
-    overrides:
-      - run.run_id=market_data-only
-      - model.use_market_data=true
-      - model.use_news=false
-      - model.use_sec_filings=false
-      - model.use_earnings=false
-      - model.use_macro=false
-  - name: all_modalities
-    overrides:
-      - run.run_id=all-modalities
-""".strip()
-                + "\n",
-                encoding="utf-8",
-            )
-
-            config = load_ablation_config(config_dir, "public", [])
-            exit_code = main(["ablate", "--config-dir", str(config_dir), "--config-name", "public"])
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-
-            self.assertEqual(config.ablation_id, "test-ablation")
-            self.assertEqual(exit_code, 0)
-            self.assertEqual(len(report["runs"]), 2)
-            self.assertEqual(report["runs"][0]["name"], "market_data_only")
-            self.assertEqual(report["runs"][0]["sample_count"], 2)
-            self.assertEqual(report["runs"][0]["return_label_distribution"]["outperform"], 1)
-            self.assertTrue((root / "runs/market_data-only/checkpoint.pt").exists())
+        self.assertEqual(config.build.block_size, 16)
+        self.assertEqual(config.eval.rollouts, 2)
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-def _write_stream_shard(root: Path) -> None:
-    (root / "stage=05_shards/mixture=public").mkdir(parents=True)
-    (root / "stage=05_shards/mixture=public/samples.jsonl").write_text(
-        '{"sample_id":"sample-a","ticker":"AAPL","as_of_time":"2024-01-02T00:00:00Z",'
-        '"market_returns":[0.0,0.01],"market_levels":[0.0,0.01],"news_embeddings":[],'
-        '"sec_filing_features":[100.0],"earnings_features":[],"macro_features":[],"return_label":"outperform","risk_label":"low"}\n'
-        '{"sample_id":"sample-b","ticker":"AMZN","as_of_time":"2024-01-02T00:00:00Z",'
-        '"market_returns":[0.0,-0.01],"market_levels":[0.0,-0.01],"news_embeddings":[],'
-        '"sec_filing_features":[50.0],"earnings_features":[],"macro_features":[],"return_label":"underperform","risk_label":"high"}\n',
-        encoding="utf-8",
-    )
