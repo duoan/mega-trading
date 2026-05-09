@@ -15,7 +15,7 @@ raw source rows
 ## Implemented Sources
 
 - `fixture`: deterministic local order-flow events for smoke tests.
-- `hf_ohlcv_1m`: Hugging Face minute OHLCV bars mapped into the same order-flow feature contract for public no-credential runs.
+- `hf_ohlcv_1m`: Hugging Face `mito0o852/OHLCV-1m` loaded through `datasets.load_dataset`, then mapped into the same order-flow feature contract for public no-credential runs.
 
 No non-order-flow data family is part of the active data plane.
 

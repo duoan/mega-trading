@@ -3,84 +3,38 @@
 from __future__ import annotations
 
 import math
-import ssl
 from dataclasses import asdict
 from datetime import datetime, timezone
 from statistics import median
-from tempfile import NamedTemporaryFile
-from typing import Callable
-from urllib.request import Request, urlopen
+from typing import Any, Callable, Iterable
 
-import certifi
-import pyarrow as pa
-import pyarrow.parquet as pq
+from datasets import load_dataset
 
 from mega_trading.core.schemas import Manifest, OrderFlowEventRecord
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
 from mega_trading.data.ingest import IngestResult, Ingestor, OhlcvIngestRequest
 from mega_trading.data.lance_store import LanceTableStore, LanceTables
 
-FetchParquetTable = Callable[[str], pa.Table]
-
-
-class HuggingFaceOhlcvClient:
-    """Fetch minute OHLCV bars used only as a public proxy for paper features."""
-
-    base_url = "https://huggingface.co/datasets/mito0o852/OHLCV-1m/resolve/main/data"
-
-    def __init__(self, fetch_table: FetchParquetTable | None = None) -> None:
-        self.fetch_table = fetch_table or _fetch_parquet_table
-
-    def minute(self, tickers: tuple[str, ...], start: str, end: str) -> list[dict[str, object]]:
-        ticker_set = {ticker.upper() for ticker in tickers}
-        start_dt = _to_utc_datetime(start)
-        end_dt = _to_utc_datetime(end)
-        rows: list[dict[str, object]] = []
-        for month in _month_range(start_dt, end_dt):
-            table = self.fetch_table(f"{self.base_url}/ohlcv_{month}.parquet")
-            columns = table.select(["timestamp", "open", "high", "low", "close", "volume", "ticker"]).to_pydict()
-            for index, ticker_value in enumerate(columns["ticker"]):
-                ticker = str(ticker_value).upper()
-                if ticker not in ticker_set:
-                    continue
-                timestamp = _timestamp_to_utc(columns["timestamp"][index])
-                if timestamp < start_dt or timestamp > end_dt:
-                    continue
-                close = columns["close"][index]
-                volume = columns["volume"][index]
-                if close is None or volume is None or float(volume) <= 0.0:
-                    continue
-                rows.append(
-                    {
-                        "ticker": ticker,
-                        "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
-                        "open": _optional_float(columns["open"][index]),
-                        "high": _optional_float(columns["high"][index]),
-                        "low": _optional_float(columns["low"][index]),
-                        "close": float(close),
-                        "volume": float(volume),
-                    }
-                )
-        return sorted(rows, key=lambda row: (str(row["ticker"]), str(row["timestamp"])))
+LoadDataset = Callable[..., Iterable[dict[str, Any]]]
 
 
 class HuggingFaceOhlcvIngestor(Ingestor[OhlcvIngestRequest]):
-    """Map minute OHLCV bars into action/side/depth/size/interarrival events."""
+    """Load the Hugging Face OHLCV dataset and map rows to paper features."""
 
     def __init__(
         self,
         store: LocalObjectStore,
-        client: HuggingFaceOhlcvClient,
         table_store: LanceTableStore | None = None,
+        load_dataset_fn: LoadDataset | None = None,
     ) -> None:
         self.store = store
-        self.client = client
         self.table_store = table_store
+        self.load_dataset = load_dataset_fn or load_dataset
         self.tables = LanceTables()
         self.paths = ArtifactPaths()
 
     def ingest(self, request: OhlcvIngestRequest) -> IngestResult:
-        raw_rows = self.client.minute(request.tickers, request.start, request.end)
+        raw_rows = _load_huggingface_ohlcv_rows(request, self.load_dataset)
         events = _ohlcv_rows_to_order_flow(raw_rows)
         event_rows = [asdict(event) for event in events]
 
@@ -124,6 +78,43 @@ class HuggingFaceOhlcvIngestor(Ingestor[OhlcvIngestRequest]):
             normalized_counts={"order_flow": len(event_rows)},
             quality_summary={"quarantined_records": 0, "duplicate_records": 0},
         )
+
+
+def _load_huggingface_ohlcv_rows(request: OhlcvIngestRequest, load_dataset_fn: LoadDataset) -> list[dict[str, object]]:
+    ticker_set = {ticker.upper() for ticker in request.tickers}
+    start_dt = _to_utc_datetime(request.start)
+    end_dt = _to_utc_datetime(request.end)
+    rows: list[dict[str, object]] = []
+    for month in _month_range(start_dt, end_dt):
+        dataset = load_dataset_fn(
+            "mito0o852/OHLCV-1m",
+            data_files=f"data/ohlcv_{month}.parquet",
+            split="train",
+            streaming=True,
+        )
+        for row in dataset:
+            ticker = str(row["ticker"]).upper()
+            if ticker not in ticker_set:
+                continue
+            timestamp = _timestamp_to_utc(row["timestamp"])
+            if timestamp < start_dt or timestamp > end_dt:
+                continue
+            close = row.get("close")
+            volume = row.get("volume")
+            if close is None or volume is None or float(volume) <= 0.0:
+                continue
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
+                    "open": _optional_float(row.get("open")),
+                    "high": _optional_float(row.get("high")),
+                    "low": _optional_float(row.get("low")),
+                    "close": float(close),
+                    "volume": float(volume),
+                }
+            )
+    return sorted(rows, key=lambda row: (str(row["ticker"]), str(row["timestamp"])))
 
 
 def _ohlcv_rows_to_order_flow(rows: list[dict[str, object]]) -> list[OrderFlowEventRecord]:
@@ -186,17 +177,6 @@ def _estimate_midprice(row: dict[str, object]) -> float:
     if close is not None and close > 0.0:
         return close
     raise ValueError(f"cannot estimate midprice for row: {row}")
-
-
-def _fetch_parquet_table(url: str) -> pa.Table:
-    request = Request(url, headers={"User-Agent": "Mega-Trading"})
-    context = ssl.create_default_context(cafile=certifi.where())
-    with urlopen(request, timeout=120, context=context) as response:
-        data = response.read()
-    with NamedTemporaryFile(suffix=".parquet") as tmp:
-        tmp.write(data)
-        tmp.flush()
-        return pq.read_table(tmp.name, columns=["timestamp", "open", "high", "low", "close", "volume", "ticker"])
 
 
 def _optional_float(value: object) -> float | None:

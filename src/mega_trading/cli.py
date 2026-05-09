@@ -13,7 +13,7 @@ from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.ingest import FixtureIngestor, OhlcvIngestRequest
 from mega_trading.data.ingest_config import IngestPipelineConfig, load_ingest_config
 from mega_trading.data.lance_store import LanceTableStore
-from mega_trading.data.public.market import HuggingFaceOhlcvClient, HuggingFaceOhlcvIngestor
+from mega_trading.data.public.market import HuggingFaceOhlcvIngestor
 from mega_trading.data.quality import DataQualityChecker
 from mega_trading.eval import run_eval
 from mega_trading.events import EventBuilder
@@ -146,7 +146,7 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
         if source.name == "fixture":
             result = FixtureIngestor(store, table_store=table_store).ingest()
         elif source.name == "hf_ohlcv_1m":
-            result = HuggingFaceOhlcvIngestor(store, HuggingFaceOhlcvClient(), table_store=table_store).ingest(
+            result = HuggingFaceOhlcvIngestor(store, table_store=table_store).ingest(
                 OhlcvIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
             )
         else:
