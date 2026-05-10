@@ -68,6 +68,16 @@ class TrainConfig:
     max_steps: int = 100
     batch_size: int = 32
     learning_rate: float = 3e-4
+    optimizer: str = "adamw"
+    weight_decay: float = 0.01
+    adam_beta1: float = 0.9
+    adam_beta2: float = 0.999
+    adam_eps: float = 1e-8
+    muon_momentum: float = 0.95
+    muon_ns_steps: int = 5
+    lr_schedule: str = "constant"
+    lr_warmup_steps: int = 0
+    min_learning_rate: float = 0.0
     validation_fraction: float = 0.1
     eval_interval: int = 20
     max_eval_batches: int | None = None
@@ -101,6 +111,26 @@ class TrainConfig:
             raise ValueError("batch_size must be positive")
         if self.learning_rate <= 0:
             raise ValueError("learning_rate must be positive")
+        if self.optimizer not in {"adamw", "muon"}:
+            raise ValueError("optimizer must be one of: adamw, muon")
+        if self.weight_decay < 0:
+            raise ValueError("weight_decay must be non-negative")
+        if not 0.0 <= self.adam_beta1 < 1.0:
+            raise ValueError("adam_beta1 must be in [0.0, 1.0)")
+        if not 0.0 <= self.adam_beta2 < 1.0:
+            raise ValueError("adam_beta2 must be in [0.0, 1.0)")
+        if self.adam_eps <= 0:
+            raise ValueError("adam_eps must be positive")
+        if not 0.0 <= self.muon_momentum < 1.0:
+            raise ValueError("muon_momentum must be in [0.0, 1.0)")
+        if self.muon_ns_steps <= 0:
+            raise ValueError("muon_ns_steps must be positive")
+        if self.lr_schedule not in {"constant", "cosine"}:
+            raise ValueError("lr_schedule must be one of: constant, cosine")
+        if self.lr_warmup_steps < 0:
+            raise ValueError("lr_warmup_steps must be non-negative")
+        if not 0.0 <= self.min_learning_rate <= self.learning_rate:
+            raise ValueError("min_learning_rate must be in [0.0, learning_rate]")
         if not 0.0 <= self.validation_fraction < 1.0:
             raise ValueError("validation_fraction must be in [0.0, 1.0)")
         if self.eval_interval <= 0:

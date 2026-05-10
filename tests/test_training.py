@@ -49,6 +49,10 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(int(server.training.gradient_accumulation_steps), 8)
         self.assertEqual(int(server.training.max_eval_batches), 64)
         self.assertEqual(str(server.training.compile_mode), "default")
+        self.assertEqual(str(server.training.optimizer), "muon")
+        self.assertEqual(str(server.training.lr_schedule), "cosine")
+        self.assertEqual(int(server.training.lr_warmup_steps), 1000)
+        self.assertEqual(float(server.training.min_learning_rate), 0.00002)
         self.assertEqual(str(binance_modal.data.data_dir), "/data/binance-trades")
         self.assertEqual(str(binance_modal.data.mixture), "binance_public")
         self.assertEqual(str(binance_modal.training.compile_mode), "reduce-overhead")
@@ -69,6 +73,24 @@ class TrainingTests(unittest.TestCase):
             TrainConfig(run_id="bad", checkpoint_interval=0)
         with self.assertRaisesRegex(ValueError, "max_eval_batches"):
             TrainConfig(run_id="bad", max_eval_batches=0)
+
+    def test_train_config_validates_optimizer_and_scheduler_options(self) -> None:
+        with self.assertRaisesRegex(ValueError, "optimizer"):
+            TrainConfig(run_id="bad", optimizer="lion")
+        with self.assertRaisesRegex(ValueError, "weight_decay"):
+            TrainConfig(run_id="bad", weight_decay=-0.1)
+        with self.assertRaisesRegex(ValueError, "adam_beta1"):
+            TrainConfig(run_id="bad", adam_beta1=1.0)
+        with self.assertRaisesRegex(ValueError, "muon_momentum"):
+            TrainConfig(run_id="bad", muon_momentum=1.0)
+        with self.assertRaisesRegex(ValueError, "muon_ns_steps"):
+            TrainConfig(run_id="bad", muon_ns_steps=0)
+        with self.assertRaisesRegex(ValueError, "lr_schedule"):
+            TrainConfig(run_id="bad", lr_schedule="linear")
+        with self.assertRaisesRegex(ValueError, "lr_warmup_steps"):
+            TrainConfig(run_id="bad", lr_warmup_steps=-1)
+        with self.assertRaisesRegex(ValueError, "min_learning_rate"):
+            TrainConfig(run_id="bad", learning_rate=0.001, min_learning_rate=0.002)
 
     def test_build_config_validates_prepared_split_fractions(self) -> None:
         with self.assertRaisesRegex(ValueError, "validation_fraction"):

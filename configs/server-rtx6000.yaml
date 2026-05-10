@@ -41,6 +41,16 @@ training:
   max_steps: 20000
   batch_size: 8
   learning_rate: 0.0002
+  optimizer: muon
+  weight_decay: 0.01
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_eps: 0.00000001
+  muon_momentum: 0.95
+  muon_ns_steps: 5
+  lr_schedule: cosine
+  lr_warmup_steps: 1000
+  min_learning_rate: 0.00002
   validation_fraction: 0.02
   eval_interval: 500
   max_eval_batches: 64
