@@ -76,6 +76,7 @@ stage=05_shards/mixture=<name>/numpy/part-*/ticker_ids.npy
 ```
 
 `tokenizer.json` stores fitted bin edges for relative price, price depth, log relative size, and interarrival time.
+`tokens-numpy.json` also stores per-ticker chronological split counts. The order is train, validation, then backtest, so the backtest rows are held-out future windows for each ticker.
 
 ## Run
 

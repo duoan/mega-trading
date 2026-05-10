@@ -30,6 +30,8 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(str(binance_modal_prep.data.data_dir), ".mega-trading/binance-modal")
         self.assertEqual(str(binance_modal_prep.data.mixture), "binance_public")
         self.assertEqual(int(binance_modal_prep.build.numpy_partition_rows), 65536)
+        self.assertEqual(float(binance_modal_prep.build.validation_fraction), 0.02)
+        self.assertEqual(float(binance_modal_prep.build.backtest_fraction), 0.10)
         self.assertEqual(str(server.data.data_dir), ".mega-trading/binance-modal")
         self.assertEqual(str(server.training.device), "cuda")
         self.assertEqual(str(server.training.distributed_strategy), "ddp")
@@ -55,6 +57,14 @@ class TrainingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_eval_batches"):
             TrainConfig(run_id="bad", max_eval_batches=0)
 
+    def test_build_config_validates_prepared_split_fractions(self) -> None:
+        with self.assertRaisesRegex(ValueError, "validation_fraction"):
+            BuildConfig(validation_fraction=-0.1)
+        with self.assertRaisesRegex(ValueError, "backtest_fraction"):
+            BuildConfig(backtest_fraction=1.0)
+        with self.assertRaisesRegex(ValueError, "validation_fraction \\+ backtest_fraction"):
+            BuildConfig(validation_fraction=0.5, backtest_fraction=0.5)
+
     def test_event_builder_writes_token_shards_and_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -79,6 +89,9 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(tokens.shape, (profile["sequence_count"], profile["block_size"] + 1))
             self.assertEqual(ticker_ids.shape, (profile["sequence_count"],))
             self.assertEqual(profile["numpy_dataset"]["format"], "mega-trading-numpy-token-v1")
+            self.assertEqual(profile["numpy_dataset"]["splits"]["method"], "per_ticker_time")
+            self.assertGreater(profile["numpy_dataset"]["splits"]["totals"]["backtest"], 0)
+            self.assertIn("start_time", profile["numpy_dataset"]["splits"]["time_ranges"]["AAPL"]["backtest"])
             self.assertEqual(numpy_metadata["tokens_path"], result.numpy_tokens_path)
             self.assertIn("AAPL", numpy_metadata["ticker_to_id"])
 
@@ -160,7 +173,7 @@ class TrainingTests(unittest.TestCase):
             dataset = NumpyTickerTimeDataset(
                 store,
                 dict(profile["numpy_dataset"]),
-                {"AAPL": 1, "MSFT": 1},
+                dict(profile["numpy_dataset"]["splits"]["counts"]),
                 split="train",
             )
             example = next(iter(dataset))
@@ -181,7 +194,7 @@ class TrainingTests(unittest.TestCase):
             dataset = NumpyTickerTimeDataset(
                 store,
                 numpy_metadata,
-                {"AAPL": 1, "MSFT": 1},
+                dict(numpy_metadata["splits"]["counts"]),
                 split="train",
             )
             example = next(iter(dataset))
@@ -189,6 +202,29 @@ class TrainingTests(unittest.TestCase):
             self.assertTrue(numpy_metadata["partitioned"])
             self.assertGreater(len(numpy_metadata["partitions"]), 1)
             self.assertEqual(example["input_ids"].shape[0], 8)
+
+    def test_numpy_dataset_exposes_chronological_backtest_split(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = LocalObjectStore(root)
+            result = EventBuilder(
+                store,
+                BuildConfig(block_size=8, stride=4, min_events_per_ticker=5, validation_fraction=0.25, backtest_fraction=0.25),
+            ).build_events(_order_flow_events())
+            profile = store.read_json(result.profile_path)
+            numpy_metadata = dict(profile["numpy_dataset"])
+            split_counts = dict(numpy_metadata["splits"]["counts"])
+            train_rows = list(NumpyTickerTimeDataset(store, numpy_metadata, split_counts, split="train"))
+            validation_rows = list(NumpyTickerTimeDataset(store, numpy_metadata, split_counts, split="validation"))
+            backtest_rows = list(NumpyTickerTimeDataset(store, numpy_metadata, split_counts, split="backtest"))
+
+            self.assertGreater(len(train_rows), 0)
+            self.assertGreater(len(validation_rows), 0)
+            self.assertGreater(len(backtest_rows), 0)
+            self.assertEqual(
+                len(train_rows) + len(validation_rows) + len(backtest_rows),
+                int(profile["sequence_count"]),
+            )
 
     def test_trainer_and_eval_smoke_write_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -227,6 +263,7 @@ class TrainingTests(unittest.TestCase):
             self.assertTrue(root.joinpath("runs/train-test/checkpoints/step-000001.pt").exists())
             self.assertIn("validation_loss", metrics[-1])
             self.assertEqual(metrics[-1]["validation_batches"], 1.0)
+            self.assertGreater(metrics[-1]["backtest_sequence_count"], 0)
             self.assertEqual(metrics[-1]["distributed_strategy"], "ddp")
             self.assertEqual(metrics[-1]["dataset_format"], "numpy")
             self.assertEqual(metrics[-1]["world_size"], 1)
@@ -236,6 +273,7 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(manifest.metadata["gradient_accumulation_steps"], 1)
             self.assertEqual(manifest.metadata["attention_backend"], "auto")
             self.assertEqual(manifest.metadata["max_eval_batches"], 1)
+            self.assertGreater(manifest.metadata["backtest_sequence_count"], 0)
             self.assertIn("optimizer_state_dict", checkpoint)
             self.assertEqual(checkpoint["step"], 2)
             self.assertEqual(report["stage"], "eval")

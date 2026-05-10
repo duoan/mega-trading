@@ -69,11 +69,13 @@ class EventBuilder:
         sequence_rows = list(_sequence_rows(events_by_ticker, tokenizer, self.config.block_size, self.config.stride))
         if not sequence_rows:
             raise ValueError("not enough events to build token sequences")
+        split_metadata = _split_metadata(sequence_rows, self.config.validation_fraction, self.config.backtest_fraction)
         numpy_metadata = _write_numpy_dataset(
             self.store,
             self.config.mixture_name,
             sequence_rows,
             partition_rows=self.config.numpy_partition_rows,
+            split_metadata=split_metadata,
         )
 
         profile = _profile(event_rows, sequence_rows, tokenizer, self.config, tokenizer_path, numpy_metadata)
@@ -187,6 +189,8 @@ def _profile(
         "sequence_counts": dict(sorted(sequence_counts.items())),
         "block_size": config.block_size,
         "stride": config.stride,
+        "validation_fraction": config.validation_fraction,
+        "backtest_fraction": config.backtest_fraction,
         "event_size": tokenizer.event_size,
         "vocab_size": tokenizer.vocab_size,
         "tokenizer_path": tokenizer_path,
@@ -202,6 +206,7 @@ def _write_numpy_dataset(
     mixture_name: str,
     sequences: list[dict[str, Any]],
     partition_rows: int | None = None,
+    split_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     tokens_path = f"stage=05_shards/mixture={mixture_name}/tokens.npy"
     ticker_ids_path = f"stage=05_shards/mixture={mixture_name}/ticker_ids.npy"
@@ -219,6 +224,7 @@ def _write_numpy_dataset(
             ticker_to_id,
             metadata_path,
             partition_rows,
+            split_metadata,
         )
     store.delete_tree_if_exists(f"stage=05_shards/mixture={mixture_name}/numpy")
     _write_npy(store, tokens_path, token_array)
@@ -233,6 +239,7 @@ def _write_numpy_dataset(
         "tokens_dtype": str(token_array.dtype),
         "ticker_ids_dtype": str(ticker_id_array.dtype),
         "partitioned": False,
+        "splits": split_metadata or {},
         "ticker_to_id": ticker_to_id,
         "id_to_ticker": {str(index): ticker for ticker, index in ticker_to_id.items()},
     }
@@ -248,6 +255,7 @@ def _write_partitioned_numpy_dataset(
     ticker_to_id: dict[str, int],
     metadata_path: str,
     partition_rows: int,
+    split_metadata: dict[str, Any] | None,
 ) -> dict[str, Any]:
     root_path = f"stage=05_shards/mixture={mixture_name}/numpy"
     store.delete_if_exists(f"stage=05_shards/mixture={mixture_name}/tokens.npy")
@@ -283,11 +291,87 @@ def _write_partitioned_numpy_dataset(
         "partitioned": True,
         "partition_rows": partition_rows,
         "partitions": partitions,
+        "splits": split_metadata or {},
         "ticker_to_id": ticker_to_id,
         "id_to_ticker": {str(index): ticker for ticker, index in ticker_to_id.items()},
     }
     store.write_json(metadata_path, metadata)
     return metadata
+
+
+def _split_metadata(
+    sequences: list[dict[str, Any]],
+    validation_fraction: float,
+    backtest_fraction: float,
+) -> dict[str, Any]:
+    by_ticker: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in sequences:
+        by_ticker[str(row["ticker"])].append(row)
+    counts = Counter({ticker: len(rows) for ticker, rows in by_ticker.items()})
+    split_counts: dict[str, dict[str, int]] = {}
+    time_ranges: dict[str, dict[str, dict[str, Any]]] = {}
+    totals = {"train": 0, "validation": 0, "backtest": 0}
+    for ticker, count in sorted(counts.items()):
+        backtest = _heldout_count(count, backtest_fraction)
+        remaining = count - backtest
+        validation = _heldout_count(remaining, validation_fraction)
+        train = count - validation - backtest
+        ticker_ranges = _ticker_split_time_ranges(by_ticker[ticker], train, validation, backtest)
+        split_counts[ticker] = {
+            "train": train,
+            "validation": validation,
+            "backtest": backtest,
+        }
+        time_ranges[ticker] = ticker_ranges
+        totals["train"] += train
+        totals["validation"] += validation
+        totals["backtest"] += backtest
+    return {
+        "method": "per_ticker_time",
+        "order": ["train", "validation", "backtest"],
+        "validation_fraction": validation_fraction,
+        "backtest_fraction": backtest_fraction,
+        "counts": split_counts,
+        "time_ranges": time_ranges,
+        "totals": totals,
+    }
+
+
+def _ticker_split_time_ranges(
+    rows: list[dict[str, Any]],
+    train: int,
+    validation: int,
+    backtest: int,
+) -> dict[str, dict[str, Any]]:
+    starts = {
+        "train": 0,
+        "validation": train,
+        "backtest": train + validation,
+    }
+    counts = {
+        "train": train,
+        "validation": validation,
+        "backtest": backtest,
+    }
+    ranges: dict[str, dict[str, Any]] = {}
+    for split, start in starts.items():
+        count = counts[split]
+        if count <= 0:
+            ranges[split] = {"sequence_count": 0, "start_time": None, "end_time": None}
+            continue
+        split_rows = rows[start : start + count]
+        ranges[split] = {
+            "sequence_count": count,
+            "start_time": str(split_rows[0]["start_time"]),
+            "end_time": str(split_rows[-1]["end_time"]),
+        }
+    return ranges
+
+
+def _heldout_count(count: int, fraction: float) -> int:
+    if count <= 1 or fraction <= 0.0:
+        return 0
+    return min(max(1, int(count * fraction)), count - 1)
 
 
 def _write_npy(store: LocalObjectStore, path: str, value: np.ndarray) -> None:

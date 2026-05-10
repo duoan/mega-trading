@@ -20,9 +20,9 @@ Training reads partitioned NumPy token shards:
 
 - `numpy/part-*/tokens.npy`: `int64` arrays with shape `[partition_rows, block_size + 1]`.
 - `numpy/part-*/ticker_ids.npy`: `int32` arrays mapping each row to a ticker id.
-- `tokens-numpy.json`: dtype, shape, ticker map, and partition paths.
+- `tokens-numpy.json`: dtype, shape, ticker map, partition paths, and per-ticker time-based train/validation/backtest counts.
 
-The profile artifact records the stream contract, feature order, sequence counts, block size, event size, vocabulary size, binning method, and tokenizer path.
+The profile artifact records the stream contract, feature order, sequence counts, block size, event size, vocabulary size, binning method, tokenizer path, and prepared split fractions. Training consumes the prepared train/validation rows and leaves the backtest rows untouched for downstream strategy evaluation.
 
 ## Outputs
 
@@ -36,7 +36,7 @@ Periodic checkpoints can also be written under `runs/<run_id>/checkpoints/step-*
 
 ## Metrics
 
-Training metrics include next-token loss, perplexity, top-1/top-5 token accuracy, validation loss/perplexity, tokens/sec, checkpoint path, and manifest path.
+Training metrics include next-token loss, perplexity, top-1/top-5 token accuracy, validation loss/perplexity, split sequence counts, tokens/sec, checkpoint path, and manifest path.
 
 ## Distributed Execution
 

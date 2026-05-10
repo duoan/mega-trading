@@ -83,6 +83,8 @@ def _run_prepare_config(config: DictConfig, ingest_config_path: Path):
         tokenizer_size_bins=int(config.build.tokenizer_size_bins),
         tokenizer_time_bins=int(config.build.tokenizer_time_bins),
         numpy_partition_rows=_optional_int(config.build.numpy_partition_rows),
+        validation_fraction=float(config.build.validation_fraction),
+        backtest_fraction=float(config.build.backtest_fraction),
     )
     return prepare_numpy_dataset(load_ingest_config(ingest_config_path), build_config)
 

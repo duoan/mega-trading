@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 from mega_trading.config import TrainConfig
 from mega_trading.core.schemas import Manifest
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
-from mega_trading.dataset import NumpyTickerTimeDataset, cycle_batches, per_ticker_train_counts
+from mega_trading.dataset import NumpyTickerTimeDataset, cycle_batches, prepared_split_counts, split_totals
 from mega_trading.events import STREAM_CONTRACT
 from mega_trading.model import TradingModel
 
@@ -42,18 +42,19 @@ class Trainer:
         profile = self.store.read_json(profile_path)
         if profile.get("stream_contract") != STREAM_CONTRACT:
             raise ValueError(f"{profile_path} is not a valid token profile")
-        train_counts = per_ticker_train_counts(
-            {str(key): int(value) for key, value in dict(profile["sequence_counts"]).items()},
-            self.config.validation_fraction,
-        )
-        train_count = sum(train_counts.values())
-        validation_count = int(profile["sequence_count"]) - train_count
+        numpy_metadata = dict(profile.get("numpy_dataset", {}))
+        ticker_counts = {str(key): int(value) for key, value in dict(profile["sequence_counts"]).items()}
+        split_counts = prepared_split_counts(numpy_metadata, ticker_counts, self.config.validation_fraction)
+        split_count_totals = split_totals(split_counts)
+        train_count = split_count_totals["train"]
+        validation_count = split_count_totals["validation"]
+        backtest_count = split_count_totals["backtest"]
         if train_count <= 0:
             raise ValueError("training shard has no train rows")
 
         dataset_format = _dataset_format(self.store, profile)
-        train_dataset = _dataset(self.store, profile, shard_path, train_counts, split="train")
-        validation_dataset = _dataset(self.store, profile, shard_path, train_counts, split="validation") if validation_count else None
+        train_dataset = _dataset(self.store, profile, shard_path, split_counts, split="train")
+        validation_dataset = _dataset(self.store, profile, shard_path, split_counts, split="validation") if validation_count else None
         train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size)
         validation_loader = (
             DataLoader(validation_dataset, batch_size=self.config.batch_size, shuffle=False) if validation_dataset else None
@@ -124,6 +125,7 @@ class Trainer:
                     "train_top5_accuracy": _topk_accuracy(logits, batch["labels"], 5),
                     "train_sequence_count": train_count,
                     "validation_sequence_count": validation_count,
+                    "backtest_sequence_count": backtest_count,
                     "world_size": accelerator.num_processes,
                     "distributed_strategy": self.config.distributed_strategy,
                     "dataset_format": dataset_format,
@@ -201,6 +203,7 @@ class Trainer:
                         "stream_contract": STREAM_CONTRACT,
                         "train_sequence_count": train_count,
                         "validation_sequence_count": validation_count,
+                        "backtest_sequence_count": backtest_count,
                         "vocab_size": int(profile["vocab_size"]),
                         "block_size": int(profile["block_size"]),
                         "checkpoint_interval": self.config.checkpoint_interval,
@@ -268,12 +271,12 @@ def _dataset(
     store: LocalObjectStore,
     profile: dict[str, Any],
     shard_path: str,
-    train_counts: dict[str, int],
+    split_counts: dict[str, dict[str, int]],
     split: str,
 ) -> torch.utils.data.IterableDataset:
     numpy_metadata = profile.get("numpy_dataset")
     if isinstance(numpy_metadata, dict) and _numpy_dataset_exists(store, numpy_metadata):
-        return NumpyTickerTimeDataset(store, numpy_metadata, train_counts, split=split)
+        return NumpyTickerTimeDataset(store, numpy_metadata, split_counts, split=split)
     raise FileNotFoundError(f"NumPy token dataset is missing for {shard_path}")
 
 

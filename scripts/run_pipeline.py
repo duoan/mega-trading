@@ -120,6 +120,10 @@ def _shards_exist(data_dir: Path, mixture: str, min_sequences: int = 0) -> bool:
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if int(metadata.get("sequence_count", 0)) < min_sequences:
         return False
+    splits = metadata.get("splits", {})
+    totals = splits.get("totals", {}) if isinstance(splits, dict) else {}
+    if int(totals.get("train", 0)) <= 0 or int(totals.get("backtest", 0)) <= 0:
+        return False
     if metadata.get("partitioned"):
         if not metadata.get("partitions"):
             return False

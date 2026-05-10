@@ -14,26 +14,34 @@ from mega_trading.core.store import LocalObjectStore
 
 
 class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
-    """Memory-map prebuilt token arrays and split rows by ticker time order."""
+    """Memory-map prebuilt token arrays and split rows by prepared ticker-time splits."""
 
     def __init__(
         self,
         store: LocalObjectStore,
         numpy_metadata: dict[str, Any],
-        train_counts: dict[str, int],
+        split_counts: dict[str, Any],
         split: str,
     ) -> None:
         super().__init__()
-        if split not in {"train", "validation"}:
-            raise ValueError("split must be train or validation")
+        if split not in {"train", "validation", "backtest"}:
+            raise ValueError("split must be train, validation, or backtest")
         if numpy_metadata.get("format") != "mega-trading-numpy-token-v1":
             raise ValueError("unsupported numpy token dataset format")
         self.store = store
         self.numpy_metadata = numpy_metadata
-        self.train_counts = train_counts
+        self.split_counts = split_counts
         self.split = split
         ticker_to_id = {str(ticker): int(ticker_id) for ticker, ticker_id in dict(numpy_metadata["ticker_to_id"]).items()}
-        self.train_counts_by_id = {ticker_to_id[ticker]: count for ticker, count in train_counts.items() if ticker in ticker_to_id}
+        self.split_counts_by_id = {
+            ticker_to_id[ticker]: {
+                "train": int(counts.get("train", 0)),
+                "validation": int(counts.get("validation", 0)),
+                "backtest": int(counts.get("backtest", 0)),
+            }
+            for ticker, counts in split_counts.items()
+            if ticker in ticker_to_id
+        }
 
     def __iter__(self):
         if bool(self.numpy_metadata.get("partitioned")):
@@ -46,8 +54,7 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
             ticker_id = int(ticker_ids[row_index])
             index = seen[ticker_id]
             seen[ticker_id] += 1
-            is_train = index < self.train_counts_by_id.get(ticker_id, 0)
-            if (self.split == "train" and is_train) or (self.split == "validation" and not is_train):
+            if _row_in_split(index, self.split_counts_by_id.get(ticker_id, {}), self.split):
                 yield tokens_to_example(tokens[row_index])
 
     def _iter_partitions(self):
@@ -59,8 +66,7 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
                 ticker_id = int(ticker_ids[row_index])
                 index = seen[ticker_id]
                 seen[ticker_id] += 1
-                is_train = index < self.train_counts_by_id.get(ticker_id, 0)
-                if (self.split == "train" and is_train) or (self.split == "validation" and not is_train):
+                if _row_in_split(index, self.split_counts_by_id.get(ticker_id, {}), self.split):
                     yield tokens_to_example(tokens[row_index])
 
 
@@ -95,6 +101,51 @@ def per_ticker_train_counts(ticker_counts: dict[str, int], validation_fraction: 
             validation_rows = min(validation_rows, count - 1)
             train_counts[ticker] = count - validation_rows
     return train_counts
+
+
+def prepared_split_counts(
+    numpy_metadata: dict[str, Any],
+    ticker_counts: dict[str, int],
+    validation_fraction: float,
+) -> dict[str, dict[str, int]]:
+    splits = numpy_metadata.get("splits")
+    if isinstance(splits, dict) and isinstance(splits.get("counts"), dict):
+        return {
+            str(ticker): {
+                "train": int(counts.get("train", 0)),
+                "validation": int(counts.get("validation", 0)),
+                "backtest": int(counts.get("backtest", 0)),
+            }
+            for ticker, counts in dict(splits["counts"]).items()
+            if isinstance(counts, dict)
+        }
+    train_counts = per_ticker_train_counts(ticker_counts, validation_fraction)
+    return {
+        ticker: {
+            "train": train_count,
+            "validation": max(int(ticker_counts[ticker]) - train_count, 0),
+            "backtest": 0,
+        }
+        for ticker, train_count in train_counts.items()
+    }
+
+
+def split_totals(split_counts: dict[str, dict[str, int]]) -> dict[str, int]:
+    return {
+        split: sum(int(counts.get(split, 0)) for counts in split_counts.values())
+        for split in ("train", "validation", "backtest")
+    }
+
+
+def _row_in_split(index: int, counts: dict[str, int], split: str) -> bool:
+    train = int(counts.get("train", 0))
+    validation = int(counts.get("validation", 0))
+    backtest = int(counts.get("backtest", 0))
+    if split == "train":
+        return index < train
+    if split == "validation":
+        return train <= index < train + validation
+    return train + validation <= index < train + validation + backtest
 
 
 def cycle_batches(loader: Iterable[dict[str, torch.Tensor]]):

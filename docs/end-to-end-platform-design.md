@@ -12,7 +12,7 @@ Mega-Trading is a narrow reproduction-oriented market microstructure foundation 
 - `EventBuilder` for event corpora and token shards.
 - `MarketEventTokenizer` for fitted composite event tokens.
 - `TradingModel`, a Llama 3-style decoder trained with next-token cross entropy.
-- Per-ticker time-aware train/validation split, metrics, checkpoints, and manifests.
+- Per-ticker time-aware train/validation/backtest split, metrics, checkpoints, and manifests.
 - `eval` checks generated-vs-real price-depth feature distributions.
 
 ## Target Flow
@@ -38,4 +38,4 @@ order-flow source rows
 - `runs/<run_id>/checkpoint.pt`
 - `evals/<run_id>/report.json`
 
-The token profile and fitted tokenizer are the training contract. They record the stream version, feature order, event size, vocabulary size, binning method, bucket counts, block size, sequence counts, ticker counts, and source mixture.
+The token profile and fitted tokenizer are the training contract. They record the stream version, feature order, event size, vocabulary size, binning method, bucket counts, block size, sequence counts, ticker counts, source mixture, and prepared split policy. The backtest split is the chronological tail for each ticker and is not consumed by training.

@@ -21,6 +21,8 @@ build:
   tokenizer_size_bins: 16
   tokenizer_time_bins: 4
   numpy_partition_rows: null
+  validation_fraction: 0.1
+  backtest_fraction: 0.1
 
 model:
   hidden_dim: 128

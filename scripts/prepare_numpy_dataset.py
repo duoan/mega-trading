@@ -36,6 +36,8 @@ def main() -> int:
             tokenizer_size_bins=int(config.build.tokenizer_size_bins),
             tokenizer_time_bins=int(config.build.tokenizer_time_bins),
             numpy_partition_rows=_optional_int(config.build.numpy_partition_rows),
+            validation_fraction=float(config.build.validation_fraction),
+            backtest_fraction=float(config.build.backtest_fraction),
         ),
     )
     print(f"wrote partition-ready NumPy metadata to {config.data.data_dir}/{result.numpy_metadata_path}")

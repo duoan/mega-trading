@@ -20,6 +20,8 @@ class BuildConfig:
     tokenizer_size_bins: int = 16
     tokenizer_time_bins: int = 4
     numpy_partition_rows: int | None = None
+    validation_fraction: float = 0.1
+    backtest_fraction: float = 0.1
 
     def __post_init__(self) -> None:
         if self.block_size < 4:
@@ -44,6 +46,12 @@ class BuildConfig:
                 raise ValueError(f"{name} must be at least 2")
         if self.numpy_partition_rows is not None and self.numpy_partition_rows <= 0:
             raise ValueError("numpy_partition_rows must be positive when set")
+        if not 0.0 <= self.validation_fraction < 1.0:
+            raise ValueError("validation_fraction must be in [0.0, 1.0)")
+        if not 0.0 <= self.backtest_fraction < 1.0:
+            raise ValueError("backtest_fraction must be in [0.0, 1.0)")
+        if self.validation_fraction + self.backtest_fraction >= 1.0:
+            raise ValueError("validation_fraction + backtest_fraction must be less than 1.0")
 
 
 @dataclass(frozen=True)

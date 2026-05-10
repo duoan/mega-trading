@@ -21,6 +21,8 @@ build:
   tokenizer_size_bins: 8
   tokenizer_time_bins: 4
   numpy_partition_rows: 8192
+  validation_fraction: 0.05
+  backtest_fraction: 0.10
 
 model:
   hidden_dim: 192
@@ -36,7 +38,7 @@ training:
   max_steps: 300
   batch_size: 16
   learning_rate: 0.0003
-  validation_fraction: 0.1
+  validation_fraction: 0.05
   eval_interval: 50
   max_eval_batches: 16
   seed: 7
