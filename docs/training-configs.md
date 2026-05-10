@@ -14,7 +14,7 @@ The matching source TOML files are:
 - `configs/ingest-binance-modal-prep.toml`
 - `configs/ingest-demo.toml`
 
-The remote/server Binance ingest uses `configs/binance-usdt-liquid-universe.txt`, a 100+ symbol liquid USDT spot universe over the most recent complete 24-month monthly archive window. Local ingest stays intentionally small for fast smoke tests.
+The remote/server Binance ingest uses `configs/binance-usdt-liquid-universe.txt`, a 100+ symbol liquid USDT spot universe over a recent complete 36-month monthly archive window. Local ingest stays intentionally small for fast smoke tests.
 
 ## Local
 
@@ -30,9 +30,9 @@ This downloads two days of public trades for BTC, ETH, BNB, and SOL, converts ev
 make remote
 ```
 
-This prepares `.mega-trading/binance-modal` locally with mixture `binance_public`, uploads only the prepared `stage=05_shards` directory to the `mega-trading-artifacts` Modal Volume, syncs W&B credentials, and launches `modal-binance` training on Modal. Binance raw ZIPs are cached locally under `stage=01_raw` but are not uploaded to Modal. The Modal image uses a CUDA devel base and installs `flash-attn` during image build. The prepared metadata keeps the last 10% of each ticker as a held-out backtest split and uses a small validation split before it. As of the checked-in config, the remote/server ingest window is 2024-05-01 through 2026-04-30, avoiding the incomplete current month.
+This prepares `.mega-trading/binance-modal` locally with mixture `binance_public`, uploads only the prepared `stage=05_shards` directory to the `mega-trading-artifacts` Modal Volume, syncs W&B credentials, and launches `modal-binance` training on Modal. Binance raw ZIPs are cached locally under `stage=01_raw` but are not uploaded to Modal. The Modal image uses a CUDA devel base and installs `flash-attn` during image build. The prepared metadata keeps the last 10% of each ticker as a held-out backtest split and uses a small validation split before it. As of the checked-in config, the remote/server ingest window is 2023-05-01 through 2026-04-30, avoiding the incomplete current month.
 
-Modal training mounts the uploaded data at `/data/binance-trades`. The checked-in Modal Binance model is about 41M parameters; under the `tokens ~= 20 * params` rule of thumb, it wants roughly 0.8B training tokens.
+Modal training mounts the uploaded data at `/data/binance-trades`. The checked-in Modal Binance model is about 1.1B parameters; under the `tokens ~= 20 * params` rule of thumb, it wants roughly 22B training tokens. The 36-month public Binance window is intended to make that scale plausible while staying reproducible from public archives.
 
 ## RTX 6000 Server
 

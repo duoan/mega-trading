@@ -28,27 +28,27 @@ build:
   streaming_baseline_sample_rows: 200000
 
 model:
-  hidden_dim: 512
-  layers: 12
-  attention_heads: 8
-  kv_heads: 2
-  intermediate_dim: 1408
+  hidden_dim: 1792
+  layers: 32
+  attention_heads: 28
+  kv_heads: 4
+  intermediate_dim: 4864
   dropout: 0.05
   rope_theta: 500000.0
   norm_eps: 0.00001
 
 training:
   max_steps: 50000
-  batch_size: 16
+  batch_size: 4
   learning_rate: 0.0002
   validation_fraction: 0.02
   eval_interval: 1000
-  max_eval_batches: null
+  max_eval_batches: 128
   seed: 7
   device: cuda
   precision: mixed
   distributed_strategy: fsdp
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 16
   compile: true
   compile_mode: reduce-overhead
   attention_backend: flash
