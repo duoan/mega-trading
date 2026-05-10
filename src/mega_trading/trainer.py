@@ -151,6 +151,7 @@ class Trainer:
             dropout=self.config.dropout,
             rope_theta=self.config.rope_theta,
             norm_eps=self.config.norm_eps,
+            attention_backend=self.config.attention_backend,
         )
         optimizer = _build_optimizer(model, self.config)
         scheduler = _build_lr_scheduler(optimizer, self.config)
@@ -629,7 +630,7 @@ def _maybe_cudagraph_mark_step_begin(config: TrainConfig, device: torch.device) 
 
 @contextmanager
 def _attention_kernel_context(backend: str, device: torch.device) -> Iterator[None]:
-    if backend == "auto":
+    if backend in {"auto", "triton"}:
         yield
         return
     if device.type != "cuda":
@@ -660,7 +661,7 @@ def _mps_available() -> bool:
 
 
 def _accelerator(device: torch.device, precision: str, config: TrainConfig) -> Accelerator:
-    mixed_precision = "fp16" if precision == "mixed" else "no"
+    mixed_precision = "bf16" if precision == "mixed" else "no"
     log_with = "mlflow" if config.mlflow_enabled else None
     kwargs: dict[str, Any] = {
         "cpu": device.type == "cpu",

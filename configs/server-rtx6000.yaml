@@ -33,7 +33,8 @@ model:
   attention_heads: 16
   kv_heads: 4
   intermediate_dim: 2816
-  dropout: 0.05
+  # The local Triton attention path currently fuses causal GQA without dropout.
+  dropout: 0.0
   rope_theta: 500000.0
   norm_eps: 0.00001
 
@@ -62,7 +63,7 @@ training:
   compile: true
   # default avoids torch.compile CUDA-graph capture that conflicts with Accelerate backward on single-GPU DDP.
   compile_mode: default
-  attention_backend: flash
+  attention_backend: triton
   checkpoint_interval: 1000
   resume_from_checkpoint: null
   mlflow_enabled: true

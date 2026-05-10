@@ -170,8 +170,8 @@ class TrainConfig:
             raise ValueError("gradient_accumulation_steps must be positive")
         if self.compile_mode not in {"default", "reduce-overhead", "max-autotune"}:
             raise ValueError("compile_mode must be one of: default, reduce-overhead, max-autotune")
-        if self.attention_backend not in {"auto", "flash", "efficient", "math"}:
-            raise ValueError("attention_backend must be one of: auto, flash, efficient, math")
+        if self.attention_backend not in {"auto", "flash", "efficient", "math", "triton"}:
+            raise ValueError("attention_backend must be one of: auto, flash, efficient, math, triton")
         if self.checkpoint_interval is not None and self.checkpoint_interval <= 0:
             raise ValueError("checkpoint_interval must be positive when set")
         if self.resume_from_checkpoint is not None and not self.resume_from_checkpoint:

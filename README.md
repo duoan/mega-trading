@@ -104,6 +104,7 @@ labels = window[1:]
 - [Data Plane Design](docs/data-plane-design.md)
 - [Training Plane Design](docs/training-plane-design.md)
 - [Training Configs](docs/training-configs.md)
+- [Custom Kernels](docs/kernels.md)
 - [Project Structure](docs/project-structure.md)
 - [Training Systems Alignment](docs/training-systems-alignment.md)
 

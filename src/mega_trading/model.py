@@ -8,6 +8,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from mega_trading.kernels.triton_attention import triton_attention as _triton_attention
+
 
 class TradingModel(nn.Module):
     """Small Llama-style causal Transformer trained with next-token cross entropy."""
@@ -24,6 +26,7 @@ class TradingModel(nn.Module):
         dropout: float = 0.1,
         rope_theta: float = 500_000.0,
         norm_eps: float = 1e-5,
+        attention_backend: str = "auto",
     ) -> None:
         super().__init__()
         if hidden_dim % attention_heads != 0:
@@ -48,6 +51,7 @@ class TradingModel(nn.Module):
                     dropout=dropout,
                     rope_theta=rope_theta,
                     norm_eps=norm_eps,
+                    attention_backend=attention_backend,
                 )
                 for _ in range(layers)
             ]
@@ -96,6 +100,7 @@ class LlamaDecoderBlock(nn.Module):
         dropout: float,
         rope_theta: float,
         norm_eps: float,
+        attention_backend: str,
     ) -> None:
         super().__init__()
         self.attention_norm = RMSNorm(hidden_dim, eps=norm_eps)
@@ -106,6 +111,7 @@ class LlamaDecoderBlock(nn.Module):
             kv_heads=kv_heads,
             dropout=dropout,
             rope_theta=rope_theta,
+            attention_backend=attention_backend,
         )
         self.ffn_norm = RMSNorm(hidden_dim, eps=norm_eps)
         self.feed_forward = SwiGLU(hidden_dim, intermediate_dim or _llama_intermediate_dim(hidden_dim), dropout)
@@ -126,8 +132,11 @@ class LlamaAttention(nn.Module):
         kv_heads: int,
         dropout: float,
         rope_theta: float,
+        attention_backend: str = "auto",
     ) -> None:
         super().__init__()
+        if attention_backend not in {"auto", "flash", "efficient", "math", "triton"}:
+            raise ValueError("attention_backend must be one of: auto, flash, efficient, math, triton")
         self.attention_heads = attention_heads
         self.kv_heads = kv_heads
         self.head_dim = hidden_dim // attention_heads
@@ -139,6 +148,7 @@ class LlamaAttention(nn.Module):
         self.rope = RotaryEmbedding(self.head_dim, block_size, theta=rope_theta)
         self.dropout = dropout
         self.rope_theta = rope_theta
+        self.attention_backend = attention_backend
 
     def forward(self, hidden: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden.shape
@@ -146,14 +156,18 @@ class LlamaAttention(nn.Module):
         key = self.k_proj(hidden).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
         value = self.v_proj(hidden).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
         query, key = self.rope(query, key)
-        attended = F.scaled_dot_product_attention(
-            query,
-            key,
-            value,
-            dropout_p=self.dropout if self.training else 0.0,
-            is_causal=True,
-            enable_gqa=self.repeats > 1,
-        )
+        dropout_p = self.dropout if self.training else 0.0
+        if self.attention_backend == "triton" and dropout_p == 0.0:
+            attended = _triton_attention(query, key, value, repeats=self.repeats)
+        else:
+            attended = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                dropout_p=dropout_p,
+                is_causal=True,
+                enable_gqa=self.repeats > 1,
+            )
         attended = attended.transpose(1, 2).contiguous().view(batch_size, sequence_length, hidden_dim)
         return self.o_proj(attended)
 

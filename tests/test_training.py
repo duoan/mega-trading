@@ -1,3 +1,5 @@
+import importlib.util
+import inspect
 import json
 import tempfile
 import unittest
@@ -6,6 +8,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from mega_trading.cli import load_config, main
 from mega_trading.config import BuildConfig, TrainConfig
@@ -14,12 +17,14 @@ from mega_trading.core.store import LocalObjectStore
 from mega_trading.dataset import NumpyTickerTimeDataset, tokens_to_example
 from mega_trading.eval import run_eval
 from mega_trading.events import EventBuilder, events_by_ticker_from_rows
-from mega_trading.model import LlamaAttention, RMSNorm, RotaryEmbedding, SwiGLU, TradingModel, _apply_rope
+from mega_trading.kernels import triton_attention as triton_attention_module
+from mega_trading.model import LlamaAttention, RMSNorm, RotaryEmbedding, SwiGLU, TradingModel, _apply_rope, _triton_attention
 from mega_trading.report import run_report
 from mega_trading.tokenizer import MarketEventTokenizer
 from mega_trading.trainer import (
     MuonAdamW,
     Trainer,
+    _accelerator,
     _attention_kernel_context,
     _build_lr_scheduler,
     _build_optimizer,
@@ -65,6 +70,7 @@ class TrainingTests(unittest.TestCase):
         self.assertTrue(bool(server.build.streaming_prepare))
 
     def test_train_config_validates_distributed_runtime_options(self) -> None:
+        self.assertEqual(TrainConfig(run_id="triton", attention_backend="triton").attention_backend, "triton")
         with self.assertRaisesRegex(ValueError, "distributed_strategy"):
             TrainConfig(run_id="bad", distributed_strategy="deepspeed")
         with self.assertRaisesRegex(ValueError, "gradient_accumulation_steps"):
@@ -219,6 +225,128 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(value.shape[1], 2)
         self.assertTrue(sdpa.call_args.kwargs["enable_gqa"])
 
+    def test_triton_attention_backend_calls_local_kernel(self) -> None:
+        attention = LlamaAttention(
+            hidden_dim=16,
+            block_size=8,
+            attention_heads=4,
+            kv_heads=2,
+            dropout=0.0,
+            rope_theta=10_000.0,
+            attention_backend="triton",
+        )
+        hidden = torch.randn(1, 8, 16)
+        attended = torch.zeros(1, 4, 8, 4)
+
+        with patch("mega_trading.model._triton_attention", return_value=attended) as triton_attention:
+            output = attention(hidden)
+
+        _query, key, value = triton_attention.call_args.args[:3]
+        self.assertEqual(output.shape, hidden.shape)
+        self.assertEqual(key.shape[1], 2)
+        self.assertEqual(value.shape[1], 2)
+        self.assertEqual(triton_attention.call_args.kwargs["repeats"], 2)
+
+    def test_triton_attention_kernel_lives_in_kernel_module(self) -> None:
+        self.assertEqual(_triton_attention.__module__, "mega_trading.kernels.triton_attention")
+        self.assertIn("tl.make_tensor_descriptor", inspect.getsource(triton_attention_module))
+
+    def test_triton_attention_benchmark_defaults_match_server_rtx6000_shape(self) -> None:
+        benchmark = _load_script("benchmark_triton_attention.py")
+        args = benchmark._parse_args([])
+
+        self.assertEqual(args.batch_size, 8)
+        self.assertEqual(args.sequence_length, 512)
+        self.assertEqual(args.query_heads, 16)
+        self.assertEqual(args.kv_heads, 4)
+        self.assertEqual(args.head_dim, 64)
+        self.assertEqual(args.dtype, "bfloat16")
+        self.assertEqual(args.mode, "forward")
+        self.assertEqual(triton_attention_module._attention_tile_shape(args.sequence_length, args.head_dim), (64, 64))
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
+        "Triton attention parity requires CUDA and triton",
+    )
+    def test_triton_attention_matches_torch_causal_gqa(self) -> None:
+        torch.manual_seed(11)
+        query = torch.randn(1, 4, 17, 32, device="cuda", dtype=torch.float16, requires_grad=True)
+        key = torch.randn(1, 2, 17, 32, device="cuda", dtype=torch.float16, requires_grad=True)
+        value = torch.randn(1, 2, 17, 32, device="cuda", dtype=torch.float16, requires_grad=True)
+        expected_query = query.detach().clone().requires_grad_(True)
+        expected_key = key.detach().clone().requires_grad_(True)
+        expected_value = value.detach().clone().requires_grad_(True)
+        grad_output = torch.randn_like(query)
+
+        actual = _triton_attention(query, key, value, repeats=2)
+        expected = F.scaled_dot_product_attention(
+            expected_query,
+            expected_key,
+            expected_value,
+            dropout_p=0.0,
+            is_causal=True,
+            enable_gqa=True,
+        )
+        actual.backward(grad_output)
+        expected.backward(grad_output)
+
+        self.assertTrue(torch.allclose(actual, expected, atol=5e-2, rtol=5e-2))
+        self.assertTrue(torch.allclose(query.grad, expected_query.grad, atol=6e-2, rtol=6e-2))
+        self.assertTrue(torch.allclose(key.grad, expected_key.grad, atol=6e-2, rtol=6e-2))
+        self.assertTrue(torch.allclose(value.grad, expected_value.grad, atol=6e-2, rtol=6e-2))
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
+        "server-shape Triton attention parity requires CUDA and triton",
+    )
+    def test_server_shape_triton_attention_matches_torch_causal_gqa(self) -> None:
+        torch.manual_seed(13)
+        query = torch.randn(1, 16, 512, 64, device="cuda", dtype=torch.bfloat16)
+        key = torch.randn(1, 4, 512, 64, device="cuda", dtype=torch.bfloat16)
+        value = torch.randn_like(key)
+
+        actual = _triton_attention(query, key, value, repeats=4)
+        expected = F.scaled_dot_product_attention(
+            query,
+            key,
+            value,
+            dropout_p=0.0,
+            is_causal=True,
+            enable_gqa=True,
+        )
+
+        self.assertTrue(torch.allclose(actual, expected, atol=6e-2, rtol=6e-2))
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
+        "server-shape Triton attention backward parity requires CUDA and triton",
+    )
+    def test_server_shape_triton_attention_backward_matches_torch_causal_gqa(self) -> None:
+        torch.manual_seed(17)
+        query = torch.randn(1, 16, 512, 64, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        key = torch.randn(1, 4, 512, 64, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        value = torch.randn_like(key, requires_grad=True)
+        expected_query = query.detach().clone().requires_grad_(True)
+        expected_key = key.detach().clone().requires_grad_(True)
+        expected_value = value.detach().clone().requires_grad_(True)
+        grad_output = torch.randn_like(query)
+
+        actual = _triton_attention(query, key, value, repeats=4)
+        expected = F.scaled_dot_product_attention(
+            expected_query,
+            expected_key,
+            expected_value,
+            dropout_p=0.0,
+            is_causal=True,
+            enable_gqa=True,
+        )
+        actual.backward(grad_output)
+        expected.backward(grad_output)
+
+        self.assertTrue(torch.allclose(query.grad, expected_query.grad, atol=8e-2, rtol=8e-2))
+        self.assertTrue(torch.allclose(key.grad, expected_key.grad, atol=8e-2, rtol=8e-2))
+        self.assertTrue(torch.allclose(value.grad, expected_value.grad, atol=8e-2, rtol=8e-2))
+
     def test_compile_and_attention_backend_helpers_are_config_driven(self) -> None:
         model = TradingModel(vocab_size=MarketEventTokenizer().vocab_size, block_size=8, hidden_dim=16, layers=1, attention_heads=2)
         config = TrainConfig(run_id="compile-test", compile=True, compile_mode="reduce-overhead")
@@ -229,6 +357,14 @@ class TrainingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "requires CUDA"):
             with _attention_kernel_context("flash", torch.device("cpu")):
                 pass
+
+    def test_mixed_precision_uses_bfloat16_on_cuda(self) -> None:
+        config = TrainConfig(run_id="precision-test", mlflow_enabled=False)
+
+        with patch("mega_trading.trainer.Accelerator", return_value="accelerator") as accelerator:
+            self.assertEqual(_accelerator(torch.device("cuda"), "mixed", config), "accelerator")
+
+        self.assertEqual(accelerator.call_args.kwargs["mixed_precision"], "bf16")
 
     def test_cudagraph_mark_step_begin_skipped_without_cuda_or_compile(self) -> None:
         mark = Mock()
@@ -562,6 +698,16 @@ name = "fixture"
             self.assertTrue((root / "evals/train-cli/report.json").exists())
             self.assertTrue((root / "evals/train-cli/backtest.json").exists())
             self.assertTrue((root / "reports/train-cli/backtest.html").exists())
+
+
+def _load_script(name: str):
+    path = Path(__file__).resolve().parents[1] / "scripts" / name
+    spec = importlib.util.spec_from_file_location(name.removesuffix(".py"), path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load {name}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _order_flow_events() -> dict[str, list[dict[str, object]]]:
