@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict
 import os
@@ -165,7 +165,10 @@ def _prepare_streaming_binance_dataset(
     )
 
     count_started_at = perf_counter()
-    sequence_counts = _count_streaming_sequences(request, archives_by_symbol, qty_baselines, tokenizer, config, workers)
+    sequence_counts = {
+        symbol: _sequence_count_from_event_count(event_count, config.block_size, config.stride)
+        for symbol, event_count in ticker_counts.items()
+    }
     sequence_counts = {symbol: count for symbol, count in sequence_counts.items() if count > 0}
     archives_by_symbol = {symbol: archives_by_symbol[symbol] for symbol in sorted(sequence_counts)}
     ticker_counts = {symbol: ticker_counts[symbol] for symbol in sorted(sequence_counts)}
@@ -174,7 +177,7 @@ def _prepare_streaming_binance_dataset(
         raise ValueError("not enough streaming Binance events to build token sequences")
     _log(
         "stream prepare: "
-        f"counted {total_sequences} token sequences in {perf_counter() - count_started_at:.1f}s"
+        f"planned {total_sequences} token sequences in {perf_counter() - count_started_at:.1f}s"
     )
 
     write_started_at = perf_counter()
@@ -186,6 +189,7 @@ def _prepare_streaming_binance_dataset(
         tokenizer,
         config,
         sequence_counts,
+        workers,
     )
     profile_path = f"stage=05_shards/mixture={config.mixture_name}/tokens-profile.json"
     manifest_path = f"manifests/build/{config.mixture_name}.json"
@@ -298,41 +302,12 @@ def _sample_streaming_events_job(
     return symbol, rows
 
 
-def _count_streaming_sequences(
-    request: BinanceTradesIngestRequest,
-    archives_by_symbol: dict[str, list[BinanceTradeArchive]],
-    qty_baselines: dict[str, float],
-    tokenizer: MarketEventTokenizer,
-    config: BuildConfig,
-    workers: int,
-) -> dict[str, int]:
-    jobs = [
-        (request, symbol, archives, qty_baselines[symbol], tokenizer, config.block_size, config.stride)
-        for symbol, archives in archives_by_symbol.items()
-    ]
-    results = (
-        [_count_streaming_sequences_job(job) for job in jobs]
-        if workers == 1
-        else _parallel_map(_count_streaming_sequences_job, jobs, workers, "sequence count")
-    )
-    return dict(results)
-
-
-def _count_streaming_sequences_job(
-    job: tuple[BinanceTradesIngestRequest, str, list[BinanceTradeArchive], float, MarketEventTokenizer, int, int],
-) -> tuple[str, int]:
-    request, symbol, archives, qty_baseline, tokenizer, block_size, stride = job
-    count = sum(
-        1
-        for _row in _iter_symbol_sequence_rows(
-            symbol,
-            iter_order_flow_event_dicts_for_symbol(request, archives, qty_baseline),
-            tokenizer,
-            block_size,
-            stride,
-        )
-    )
-    return symbol, count
+def _sequence_count_from_event_count(event_count: int, block_size: int, stride: int) -> int:
+    token_count = event_count + 2
+    target_length = block_size + 1
+    if token_count < target_length:
+        return 0
+    return ((token_count - target_length) // stride) + 1
 
 
 def _iter_symbol_sequence_rows(
@@ -380,6 +355,7 @@ def _write_streaming_numpy_dataset(
     tokenizer: MarketEventTokenizer,
     config: BuildConfig,
     sequence_counts: dict[str, int],
+    workers: int,
 ) -> dict[str, Any]:
     partition_rows = config.numpy_partition_rows or 65_536
     root_path = f"stage=05_shards/mixture={config.mixture_name}/numpy"
@@ -390,63 +366,47 @@ def _write_streaming_numpy_dataset(
     tickers = sorted(sequence_counts)
     ticker_to_id = {ticker: index for index, ticker in enumerate(tickers)}
     split_counts = _split_counts(sequence_counts, config.validation_fraction, config.backtest_fraction)
-    time_ranges = _empty_time_ranges(split_counts)
     totals = {"train": 0, "validation": 0, "backtest": 0}
     for counts in split_counts.values():
         for split in totals:
             totals[split] += counts[split]
 
-    sequence_length = config.block_size + 1
-    token_buffer = np.empty((partition_rows, sequence_length), dtype=np.int64)
-    ticker_buffer = np.empty((partition_rows,), dtype=np.int32)
-    partitions: list[dict[str, Any]] = []
-    row_offset = 0
-    fill = 0
-    seen_by_ticker: Counter[str] = Counter()
-
-    def flush() -> None:
-        nonlocal fill, row_offset
-        if fill == 0:
-            return
-        partition_index = len(partitions)
-        partition_id = f"part-{partition_index:05d}"
-        tokens_path = f"{root_path}/{partition_id}/tokens.npy"
-        ticker_ids_path = f"{root_path}/{partition_id}/ticker_ids.npy"
-        _write_npy(store, tokens_path, token_buffer[:fill])
-        _write_npy(store, ticker_ids_path, ticker_buffer[:fill])
-        partitions.append(
-            {
-                "partition_id": partition_id,
-                "tokens_path": tokens_path,
-                "ticker_ids_path": ticker_ids_path,
-                "sequence_count": fill,
-                "row_start": row_offset,
-                "row_stop": row_offset + fill,
-            }
-        )
-        row_offset += fill
-        fill = 0
-
-    for ticker in tickers:
-        for row in _iter_symbol_sequence_rows(
+    jobs = [
+        (
+            str(store.root),
+            request,
             ticker,
-            iter_order_flow_event_dicts_for_symbol(request, archives_by_symbol[ticker], qty_baselines[ticker]),
+            archives_by_symbol[ticker],
+            qty_baselines[ticker],
             tokenizer,
             config.block_size,
             config.stride,
-        ):
-            index = seen_by_ticker[ticker]
-            seen_by_ticker[ticker] += 1
-            split = _split_for_index(index, split_counts[ticker])
-            if split is not None:
-                _update_time_range(time_ranges[ticker][split], row)
-            token_buffer[fill, :] = np.asarray(row["tokens"], dtype=np.int64)
-            ticker_buffer[fill] = ticker_to_id[ticker]
-            fill += 1
-            if fill >= partition_rows:
-                flush()
-        _log(f"stream prepare: wrote sequences for {ticker}: {seen_by_ticker[ticker]}")
-    flush()
+            partition_rows,
+            root_path,
+            ticker_to_id[ticker],
+            split_counts[ticker],
+        )
+        for ticker in tickers
+    ]
+    results = (
+        [_write_symbol_numpy_partitions_job(job) for job in jobs]
+        if workers == 1
+        else _parallel_map(_write_symbol_numpy_partitions_job, jobs, workers, "symbol shard write")
+    )
+    results = sorted(results, key=lambda item: item["ticker"])
+    partitions: list[dict[str, Any]] = []
+    time_ranges: dict[str, dict[str, dict[str, Any]]] = {}
+    row_offset = 0
+    for result in results:
+        ticker = str(result["ticker"])
+        time_ranges[ticker] = dict(result["time_ranges"])
+        for partition in result["partitions"]:
+            sequence_count = int(partition["sequence_count"])
+            adjusted = dict(partition)
+            adjusted["row_start"] = row_offset
+            adjusted["row_stop"] = row_offset + sequence_count
+            partitions.append(adjusted)
+            row_offset += sequence_count
 
     metadata: dict[str, Any] = {
         "format": "mega-trading-numpy-token-v1",
@@ -454,7 +414,7 @@ def _write_streaming_numpy_dataset(
         "ticker_ids_path": root_path,
         "metadata_path": metadata_path,
         "sequence_count": row_offset,
-        "sequence_length": sequence_length,
+        "sequence_length": config.block_size + 1,
         "tokens_dtype": "int64",
         "ticker_ids_dtype": "int32",
         "partitioned": True,
@@ -474,6 +434,94 @@ def _write_streaming_numpy_dataset(
     }
     store.write_json(metadata_path, metadata)
     return metadata
+
+
+def _write_symbol_numpy_partitions_job(
+    job: tuple[
+        str,
+        BinanceTradesIngestRequest,
+        str,
+        list[BinanceTradeArchive],
+        float,
+        MarketEventTokenizer,
+        int,
+        int,
+        int,
+        str,
+        int,
+        dict[str, int],
+    ],
+) -> dict[str, Any]:
+    (
+        root,
+        request,
+        ticker,
+        archives,
+        qty_baseline,
+        tokenizer,
+        block_size,
+        stride,
+        partition_rows,
+        root_path,
+        ticker_id,
+        split_counts,
+    ) = job
+    sequence_length = block_size + 1
+    token_buffer = np.empty((partition_rows, sequence_length), dtype=np.int64)
+    ticker_buffer = np.empty((partition_rows,), dtype=np.int32)
+    time_ranges = _empty_time_ranges({ticker: split_counts})[ticker]
+    partitions: list[dict[str, Any]] = []
+    fill = 0
+    local_offset = 0
+    local_index = 0
+    root_dir = Path(root)
+
+    def flush() -> None:
+        nonlocal fill, local_offset
+        if fill == 0:
+            return
+        partition_index = len(partitions)
+        partition_id = f"symbol={ticker}/part-{partition_index:05d}"
+        tokens_path = f"{root_path}/{partition_id}/tokens.npy"
+        ticker_ids_path = f"{root_path}/{partition_id}/ticker_ids.npy"
+        _write_npy_path(root_dir / tokens_path, token_buffer[:fill])
+        _write_npy_path(root_dir / ticker_ids_path, ticker_buffer[:fill])
+        partitions.append(
+            {
+                "partition_id": partition_id,
+                "tokens_path": tokens_path,
+                "ticker_ids_path": ticker_ids_path,
+                "sequence_count": fill,
+                "row_start": local_offset,
+                "row_stop": local_offset + fill,
+            }
+        )
+        local_offset += fill
+        fill = 0
+
+    for row in _iter_symbol_sequence_rows(
+        ticker,
+        iter_order_flow_event_dicts_for_symbol(request, archives, qty_baseline),
+        tokenizer,
+        block_size,
+        stride,
+    ):
+        split = _split_for_index(local_index, split_counts)
+        if split is not None:
+            _update_time_range(time_ranges[split], row)
+        token_buffer[fill, :] = np.asarray(row["tokens"], dtype=np.int64)
+        ticker_buffer[fill] = ticker_id
+        fill += 1
+        local_index += 1
+        if fill >= partition_rows:
+            flush()
+    flush()
+    return {
+        "ticker": ticker,
+        "sequence_count": local_index,
+        "partitions": partitions,
+        "time_ranges": time_ranges,
+    }
 
 
 def _split_counts(
@@ -565,7 +613,10 @@ def _streaming_profile(
 
 
 def _write_npy(store: LocalObjectStore, path: str, value: np.ndarray) -> None:
-    target = store.root / path
+    _write_npy_path(store.root / path, value)
+
+
+def _write_npy_path(target: Path, value: np.ndarray) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     np.save(target, value)
 
@@ -591,6 +642,8 @@ def _parallel_map(function, jobs: list[Any], workers: int, label: str) -> list[A
 
 
 def _result_symbol(result: Any) -> str:
+    if isinstance(result, dict) and "ticker" in result:
+        return str(result["ticker"])
     if isinstance(result, tuple) and result:
         return str(result[0])
     return "unknown"
