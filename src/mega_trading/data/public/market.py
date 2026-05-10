@@ -82,6 +82,7 @@ class HuggingFaceOhlcvIngestor(Ingestor[OhlcvIngestRequest]):
 
 def _load_huggingface_ohlcv_rows(request: OhlcvIngestRequest, load_dataset_fn: LoadDataset) -> list[dict[str, object]]:
     ticker_set = {ticker.upper() for ticker in request.tickers}
+    include_all_tickers = "*" in ticker_set or "ALL" in ticker_set
     start_dt = _to_utc_datetime(request.start)
     end_dt = _to_utc_datetime(request.end)
     rows: list[dict[str, object]] = []
@@ -94,7 +95,7 @@ def _load_huggingface_ohlcv_rows(request: OhlcvIngestRequest, load_dataset_fn: L
         )
         for row in dataset:
             ticker = str(row["ticker"]).upper()
-            if ticker not in ticker_set:
+            if not include_all_tickers and ticker not in ticker_set:
                 continue
             timestamp = _timestamp_to_utc(row["timestamp"])
             if timestamp < start_dt or timestamp > end_dt:

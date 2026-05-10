@@ -49,6 +49,15 @@ end = "2024-01-02T21:00:00Z"
                 }
             )
 
+    def test_binance_source_requires_symbols_and_date_window(self) -> None:
+        with self.assertRaises(ValueError):
+            IngestPipelineConfig.from_dict(
+                {
+                    "output_dir": ".mega-trading/binance",
+                    "sources": [{"name": "binance_trades", "tickers": ["BTCUSDT"]}],
+                }
+            )
+
     def test_fixture_source_does_not_require_tickers(self) -> None:
         config = IngestPipelineConfig.from_dict(
             {
@@ -59,6 +68,33 @@ end = "2024-01-02T21:00:00Z"
 
         self.assertEqual(config.sources[0].name, "fixture")
         self.assertEqual(config.sources[0].tickers, ())
+
+    def test_checked_in_local_and_modal_ingest_configs_parse(self) -> None:
+        local = load_ingest_config(Path("configs/ingest-local-mac.toml"))
+        proxy = load_ingest_config(Path("configs/ingest-modal-proxy.toml"))
+        paper = load_ingest_config(Path("configs/ingest-modal-paper.toml"))
+
+        self.assertEqual(local.output_dir, ".mega-trading/local-mac")
+        self.assertEqual(local.sources[0].name, "hf_ohlcv_1m")
+        self.assertGreaterEqual(len(local.sources[0].tickers), 8)
+        self.assertEqual(proxy.output_dir, "/data/hf-1m-proxy")
+        self.assertEqual(proxy.sources[0].name, "hf_ohlcv_1m")
+        self.assertGreaterEqual(len(proxy.sources[0].tickers), 100)
+        self.assertEqual(paper.output_dir, "/data/hf-1m-paper")
+        self.assertEqual(paper.sources[0].tickers, ("*",))
+        binance_local = load_ingest_config(Path("configs/ingest-binance-local.toml"))
+        binance_modal = load_ingest_config(Path("configs/ingest-binance-modal.toml"))
+        binance_modal_prep = load_ingest_config(Path("configs/ingest-binance-modal-prep.toml"))
+        self.assertEqual(binance_local.output_dir, ".mega-trading/binance-local")
+        self.assertEqual(binance_local.sources[0].name, "binance_trades")
+        self.assertIn("BNBUSDT", binance_local.sources[0].tickers)
+        self.assertEqual(binance_local.sources[0].frequency, "daily")
+        self.assertEqual(binance_local.sources[0].download_workers, 4)
+        self.assertEqual(binance_modal.output_dir, "/data/binance-trades")
+        self.assertGreaterEqual(len(binance_modal.sources[0].tickers), 20)
+        self.assertEqual(binance_modal.sources[0].download_workers, 16)
+        self.assertEqual(binance_modal_prep.output_dir, ".mega-trading/binance-modal")
+        self.assertEqual(binance_modal_prep.sources[0].download_workers, 16)
 
 
 if __name__ == "__main__":

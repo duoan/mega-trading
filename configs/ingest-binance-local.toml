@@ -1,0 +1,14 @@
+[ingest]
+output_dir = ".mega-trading/binance-local"
+
+[ingest.quality]
+enabled = true
+fail_on_error = false
+
+[[ingest.sources]]
+name = "binance_trades"
+tickers = ["BNBUSDT", "SOLUSDT"]
+start = "2024-01-01T00:00:00Z"
+end = "2024-01-01T23:59:59Z"
+frequency = "daily"
+download_workers = 4

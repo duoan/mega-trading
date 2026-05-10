@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 
-PAPER_SOURCES = {"fixture", "hf_ohlcv_1m"}
+PAPER_SOURCES = {"fixture", "hf_ohlcv_1m", "binance_trades"}
 
 
 @dataclass(frozen=True)
@@ -18,15 +18,21 @@ class IngestSourceConfig:
     enabled: bool = True
     start: str | None = None
     end: str | None = None
+    frequency: str = "monthly"
+    download_workers: int = 4
 
     def __post_init__(self) -> None:
         if self.name not in PAPER_SOURCES:
             raise ValueError(f"unsupported ingest source for paper pipeline: {self.name}")
-        if self.name == "hf_ohlcv_1m":
+        if self.name in {"hf_ohlcv_1m", "binance_trades"}:
             if not self.tickers:
-                raise ValueError("hf_ohlcv_1m requires tickers")
+                raise ValueError(f"{self.name} requires tickers")
             if not self.start or not self.end:
-                raise ValueError("hf_ohlcv_1m requires start and end")
+                raise ValueError(f"{self.name} requires start and end")
+        if self.name == "binance_trades" and self.frequency not in {"daily", "monthly"}:
+            raise ValueError("binance_trades frequency must be daily or monthly")
+        if self.name == "binance_trades" and self.download_workers <= 0:
+            raise ValueError("binance_trades download_workers must be positive")
 
 
 @dataclass(frozen=True)
@@ -75,6 +81,8 @@ def _source_from_dict(value: dict[str, Any], base_path: Path) -> IngestSourceCon
         enabled=bool(value.get("enabled", True)),
         start=_optional_string(value.get("start")),
         end=_optional_string(value.get("end")),
+        frequency=str(value.get("frequency", "monthly")),
+        download_workers=int(value.get("download_workers", 4)),
     )
 
 

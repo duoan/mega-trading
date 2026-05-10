@@ -24,6 +24,20 @@ class HuggingFaceOhlcvTests(unittest.TestCase):
         self.assertEqual(rows[0]["ticker"], "AAPL")
         self.assertEqual(rows[0]["timestamp"], "2024-01-02T14:30:00Z")
 
+    def test_ingestor_supports_all_ticker_wildcard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalObjectStore(Path(tmp))
+            HuggingFaceOhlcvIngestor(store, load_dataset_fn=_load_dataset_stub).ingest(
+                OhlcvIngestRequest(
+                    tickers=("*",),
+                    start="2024-01-02T14:30:00Z",
+                    end="2024-01-02T14:32:00Z",
+                )
+            )
+            rows = store.read_jsonl("stage=01_raw/source=hf_ohlcv_1m/ohlcv.jsonl")
+
+        self.assertEqual({row["ticker"] for row in rows}, {"AAPL", "MSFT"})
+
     def test_ingestor_writes_paper_order_flow_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))

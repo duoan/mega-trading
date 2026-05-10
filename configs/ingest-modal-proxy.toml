@@ -1,0 +1,23 @@
+[ingest]
+output_dir = "/data/hf-1m-proxy"
+
+[ingest.quality]
+enabled = true
+fail_on_error = false
+
+[[ingest.sources]]
+name = "hf_ohlcv_1m"
+tickers = [
+  "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "TSLA", "AVGO", "AMD",
+  "NFLX", "ADBE", "CRM", "ORCL", "CSCO", "INTC", "QCOM", "TXN", "AMAT", "MU",
+  "JPM", "BAC", "WFC", "GS", "MS", "V", "MA", "AXP", "C", "BLK",
+  "UNH", "LLY", "JNJ", "MRK", "ABBV", "PFE", "TMO", "ABT", "DHR", "BMY",
+  "XOM", "CVX", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "HAL",
+  "WMT", "COST", "HD", "MCD", "NKE", "SBUX", "LOW", "TGT", "TJX", "CMG",
+  "CAT", "DE", "GE", "HON", "UPS", "RTX", "LMT", "BA", "UNP", "ETN",
+  "LIN", "SHW", "APD", "FCX", "NEM", "ECL", "DD", "DOW", "NUE", "MLM",
+  "PLD", "AMT", "EQIX", "SPG", "CCI", "PSA", "O", "DLR", "WELL", "VICI",
+  "NEE", "SO", "DUK", "AEP", "SRE", "D", "EXC", "XEL", "PEG", "ED"
+]
+start = "2023-01-03T14:30:00Z"
+end = "2024-12-31T21:00:00Z"

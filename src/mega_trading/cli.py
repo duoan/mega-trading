@@ -10,9 +10,10 @@ from omegaconf import DictConfig, OmegaConf
 
 from mega_trading.config import BuildConfig, TrainConfig
 from mega_trading.core.store import LocalObjectStore
-from mega_trading.data.ingest import FixtureIngestor, OhlcvIngestRequest
+from mega_trading.data.ingest import BinanceTradesIngestRequest, FixtureIngestor, OhlcvIngestRequest
 from mega_trading.data.ingest_config import IngestPipelineConfig, load_ingest_config
 from mega_trading.data.lance_store import LanceTableStore
+from mega_trading.data.public.binance import BinanceTradesIngestor
 from mega_trading.data.public.market import HuggingFaceOhlcvIngestor
 from mega_trading.data.quality import DataQualityChecker
 from mega_trading.eval import run_eval
@@ -117,6 +118,13 @@ def _run_train_config(config: DictConfig):
         seed=int(config.training.seed),
         device=str(config.training.device),
         precision=str(config.training.precision),
+        distributed_strategy=str(config.training.distributed_strategy),
+        gradient_accumulation_steps=int(config.training.gradient_accumulation_steps),
+        compile=bool(config.training.compile),
+        compile_mode=str(config.training.compile_mode),
+        attention_backend=str(config.training.attention_backend),
+        checkpoint_interval=_optional_int(config.training.checkpoint_interval),
+        resume_from_checkpoint=_optional_string(config.training.resume_from_checkpoint),
         wandb_enabled=bool(config.training.wandb_enabled),
         wandb_project=str(config.training.wandb_project),
         wandb_entity=_optional_string(config.training.wandb_entity),
@@ -149,6 +157,16 @@ def _run_ingest_config(config: IngestPipelineConfig) -> None:
             result = HuggingFaceOhlcvIngestor(store, table_store=table_store).ingest(
                 OhlcvIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
             )
+        elif source.name == "binance_trades":
+            result = BinanceTradesIngestor(store, table_store=table_store).ingest(
+                BinanceTradesIngestRequest(
+                    symbols=source.tickers,
+                    start=str(source.start),
+                    end=str(source.end),
+                    frequency=source.frequency,
+                    download_workers=source.download_workers,
+                )
+            )
         else:
             raise ValueError(f"unsupported ingest source: {source.name}")
         normalization_manifests.append(result.normalization_manifest_path)
@@ -171,3 +189,7 @@ def _optional_string(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

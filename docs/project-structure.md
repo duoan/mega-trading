@@ -24,7 +24,8 @@ src/mega_trading/
     ingest_config.py     # Config-driven ingestion API
     lance_store.py       # LanceDB table/index store
     quality.py           # Order-flow quality gates
-    public/market.py     # HF OHLCV-1m to order-flow adapter
+    public/binance.py    # Binance public trades to event-level order-flow proxy
+    public/market.py     # HF OHLCV-1m to lower-frequency order-flow proxy
 ```
 
 Non-paper data planes are intentionally absent from the active source tree.

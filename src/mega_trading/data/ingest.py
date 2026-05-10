@@ -32,6 +32,15 @@ class OhlcvIngestRequest:
     end: str
 
 
+@dataclass(frozen=True)
+class BinanceTradesIngestRequest:
+    symbols: tuple[str, ...]
+    start: str
+    end: str
+    frequency: str = "monthly"
+    download_workers: int = 4
+
+
 RequestT = TypeVar("RequestT")
 
 

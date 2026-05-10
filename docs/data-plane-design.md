@@ -15,6 +15,7 @@ raw source rows
 ## Implemented Sources
 
 - `fixture`: deterministic local order-flow events for smoke tests.
+- `binance_trades`: Binance public spot trades downloaded from `data.binance.vision`, mapped into event-level execution proxies.
 - `hf_ohlcv_1m`: Hugging Face `mito0o852/OHLCV-1m` loaded through `datasets.load_dataset`, then mapped into the same order-flow feature contract for public no-credential runs.
 
 No non-order-flow data family is part of the active data plane.
@@ -52,7 +53,7 @@ The paper defines mid-price as the midpoint of the best bid and ask. For real L3
 midprice = (best_bid + best_ask) / 2
 ```
 
-The public `hf_ohlcv_1m` adapter has no order book, so it uses a conservative proxy:
+The public `binance_trades` adapter has no best bid/ask stream in the monthly trade files, so it uses the previous trade price as a causal midpoint proxy. The public `hf_ohlcv_1m` adapter has no order book either, so it uses a conservative bar proxy:
 
 ```text
 estimated_midprice = (minute_high + minute_low) / 2
@@ -69,7 +70,7 @@ The normalized event contract stores features in scale-stable units:
 - `size = current_volume / causal_median(previous_volume)`.
 - `interarrival_seconds = timestamp - previous_ticker_timestamp`.
 
-For the OHLCV proxy, `order_price` is the minute close and the volume baseline is computed only from previous rows for that ticker to avoid future leakage.
+For the Binance trades proxy, `order_price` is the execution price, side is inferred from `isBuyerMaker`, and action is `delete` because an execution removes resting maker liquidity. For the OHLCV proxy, `order_price` is the minute close and the volume baseline is computed only from previous rows for that ticker to avoid future leakage.
 
 ## Build Artifacts
 
