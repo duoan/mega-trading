@@ -59,6 +59,7 @@ def _download_trade_archives_with_datatool(
     output_dir: Path,
     base_url: str,
 ) -> list[BinanceTradeArchive]:
+    _configure_certifi_ca_bundle()
     try:
         from binance_datatool.archive import DownloadRequest, download_archive_files
     except ImportError as exc:
@@ -99,6 +100,7 @@ def _available_datatool_trade_archives(
 
 
 def _list_available_trade_archive_keys(request: BinanceTradesIngestRequest) -> set[str]:
+    _configure_certifi_ca_bundle()
     try:
         from binance_datatool.archive import ArchiveClient
         from binance_datatool.common import DataFrequency, DataType, TradeType
@@ -127,6 +129,13 @@ def _list_available_trade_archive_keys(request: BinanceTradesIngestRequest) -> s
         return keys
 
     return asyncio.run(_list())
+
+
+def _configure_certifi_ca_bundle() -> None:
+    ca_bundle = certifi.where()
+    os.environ.setdefault("SSL_CERT_FILE", ca_bundle)
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", ca_bundle)
+    os.environ.setdefault("CURL_CA_BUNDLE", ca_bundle)
 
 
 def _datatool_trade_archives(

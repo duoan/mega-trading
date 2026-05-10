@@ -9,6 +9,7 @@ from zipfile import ZipFile
 from mega_trading.data.ingest import BinanceTradesIngestRequest
 from mega_trading.data.public.binance import (
     BINANCE_TRADES_BASE_URL,
+    _configure_certifi_ca_bundle,
     _load_binance_trade_rows,
     _trade_rows_to_order_flow,
     download_binance_trade_archives,
@@ -121,6 +122,16 @@ class BinanceTradesTests(unittest.TestCase):
             self.assertEqual(len(download.call_args.args[0]), 1)
             self.assertEqual(len(archives), 1)
             self.assertEqual(archives[0].partition, "2024-01-01")
+
+    def test_datatool_download_configures_certifi_ca_bundle(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            _configure_certifi_ca_bundle()
+
+            import os
+
+            self.assertTrue(os.environ["SSL_CERT_FILE"].endswith("cacert.pem"))
+            self.assertEqual(os.environ["REQUESTS_CA_BUNDLE"], os.environ["SSL_CERT_FILE"])
+            self.assertEqual(os.environ["CURL_CA_BUNDLE"], os.environ["SSL_CERT_FILE"])
 
 
 def _trades_zip() -> bytes:
