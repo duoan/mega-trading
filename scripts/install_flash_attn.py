@@ -59,6 +59,15 @@ def _cuda_runtime_available(force_cuda: bool = False) -> bool:
 
 
 def _install_command(package: str) -> list[str]:
+    uv = shutil.which("uv")
+    if uv is not None:
+        return [
+            uv,
+            "pip",
+            "install",
+            package,
+            "--no-build-isolation",
+        ]
     return [
         sys.executable,
         "-m",

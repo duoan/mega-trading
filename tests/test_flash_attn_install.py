@@ -20,8 +20,17 @@ class FlashAttnInstallTests(unittest.TestCase):
         cls.installer = _load_installer()
 
     def test_install_command_disables_build_isolation(self) -> None:
-        command = self.installer._install_command("flash-attn")
+        with patch.object(self.installer.shutil, "which", return_value=None):
+            command = self.installer._install_command("flash-attn")
 
+        self.assertIn("flash-attn", command)
+        self.assertIn("--no-build-isolation", command)
+
+    def test_install_command_prefers_uv_pip_when_available(self) -> None:
+        with patch.object(self.installer.shutil, "which", return_value="/usr/bin/uv"):
+            command = self.installer._install_command("flash-attn")
+
+        self.assertEqual(command[:3], ["/usr/bin/uv", "pip", "install"])
         self.assertIn("flash-attn", command)
         self.assertIn("--no-build-isolation", command)
 
