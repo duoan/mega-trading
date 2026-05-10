@@ -1,4 +1,4 @@
-.PHONY: test demo local remote platform-demo sync-wandb-secret prep-binance-modal upload-binance-modal train-modal-binance
+.PHONY: test demo local remote server platform-demo sync-wandb-secret prep-binance-modal prep-server upload-binance-modal train-modal-binance train-server-rtx6000
 
 test:
 	uv run python -m unittest discover -s tests
@@ -13,6 +13,8 @@ local:
 remote:
 	uv run python scripts/run_pipeline.py remote
 
+server: prep-server train-server-rtx6000
+
 platform-demo:
 	uv run mega-trading --help
 	uv run mega-trading prepare --help
@@ -25,8 +27,13 @@ sync-wandb-secret:
 prep-binance-modal:
 	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-binance-modal-prep.toml --config-name binance-modal-prep
 
+prep-server: prep-binance-modal
+
 upload-binance-modal:
 	uv run modal volume put mega-trading-artifacts .mega-trading/binance-modal /binance-trades
 
 train-modal-binance:
 	uv run modal run modal_train.py --mode cluster --run-id modal-binance --data-dir /data/binance-trades --strategy fsdp --max-steps 50000
+
+train-server-rtx6000:
+	uv run mega-trading train --config-name server-rtx6000

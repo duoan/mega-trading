@@ -22,6 +22,7 @@ class TrainingTests(unittest.TestCase):
     def test_named_training_configs_parse_for_local_and_modal_runs(self) -> None:
         binance_local = load_config(Path("configs"), "binance-local", [])
         binance_modal_prep = load_config(Path("configs"), "binance-modal-prep", [])
+        server = load_config(Path("configs"), "server-rtx6000", [])
         binance_modal = load_config(Path("configs"), "modal-binance", [])
 
         self.assertEqual(str(binance_local.data.source), "binance_trades")
@@ -29,6 +30,12 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(str(binance_modal_prep.data.data_dir), ".mega-trading/binance-modal")
         self.assertEqual(str(binance_modal_prep.data.mixture), "binance_public")
         self.assertEqual(int(binance_modal_prep.build.numpy_partition_rows), 65536)
+        self.assertEqual(str(server.data.data_dir), ".mega-trading/binance-modal")
+        self.assertEqual(str(server.training.device), "cuda")
+        self.assertEqual(str(server.training.distributed_strategy), "ddp")
+        self.assertEqual(int(server.training.batch_size), 32)
+        self.assertEqual(int(server.training.gradient_accumulation_steps), 2)
+        self.assertEqual(int(server.training.max_eval_batches), 64)
         self.assertEqual(str(binance_modal.data.data_dir), "/data/binance-trades")
         self.assertEqual(str(binance_modal.data.mixture), "binance_public")
         self.assertEqual(str(binance_modal.training.distributed_strategy), "fsdp")
