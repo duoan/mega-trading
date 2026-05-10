@@ -141,26 +141,30 @@ class BinanceTradesTests(unittest.TestCase):
     def test_streaming_prepare_writes_partitioned_numpy_without_materializing_downloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            archive_path = root / "raw" / "BTCUSDT-trades-2024-01-01.zip"
-            archive_path.parent.mkdir(parents=True, exist_ok=True)
-            archive_path.write_bytes(_trades_zip(row_count=12))
-            archive = BinanceTradeArchive(
-                symbol="BTCUSDT",
-                partition="2024-01-01",
-                url="https://example.test/BTCUSDT-trades-2024-01-01.zip",
-                path=archive_path,
-                key="data/spot/daily/trades/BTCUSDT/BTCUSDT-trades-2024-01-01.zip",
-            )
+            archives = []
+            for symbol in ("BTCUSDT", "ETHUSDT"):
+                archive_path = root / "raw" / f"{symbol}-trades-2024-01-01.zip"
+                archive_path.parent.mkdir(parents=True, exist_ok=True)
+                archive_path.write_bytes(_trades_zip(row_count=12))
+                archives.append(
+                    BinanceTradeArchive(
+                        symbol=symbol,
+                        partition="2024-01-01",
+                        url=f"https://example.test/{symbol}-trades-2024-01-01.zip",
+                        path=archive_path,
+                        key=f"data/spot/daily/trades/{symbol}/{symbol}-trades-2024-01-01.zip",
+                    )
+                )
             ingest_config = IngestPipelineConfig(
                 output_dir=str(root),
                 sources=(
                     IngestSourceConfig(
                         name="binance_trades",
-                        tickers=("BTCUSDT",),
+                        tickers=("BTCUSDT", "ETHUSDT"),
                         start="2024-01-01T00:00:00Z",
                         end="2024-01-01T00:00:20Z",
                         frequency="daily",
-                        process_workers=1,
+                        process_workers=2,
                     ),
                 ),
             )
@@ -173,7 +177,7 @@ class BinanceTradesTests(unittest.TestCase):
                 streaming_tokenizer_sample_events=8,
                 streaming_baseline_sample_rows=8,
             )
-            with patch("mega_trading.prepare.download_binance_trade_archives", return_value=[archive]):
+            with patch("mega_trading.prepare.download_binance_trade_archives", return_value=archives):
                 result = prepare_numpy_dataset(ingest_config, build_config)
 
             metadata = json.loads(root.joinpath(result.numpy_metadata_path).read_text(encoding="utf-8"))

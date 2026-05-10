@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
+import os
 from pathlib import Path
 from statistics import median
 from time import perf_counter
@@ -114,10 +116,13 @@ def _prepare_streaming_binance_dataset(
     )
 
     stats_started_at = perf_counter()
+    workers = _streaming_worker_count(request.process_workers, len(archives_by_symbol))
+    print(f"stream prepare: using {workers} CPU workers for read-only ZIP scans")
     ticker_counts, qty_baselines = _streaming_symbol_stats(
         request,
         archives_by_symbol,
         config.streaming_baseline_sample_rows,
+        workers,
     )
     included_symbols = [
         symbol
@@ -140,6 +145,7 @@ def _prepare_streaming_binance_dataset(
             archives_by_symbol,
             qty_baselines,
             config.streaming_tokenizer_sample_events,
+            workers,
         )
     )
     tokenizer = MarketEventTokenizer.fit(
@@ -159,7 +165,7 @@ def _prepare_streaming_binance_dataset(
     )
 
     count_started_at = perf_counter()
-    sequence_counts = _count_streaming_sequences(request, archives_by_symbol, qty_baselines, tokenizer, config)
+    sequence_counts = _count_streaming_sequences(request, archives_by_symbol, qty_baselines, tokenizer, config, workers)
     sequence_counts = {symbol: count for symbol, count in sequence_counts.items() if count > 0}
     archives_by_symbol = {symbol: archives_by_symbol[symbol] for symbol in sorted(sequence_counts)}
     ticker_counts = {symbol: ticker_counts[symbol] for symbol in sorted(sequence_counts)}
@@ -226,23 +232,33 @@ def _streaming_symbol_stats(
     request: BinanceTradesIngestRequest,
     archives_by_symbol: dict[str, list[BinanceTradeArchive]],
     max_sample_rows: int,
+    workers: int,
 ) -> tuple[dict[str, int], dict[str, float]]:
-    start_dt = _to_utc_datetime(request.start)
-    end_dt = _to_utc_datetime(request.end)
     ticker_counts: dict[str, int] = {}
     baselines: dict[str, float] = {}
-    for symbol, archives in archives_by_symbol.items():
-        row_count = 0
-        qty_sample: list[float] = []
-        for archive in archives:
-            for row in iter_valid_trade_rows_from_archive(archive.path, symbol, start_dt, end_dt):
-                row_count += 1
-                if len(qty_sample) < max_sample_rows:
-                    qty_sample.append(float(row["qty"]))
+    jobs = [(request, symbol, archives, max_sample_rows) for symbol, archives in archives_by_symbol.items()]
+    results = [_streaming_symbol_stats_job(job) for job in jobs] if workers == 1 else _parallel_map(_streaming_symbol_stats_job, jobs, workers)
+    for symbol, row_count, baseline in results:
         ticker_counts[symbol] = max(row_count - 1, 0)
-        if qty_sample:
-            baselines[symbol] = median(qty_sample)
+        if baseline is not None:
+            baselines[symbol] = baseline
     return ticker_counts, baselines
+
+
+def _streaming_symbol_stats_job(
+    job: tuple[BinanceTradesIngestRequest, str, list[BinanceTradeArchive], int],
+) -> tuple[str, int, float | None]:
+    request, symbol, archives, max_sample_rows = job
+    start_dt = _to_utc_datetime(request.start)
+    end_dt = _to_utc_datetime(request.end)
+    row_count = 0
+    qty_sample: list[float] = []
+    for archive in archives:
+        for row in iter_valid_trade_rows_from_archive(archive.path, symbol, start_dt, end_dt):
+            row_count += 1
+            if len(qty_sample) < max_sample_rows:
+                qty_sample.append(float(row["qty"]))
+    return symbol, row_count, median(qty_sample) if qty_sample else None
 
 
 def _sample_streaming_events(
@@ -250,15 +266,28 @@ def _sample_streaming_events(
     archives_by_symbol: dict[str, list[BinanceTradeArchive]],
     qty_baselines: dict[str, float],
     max_events: int,
+    workers: int,
 ) -> Iterable[dict[str, object]]:
     per_symbol_limit = max(1, max_events // max(len(archives_by_symbol), 1))
-    for symbol, archives in archives_by_symbol.items():
-        emitted = 0
-        for event in iter_order_flow_event_dicts_for_symbol(request, archives, qty_baselines[symbol]):
-            yield event
-            emitted += 1
-            if emitted >= per_symbol_limit:
-                break
+    jobs = [
+        (request, symbol, archives, qty_baselines[symbol], per_symbol_limit)
+        for symbol, archives in archives_by_symbol.items()
+    ]
+    results = [_sample_streaming_events_job(job) for job in jobs] if workers == 1 else _parallel_map(_sample_streaming_events_job, jobs, workers)
+    for rows in results:
+        yield from rows
+
+
+def _sample_streaming_events_job(
+    job: tuple[BinanceTradesIngestRequest, str, list[BinanceTradeArchive], float, int],
+) -> list[dict[str, object]]:
+    request, _symbol, archives, qty_baseline, per_symbol_limit = job
+    rows: list[dict[str, object]] = []
+    for event in iter_order_flow_event_dicts_for_symbol(request, archives, qty_baseline):
+        rows.append(event)
+        if len(rows) >= per_symbol_limit:
+            break
+    return rows
 
 
 def _count_streaming_sequences(
@@ -267,20 +296,31 @@ def _count_streaming_sequences(
     qty_baselines: dict[str, float],
     tokenizer: MarketEventTokenizer,
     config: BuildConfig,
+    workers: int,
 ) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for symbol, archives in archives_by_symbol.items():
-        counts[symbol] = sum(
-            1
-            for _row in _iter_symbol_sequence_rows(
-                symbol,
-                iter_order_flow_event_dicts_for_symbol(request, archives, qty_baselines[symbol]),
-                tokenizer,
-                config.block_size,
-                config.stride,
-            )
+    jobs = [
+        (request, symbol, archives, qty_baselines[symbol], tokenizer, config.block_size, config.stride)
+        for symbol, archives in archives_by_symbol.items()
+    ]
+    results = [_count_streaming_sequences_job(job) for job in jobs] if workers == 1 else _parallel_map(_count_streaming_sequences_job, jobs, workers)
+    return dict(results)
+
+
+def _count_streaming_sequences_job(
+    job: tuple[BinanceTradesIngestRequest, str, list[BinanceTradeArchive], float, MarketEventTokenizer, int, int],
+) -> tuple[str, int]:
+    request, symbol, archives, qty_baseline, tokenizer, block_size, stride = job
+    count = sum(
+        1
+        for _row in _iter_symbol_sequence_rows(
+            symbol,
+            iter_order_flow_event_dicts_for_symbol(request, archives, qty_baseline),
+            tokenizer,
+            block_size,
+            stride,
         )
-    return counts
+    )
+    return symbol, count
 
 
 def _iter_symbol_sequence_rows(
@@ -516,3 +556,16 @@ def _write_npy(store: LocalObjectStore, path: str, value: np.ndarray) -> None:
     target = store.root / path
     target.parent.mkdir(parents=True, exist_ok=True)
     np.save(target, value)
+
+
+def _streaming_worker_count(requested_workers: int, task_count: int) -> int:
+    if task_count <= 0:
+        return 1
+    if requested_workers > 0:
+        return max(1, min(requested_workers, task_count))
+    return max(1, min(os.cpu_count() or 1, task_count))
+
+
+def _parallel_map(function, jobs: list[Any], workers: int) -> list[Any]:
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(function, jobs))
