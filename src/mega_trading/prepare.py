@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict
 import os
 from pathlib import Path
@@ -109,7 +109,7 @@ def _prepare_streaming_binance_dataset(
     if config.max_tickers is not None:
         selected = sorted(archives_by_symbol)[: config.max_tickers]
         archives_by_symbol = {ticker: archives_by_symbol[ticker] for ticker in selected}
-    print(
+    _log(
         "stream prepare: "
         f"cached {len(archives)} archives in {perf_counter() - started_at:.1f}s; "
         f"scanning {len(archives_by_symbol)} tickers with bounded memory"
@@ -117,7 +117,7 @@ def _prepare_streaming_binance_dataset(
 
     stats_started_at = perf_counter()
     workers = _streaming_worker_count(request.process_workers, len(archives_by_symbol))
-    print(f"stream prepare: using {workers} CPU workers for read-only ZIP scans")
+    _log(f"stream prepare: using {workers} CPU workers for read-only ZIP scans")
     ticker_counts, qty_baselines = _streaming_symbol_stats(
         request,
         archives_by_symbol,
@@ -133,7 +133,7 @@ def _prepare_streaming_binance_dataset(
         raise ValueError("no Binance symbols had enough events for streaming prepare")
     archives_by_symbol = {symbol: archives_by_symbol[symbol] for symbol in included_symbols}
     ticker_counts = {symbol: ticker_counts[symbol] for symbol in included_symbols}
-    print(
+    _log(
         "stream prepare: "
         f"computed sampled baselines for {len(included_symbols)} tickers in {perf_counter() - stats_started_at:.1f}s"
     )
@@ -159,7 +159,7 @@ def _prepare_streaming_binance_dataset(
     )
     tokenizer_path = f"stage=05_shards/mixture={config.mixture_name}/tokenizer.json"
     store.write_json(tokenizer_path, tokenizer.to_dict())
-    print(
+    _log(
         "stream prepare: "
         f"fit tokenizer from {len(tokenizer_sample)} sampled events in {perf_counter() - fit_started_at:.1f}s"
     )
@@ -172,7 +172,7 @@ def _prepare_streaming_binance_dataset(
     total_sequences = sum(sequence_counts.values())
     if total_sequences <= 0:
         raise ValueError("not enough streaming Binance events to build token sequences")
-    print(
+    _log(
         "stream prepare: "
         f"counted {total_sequences} token sequences in {perf_counter() - count_started_at:.1f}s"
     )
@@ -207,7 +207,7 @@ def _prepare_streaming_binance_dataset(
             metadata=profile,
         ),
     )
-    print(
+    _log(
         "stream prepare: "
         f"wrote streaming NumPy shards in {perf_counter() - write_started_at:.1f}s"
     )
@@ -237,7 +237,11 @@ def _streaming_symbol_stats(
     ticker_counts: dict[str, int] = {}
     baselines: dict[str, float] = {}
     jobs = [(request, symbol, archives, max_sample_rows) for symbol, archives in archives_by_symbol.items()]
-    results = [_streaming_symbol_stats_job(job) for job in jobs] if workers == 1 else _parallel_map(_streaming_symbol_stats_job, jobs, workers)
+    results = (
+        [_streaming_symbol_stats_job(job) for job in jobs]
+        if workers == 1
+        else _parallel_map(_streaming_symbol_stats_job, jobs, workers, "baseline scan")
+    )
     for symbol, row_count, baseline in results:
         ticker_counts[symbol] = max(row_count - 1, 0)
         if baseline is not None:
@@ -273,21 +277,25 @@ def _sample_streaming_events(
         (request, symbol, archives, qty_baselines[symbol], per_symbol_limit)
         for symbol, archives in archives_by_symbol.items()
     ]
-    results = [_sample_streaming_events_job(job) for job in jobs] if workers == 1 else _parallel_map(_sample_streaming_events_job, jobs, workers)
-    for rows in results:
+    results = (
+        [_sample_streaming_events_job(job) for job in jobs]
+        if workers == 1
+        else _parallel_map(_sample_streaming_events_job, jobs, workers, "tokenizer sample")
+    )
+    for _symbol, rows in sorted(results, key=lambda item: item[0]):
         yield from rows
 
 
 def _sample_streaming_events_job(
     job: tuple[BinanceTradesIngestRequest, str, list[BinanceTradeArchive], float, int],
-) -> list[dict[str, object]]:
-    request, _symbol, archives, qty_baseline, per_symbol_limit = job
+) -> tuple[str, list[dict[str, object]]]:
+    request, symbol, archives, qty_baseline, per_symbol_limit = job
     rows: list[dict[str, object]] = []
     for event in iter_order_flow_event_dicts_for_symbol(request, archives, qty_baseline):
         rows.append(event)
         if len(rows) >= per_symbol_limit:
             break
-    return rows
+    return symbol, rows
 
 
 def _count_streaming_sequences(
@@ -302,7 +310,11 @@ def _count_streaming_sequences(
         (request, symbol, archives, qty_baselines[symbol], tokenizer, config.block_size, config.stride)
         for symbol, archives in archives_by_symbol.items()
     ]
-    results = [_count_streaming_sequences_job(job) for job in jobs] if workers == 1 else _parallel_map(_count_streaming_sequences_job, jobs, workers)
+    results = (
+        [_count_streaming_sequences_job(job) for job in jobs]
+        if workers == 1
+        else _parallel_map(_count_streaming_sequences_job, jobs, workers, "sequence count")
+    )
     return dict(results)
 
 
@@ -433,7 +445,7 @@ def _write_streaming_numpy_dataset(
             fill += 1
             if fill >= partition_rows:
                 flush()
-        print(f"stream prepare: wrote sequences for {ticker}: {seen_by_ticker[ticker]}")
+        _log(f"stream prepare: wrote sequences for {ticker}: {seen_by_ticker[ticker]}")
     flush()
 
     metadata: dict[str, Any] = {
@@ -566,6 +578,23 @@ def _streaming_worker_count(requested_workers: int, task_count: int) -> int:
     return max(1, min(os.cpu_count() or 1, task_count))
 
 
-def _parallel_map(function, jobs: list[Any], workers: int) -> list[Any]:
+def _parallel_map(function, jobs: list[Any], workers: int, label: str) -> list[Any]:
+    results: list[Any] = []
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        return list(executor.map(function, jobs))
+        futures = [executor.submit(function, job) for job in jobs]
+        total = len(futures)
+        for index, future in enumerate(as_completed(futures), start=1):
+            result = future.result()
+            _log(f"stream prepare: {label} finished {index}/{total}: {_result_symbol(result)}")
+            results.append(result)
+    return results
+
+
+def _result_symbol(result: Any) -> str:
+    if isinstance(result, tuple) and result:
+        return str(result[0])
+    return "unknown"
+
+
+def _log(message: str) -> None:
+    print(message, flush=True)
