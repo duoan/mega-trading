@@ -73,7 +73,18 @@ def main() -> int:
         min_sequences=0,
         force=args.force_data,
     )
-    _run(["uv", "run", "modal", "volume", "put", "mega-trading-artifacts", str(REMOTE_LOCAL_DATA_DIR), "/binance-trades"])
+    _run(
+        [
+            "uv",
+            "run",
+            "modal",
+            "volume",
+            "put",
+            "mega-trading-artifacts",
+            str(REMOTE_LOCAL_DATA_DIR / "stage=05_shards"),
+            "/binance-trades/stage=05_shards",
+        ]
+    )
     if not args.skip_wandb_sync:
         _run(["uv", "run", "python", "scripts/sync_wandb_modal_secret.py"])
     _run(

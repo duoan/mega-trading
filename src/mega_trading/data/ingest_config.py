@@ -20,6 +20,7 @@ class IngestSourceConfig:
     end: str | None = None
     frequency: str = "monthly"
     download_workers: int = 4
+    process_workers: int = 0
 
     def __post_init__(self) -> None:
         if self.name not in PAPER_SOURCES:
@@ -33,6 +34,8 @@ class IngestSourceConfig:
             raise ValueError("binance_trades frequency must be daily or monthly")
         if self.name == "binance_trades" and self.download_workers <= 0:
             raise ValueError("binance_trades download_workers must be positive")
+        if self.name == "binance_trades" and self.process_workers < 0:
+            raise ValueError("binance_trades process_workers must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,7 @@ def _source_from_dict(value: dict[str, Any], base_path: Path) -> IngestSourceCon
         end=_optional_string(value.get("end")),
         frequency=str(value.get("frequency", "monthly")),
         download_workers=int(value.get("download_workers", 4)),
+        process_workers=int(value.get("process_workers", 0)),
     )
 
 

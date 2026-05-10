@@ -19,6 +19,19 @@ raw source rows
 
 No non-order-flow data family is part of the active data plane.
 
+## Binance Preparation
+
+Binance preparation is staged for server-scale runs:
+
+```text
+parallel download
+  -> stage=01_raw/source=binance_trades/.../*.zip
+  -> multi-process parse/convert from cached ZIPs
+  -> partitioned NumPy shards
+```
+
+The raw cache keeps download progress visible on disk and allows retries without re-downloading. Processing uses all CPU cores when `process_workers = 0`.
+
 ## Event Contract
 
 In-memory order-flow events contain:

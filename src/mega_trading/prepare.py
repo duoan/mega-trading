@@ -13,15 +13,14 @@ from mega_trading.data.ingest import BinanceTradesIngestRequest
 from mega_trading.data.ingest_config import IngestPipelineConfig
 from mega_trading.data.public.binance import (
     BINANCE_TRADES_BASE_URL,
-    _fetch_zip,
-    _load_binance_trade_rows,
-    _trade_rows_to_order_flow,
+    download_binance_trade_archives,
+    load_order_flow_from_archives,
 )
 from mega_trading.events import BuildResult, EventBuilder, events_by_ticker_from_rows
 
 
 def prepare_numpy_dataset(ingest_config: IngestPipelineConfig, build_config: BuildConfig) -> BuildResult:
-    """Prepare training shards without writing raw/normalized intermediate data."""
+    """Prepare training shards from fixture rows or cached Binance raw archives."""
     started_at = perf_counter()
     event_rows: list[dict[str, object]] = []
     for source in ingest_config.enabled_sources():
@@ -29,19 +28,22 @@ def prepare_numpy_dataset(ingest_config: IngestPipelineConfig, build_config: Bui
         if source.name == "fixture":
             rows = [asdict(row) for row in load_fixture_bundle().order_flow]
         elif source.name == "binance_trades":
+            store = LocalObjectStore(Path(ingest_config.output_dir))
             request = BinanceTradesIngestRequest(
                 symbols=source.tickers,
                 start=str(source.start),
                 end=str(source.end),
                 frequency=source.frequency,
                 download_workers=source.download_workers,
+                process_workers=source.process_workers,
             )
-            raw_rows = _load_binance_trade_rows(request, BINANCE_TRADES_BASE_URL, _fetch_zip)
+            archives = download_binance_trade_archives(request, store.root, BINANCE_TRADES_BASE_URL)
             loaded_at = perf_counter()
-            rows = [asdict(event) for event in _trade_rows_to_order_flow(raw_rows)]
+            events = load_order_flow_from_archives(request, archives)
+            rows = [asdict(event) for event in events]
             print(
                 "direct prepare: "
-                f"loaded {len(raw_rows)} {source.name} rows in {loaded_at - source_started_at:.1f}s; "
+                f"cached {len(archives)} {source.name} archives in {loaded_at - source_started_at:.1f}s; "
                 f"converted {len(rows)} events in {perf_counter() - loaded_at:.1f}s"
             )
         else:
@@ -60,6 +62,5 @@ def prepare_numpy_dataset(ingest_config: IngestPipelineConfig, build_config: Bui
 
 
 def _clean_intermediates(store: LocalObjectStore, build_config: BuildConfig) -> None:
-    store.delete_tree_if_exists("stage=01_raw")
     store.delete_tree_if_exists("stage=02_normalized")
     store.delete_tree_if_exists(f"stage=04_corpus/mixture={build_config.mixture_name}")

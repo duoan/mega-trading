@@ -1,9 +1,17 @@
 import io
+import tempfile
 import unittest
+from pathlib import Path
 from zipfile import ZipFile
 
 from mega_trading.data.ingest import BinanceTradesIngestRequest
-from mega_trading.data.public.binance import BINANCE_TRADES_BASE_URL, _load_binance_trade_rows, _trade_rows_to_order_flow
+from mega_trading.data.public.binance import (
+    BINANCE_TRADES_BASE_URL,
+    _load_binance_trade_rows,
+    _trade_rows_to_order_flow,
+    download_binance_trade_archives,
+    load_order_flow_from_archives,
+)
 
 
 class BinanceTradesTests(unittest.TestCase):
@@ -33,6 +41,31 @@ class BinanceTradesTests(unittest.TestCase):
         self.assertEqual(events[0].side, "buy")
         self.assertGreater(events[0].price_depth_bps, 0.0)
         self.assertGreater(events[0].size, 0.0)
+
+    def test_archives_are_cached_and_processed_from_disk(self) -> None:
+        fetched_urls: list[str] = []
+
+        def fetch_zip(url: str) -> bytes:
+            fetched_urls.append(url)
+            return _trades_zip()
+
+        request = BinanceTradesIngestRequest(
+            symbols=("BTCUSDT",),
+            start="2024-01-01T00:00:00Z",
+            end="2024-01-01T00:00:03Z",
+            frequency="daily",
+            download_workers=2,
+            process_workers=1,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            archives = download_binance_trade_archives(request, Path(tmp), BINANCE_TRADES_BASE_URL, fetch_zip)
+            events = load_order_flow_from_archives(request, archives)
+
+            self.assertEqual(len(fetched_urls), 1)
+            self.assertTrue(archives[0].path.exists())
+            self.assertIn("stage=01_raw", str(archives[0].path))
+            self.assertEqual(len(events), 2)
+            self.assertEqual(events[0].ticker, "BTCUSDT")
 
 
 def _trades_zip() -> bytes:

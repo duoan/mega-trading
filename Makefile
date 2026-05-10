@@ -1,4 +1,4 @@
-.PHONY: test demo local remote server platform-demo sync-wandb-secret install-flash-attn prep-binance-modal prep-server upload-binance-modal train-modal-binance train-server-rtx6000
+.PHONY: test demo local remote server platform-demo sync-wandb-secret install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance train-server-rtx6000
 
 test:
 	uv run python -m unittest discover -s tests
@@ -27,13 +27,19 @@ sync-wandb-secret:
 install-flash-attn:
 	uv run python scripts/install_flash_attn.py --require-cuda
 
-prep-binance-modal:
+download-binance-local:
+	uv run python scripts/download_binance_archives.py --ingest-config configs/ingest-binance-local.toml
+
+download-binance-modal:
+	uv run python scripts/download_binance_archives.py --ingest-config configs/ingest-binance-modal-prep.toml
+
+prep-binance-modal: download-binance-modal
 	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-binance-modal-prep.toml --config-name binance-modal-prep
 
 prep-server: prep-binance-modal
 
 upload-binance-modal:
-	uv run modal volume put mega-trading-artifacts .mega-trading/binance-modal /binance-trades
+	uv run modal volume put mega-trading-artifacts .mega-trading/binance-modal/stage=05_shards /binance-trades/stage=05_shards
 
 train-modal-binance:
 	uv run modal run modal_train.py --mode cluster --run-id modal-binance --data-dir /data/binance-trades --strategy fsdp --max-steps 50000

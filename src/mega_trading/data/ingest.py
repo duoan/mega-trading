@@ -12,3 +12,4 @@ class BinanceTradesIngestRequest:
     end: str
     frequency: str = "monthly"
     download_workers: int = 4
+    process_workers: int = 0
