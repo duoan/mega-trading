@@ -13,11 +13,11 @@ dependencies = [
     "binance-datatool>=0.1.1",
     "certifi>=2026.4.22",
     "hydra-core>=1.3.2",
+    "mlflow>=3.12.0",
     "modal>=1.4.2",
     "numpy>=2.4.4",
     "torch>=2.11.0",
     "tqdm>=4.67.3",
-    "wandb>=0.26.1",
 ]
 
 [dependency-groups]

@@ -54,10 +54,9 @@ training:
   attention_backend: flash
   checkpoint_interval: 2000
   resume_from_checkpoint: null
-  wandb_enabled: true
-  wandb_project: mega-trading
-  wandb_entity: null
-  wandb_mode: online
+  mlflow_enabled: true
+  mlflow_experiment: mega-trading
+  mlflow_tracking_uri: null
   progress_bar: true
 
 eval:

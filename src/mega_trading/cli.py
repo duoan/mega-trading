@@ -133,10 +133,9 @@ def _run_train_config(config: DictConfig):
         attention_backend=str(config.training.attention_backend),
         checkpoint_interval=_optional_int(config.training.checkpoint_interval),
         resume_from_checkpoint=_optional_string(config.training.resume_from_checkpoint),
-        wandb_enabled=bool(config.training.wandb_enabled),
-        wandb_project=str(config.training.wandb_project),
-        wandb_entity=_optional_string(config.training.wandb_entity),
-        wandb_mode=str(config.training.wandb_mode),
+        mlflow_enabled=bool(config.training.mlflow_enabled),
+        mlflow_experiment=str(config.training.mlflow_experiment),
+        mlflow_tracking_uri=_optional_string(config.training.mlflow_tracking_uri),
         progress_bar=bool(config.training.progress_bar),
     )
     return Trainer(store, train_config).train(shard_path)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -148,7 +149,7 @@ class Trainer:
                         )
                     )
                 metrics.append(metric_row)
-                accelerator.log(_wandb_metrics(metric_row), step=step)
+                accelerator.log(_tracker_metrics(metric_row), step=step)
                 self.store.write_json(metrics_path, {"metrics": metrics})
                 progress.set_postfix(_progress_postfix(metric_row), refresh=False)
             if self.config.checkpoint_interval and step % self.config.checkpoint_interval == 0:
@@ -212,7 +213,7 @@ class Trainer:
                     },
                 ),
             )
-        if self.config.wandb_enabled:
+        if self.config.mlflow_enabled:
             accelerator.end_training()
         return TrainResult(checkpoint_path=checkpoint_path, metrics_path=metrics_path, manifest_path=manifest_path)
 
@@ -457,7 +458,7 @@ def _mps_available() -> bool:
 
 def _accelerator(device: torch.device, precision: str, config: TrainConfig) -> Accelerator:
     mixed_precision = "fp16" if precision == "mixed" else "no"
-    log_with = "wandb" if config.wandb_enabled else None
+    log_with = "mlflow" if config.mlflow_enabled else None
     kwargs: dict[str, Any] = {
         "cpu": device.type == "cpu",
         "mixed_precision": mixed_precision,
@@ -487,12 +488,17 @@ def _init_trackers(
     validation_count: int,
     precision: str,
 ) -> None:
-    if not config.wandb_enabled:
+    if not config.mlflow_enabled:
         return
-    wandb_dir = store.root / "runs" / config.run_id / "wandb"
-    wandb_dir.mkdir(parents=True, exist_ok=True)
+    tracking_uri = config.mlflow_tracking_uri or f"sqlite:///{(store.root / 'runs' / 'mlflow' / 'mlflow.db').resolve()}"
+    os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
+    import mlflow
+
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow_artifact_dir = store.root / "runs" / config.run_id / "mlflow-artifacts"
+    mlflow_artifact_dir.mkdir(parents=True, exist_ok=True)
     accelerator.init_trackers(
-        project_name=config.wandb_project,
+        project_name=config.mlflow_experiment,
         config={
             "run_id": config.run_id,
             "stage": "training",
@@ -523,18 +529,21 @@ def _init_trackers(
             "stream_contract": STREAM_CONTRACT,
         },
         init_kwargs={
-            "wandb": {
-                "name": config.run_id,
-                "entity": config.wandb_entity,
-                "mode": config.wandb_mode,
-                "dir": str(wandb_dir),
-                "tags": ["mega-trading", "generative"],
+            "mlflow": {
+                "logging_dir": str(mlflow_artifact_dir),
+                "run_name": config.run_id,
+                "tags": {
+                    "project": "mega-trading",
+                    "stage": "training",
+                    "model_family": "generative-order-flow",
+                    "distributed_strategy": config.distributed_strategy,
+                },
             }
         },
     )
 
 
-def _wandb_metrics(row: dict[str, object]) -> dict[str, float]:
+def _tracker_metrics(row: dict[str, object]) -> dict[str, float]:
     metrics: dict[str, float] = {
         "train/loss": float(row["train_loss"]),
         "train/perplexity": float(row["train_perplexity"]),

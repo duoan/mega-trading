@@ -14,10 +14,8 @@ DATA_VOLUME_PATH = "/data"
 DEFAULT_CONFIG_NAME = "modal-binance"
 DEFAULT_DATA_DIR = f"{DATA_VOLUME_PATH}/binance-trades"
 DEFAULT_GPU = "H100:8"
-WANDB_SECRET_NAME = "wandb-secret"
 
 volume = modal.Volume.from_name("mega-trading-artifacts", create_if_missing=True)
-wandb_secret = modal.Secret.from_name(WANDB_SECRET_NAME)
 
 image = (
     modal.Image.from_registry("nvidia/cuda:12.8.1-devel-bookworm", add_python="3.11")
@@ -59,7 +57,7 @@ def _run(command: list[str]) -> None:
     subprocess.run(command, cwd=REPO_DIR, check=True)
 
 
-@app.function(gpu=DEFAULT_GPU, volumes={DATA_VOLUME_PATH: volume}, secrets=[wandb_secret], timeout=60 * 60 * 24)
+@app.function(gpu=DEFAULT_GPU, volumes={DATA_VOLUME_PATH: volume}, timeout=60 * 60 * 24)
 def train_single_node(
     run_id: str = "modal-single",
     config_name: str = DEFAULT_CONFIG_NAME,
@@ -82,7 +80,7 @@ def train_single_node(
     volume.commit()
 
 
-@app.function(gpu=DEFAULT_GPU, volumes={DATA_VOLUME_PATH: volume}, secrets=[wandb_secret], timeout=60 * 60 * 24)
+@app.function(gpu=DEFAULT_GPU, volumes={DATA_VOLUME_PATH: volume}, timeout=60 * 60 * 24)
 @modal.experimental.clustered(size=2, rdma=True)
 def train_clustered(
     run_id: str = "modal-cluster",

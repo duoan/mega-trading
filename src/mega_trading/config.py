@@ -89,10 +89,9 @@ class TrainConfig:
     attention_backend: str = "auto"
     checkpoint_interval: int | None = None
     resume_from_checkpoint: str | None = None
-    wandb_enabled: bool = True
-    wandb_project: str = "mega-trading"
-    wandb_entity: str | None = None
-    wandb_mode: str = "offline"
+    mlflow_enabled: bool = True
+    mlflow_experiment: str = "mega-trading"
+    mlflow_tracking_uri: str | None = None
     progress_bar: bool = True
 
     def __post_init__(self) -> None:
@@ -147,5 +146,5 @@ class TrainConfig:
             raise ValueError("checkpoint_interval must be positive when set")
         if self.resume_from_checkpoint is not None and not self.resume_from_checkpoint:
             raise ValueError("resume_from_checkpoint must be a non-empty path when set")
-        if self.wandb_mode not in {"online", "offline", "disabled"}:
-            raise ValueError("wandb_mode must be one of: online, offline, disabled")
+        if self.mlflow_tracking_uri is not None and not self.mlflow_tracking_uri:
+            raise ValueError("mlflow_tracking_uri must be a non-empty path or URI when set")

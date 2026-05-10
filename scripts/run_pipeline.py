@@ -22,7 +22,6 @@ def main() -> int:
     parser.add_argument("--local-steps", type=int, default=300, help="training steps for local training")
     parser.add_argument("--remote-steps", type=int, default=50_000, help="training steps for Modal training")
     parser.add_argument("--force-data", action="store_true", help="rebuild data even when numpy shards already exist")
-    parser.add_argument("--skip-wandb-sync", action="store_true", help="do not sync local W&B login to Modal Secret")
     args = parser.parse_args()
 
     if args.target == "local":
@@ -52,7 +51,7 @@ def main() -> int:
                 "binance-local",
                 f"training.max_steps={args.local_steps}",
                 "training.eval_interval=50",
-                "training.wandb_enabled=false",
+                "training.mlflow_enabled=false",
             ]
         )
         return 0
@@ -85,8 +84,6 @@ def main() -> int:
             "/binance-trades/datasets",
         ]
     )
-    if not args.skip_wandb_sync:
-        _run(["uv", "run", "python", "scripts/sync_wandb_modal_secret.py"])
     _run(
         [
             "uv",
