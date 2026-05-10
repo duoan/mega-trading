@@ -18,8 +18,12 @@ from mega_trading.model import LlamaAttention, RMSNorm, SwiGLU, TradingModel
 from mega_trading.report import run_report
 from mega_trading.tokenizer import MarketEventTokenizer
 from mega_trading.trainer import (
+    MuonAdamW,
     Trainer,
     _attention_kernel_context,
+    _build_lr_scheduler,
+    _build_optimizer,
+    _current_learning_rate,
     _maybe_compile_model,
     _maybe_cudagraph_mark_step_begin,
 )
@@ -204,6 +208,41 @@ class TrainingTests(unittest.TestCase):
             _maybe_cudagraph_mark_step_begin(TrainConfig(run_id="x", compile=True), torch.device("cuda"))
         mark.assert_called_once()
 
+    def test_muon_optimizer_partitions_hidden_matrices_from_adamw_params(self) -> None:
+        model = TradingModel(vocab_size=MarketEventTokenizer().vocab_size, block_size=8, hidden_dim=16, layers=1, attention_heads=2)
+        optimizer = _build_optimizer(model, TrainConfig(run_id="muon-test", optimizer="muon"))
+
+        self.assertIsInstance(optimizer, MuonAdamW)
+        muon_names = set(optimizer.param_groups[0]["param_names"])
+        adamw_names = set(optimizer.param_groups[1]["param_names"])
+        self.assertIn("blocks.0.attention.q_proj.weight", muon_names)
+        self.assertIn("blocks.0.feed_forward.w1.weight", muon_names)
+        self.assertIn("token_embedding.weight", adamw_names)
+        self.assertIn("norm.weight", adamw_names)
+
+    def test_cosine_scheduler_warms_up_then_decays_to_min_lr(self) -> None:
+        parameter = torch.nn.Parameter(torch.ones(1))
+        optimizer = torch.optim.AdamW([parameter], lr=1.0)
+        config = TrainConfig(
+            run_id="schedule-test",
+            learning_rate=1.0,
+            max_steps=4,
+            lr_schedule="cosine",
+            lr_warmup_steps=2,
+            min_learning_rate=0.1,
+        )
+        scheduler = _build_lr_scheduler(optimizer, config)
+
+        lrs = [_current_learning_rate(optimizer)]
+        for _ in range(3):
+            parameter.grad = torch.ones_like(parameter)
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad(set_to_none=True)
+            lrs.append(_current_learning_rate(optimizer))
+
+        self.assertEqual(lrs, [0.5, 1.0, 1.0, 0.1])
+
     def test_dataset_row_maps_to_next_token_example(self) -> None:
         example = tokens_to_example([1, 3, 4, 5])
 
@@ -320,13 +359,19 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(metrics[-1]["dataset_format"], "numpy")
             self.assertEqual(metrics[-1]["world_size"], 1)
             self.assertFalse(metrics[-1]["compile_enabled"])
+            self.assertEqual(metrics[-1]["optimizer"], "adamw")
+            self.assertEqual(metrics[-1]["lr_schedule"], "constant")
+            self.assertIn("learning_rate", metrics[-1])
             self.assertEqual(manifest.metadata["distributed_strategy"], "ddp")
             self.assertEqual(manifest.metadata["dataset_format"], "numpy")
             self.assertEqual(manifest.metadata["gradient_accumulation_steps"], 1)
             self.assertEqual(manifest.metadata["attention_backend"], "auto")
             self.assertEqual(manifest.metadata["max_eval_batches"], 1)
+            self.assertEqual(manifest.metadata["optimizer"], "adamw")
+            self.assertEqual(manifest.metadata["lr_schedule"], "constant")
             self.assertGreater(manifest.metadata["backtest_sequence_count"], 0)
             self.assertIn("optimizer_state_dict", checkpoint)
+            self.assertIn("scheduler_state_dict", checkpoint)
             self.assertEqual(checkpoint["step"], 2)
             self.assertEqual(report["stage"], "eval")
             self.assertIn("generated", report)

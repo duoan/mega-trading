@@ -31,6 +31,82 @@ class TrainResult:
     manifest_path: str
 
 
+class MuonAdamW(torch.optim.Optimizer):
+    """Hybrid Muon/AdamW optimizer for transformer training."""
+
+    def __init__(self, param_groups: list[dict[str, Any]]) -> None:
+        super().__init__(param_groups, defaults={})
+
+    @torch.no_grad()
+    def step(self, closure: Any = None) -> Any:
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        for group in self.param_groups:
+            algorithm = str(group["algorithm"])
+            if algorithm == "muon":
+                self._step_muon_group(group)
+            elif algorithm == "adamw":
+                self._step_adamw_group(group)
+            else:
+                raise ValueError(f"unsupported optimizer algorithm: {algorithm}")
+        return loss
+
+    def _step_muon_group(self, group: dict[str, Any]) -> None:
+        lr = float(group["lr"])
+        weight_decay = float(group["weight_decay"])
+        momentum = float(group["momentum"])
+        ns_steps = int(group["ns_steps"])
+        for parameter in group["params"]:
+            if parameter.grad is None:
+                continue
+            if parameter.grad.is_sparse:
+                raise RuntimeError("MuonAdamW does not support sparse gradients")
+            if weight_decay:
+                parameter.mul_(1.0 - lr * weight_decay)
+            state = self.state[parameter]
+            if "momentum_buffer" not in state:
+                state["momentum_buffer"] = torch.zeros_like(parameter)
+            buffer = state["momentum_buffer"]
+            buffer.mul_(momentum).add_(parameter.grad)
+            # Muon's Nesterov-style update is orthogonalized before applying the weight step.
+            update = parameter.grad.add(buffer, alpha=momentum)
+            update = _muon_orthogonalize(update, ns_steps)
+            parameter.add_(update, alpha=-lr)
+
+    def _step_adamw_group(self, group: dict[str, Any]) -> None:
+        lr = float(group["lr"])
+        weight_decay = float(group["weight_decay"])
+        beta1, beta2 = group["betas"]
+        eps = float(group["eps"])
+        for parameter in group["params"]:
+            if parameter.grad is None:
+                continue
+            if parameter.grad.is_sparse:
+                raise RuntimeError("MuonAdamW AdamW group does not support sparse gradients")
+            grad = parameter.grad
+            if grad.is_complex():
+                raise RuntimeError("MuonAdamW does not support complex parameters")
+            state = self.state[parameter]
+            if len(state) == 0:
+                state["step"] = 0
+                state["exp_avg"] = torch.zeros_like(parameter)
+                state["exp_avg_sq"] = torch.zeros_like(parameter)
+            state["step"] += 1
+            step = int(state["step"])
+            exp_avg = state["exp_avg"]
+            exp_avg_sq = state["exp_avg_sq"]
+            if weight_decay:
+                parameter.mul_(1.0 - lr * weight_decay)
+            exp_avg.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+            exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+            bias_correction1 = 1.0 - beta1**step
+            bias_correction2 = 1.0 - beta2**step
+            denom = exp_avg_sq.sqrt().div_(math.sqrt(bias_correction2)).add_(eps)
+            parameter.addcdiv_(exp_avg, denom, value=-(lr / bias_correction1))
+
+
 class Trainer:
     def __init__(self, store: LocalObjectStore, config: TrainConfig) -> None:
         self.store = store
@@ -76,7 +152,8 @@ class Trainer:
             rope_theta=self.config.rope_theta,
             norm_eps=self.config.norm_eps,
         )
-        optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate)
+        optimizer = _build_optimizer(model, self.config)
+        scheduler = _build_lr_scheduler(optimizer, self.config)
         resume_state = _load_resume_checkpoint(self.store, self.config.resume_from_checkpoint)
         start_step = 1
         metrics: list[dict[str, object]] = []
@@ -84,15 +161,18 @@ class Trainer:
             _validate_resume_checkpoint(resume_state, profile, shard_path)
             model.load_state_dict(resume_state["model_state_dict"])
             optimizer.load_state_dict(resume_state["optimizer_state_dict"])
+            if "scheduler_state_dict" in resume_state:
+                scheduler.load_state_dict(resume_state["scheduler_state_dict"])
             start_step = int(resume_state.get("step", 0)) + 1
             metrics = [dict(row) for row in resume_state.get("metrics", [])]
         model = _maybe_compile_model(model, self.config, device)
         if validation_loader is None:
-            model, optimizer, train_loader = accelerator.prepare(model, optimizer, train_loader)
+            model, optimizer, scheduler, train_loader = accelerator.prepare(model, optimizer, scheduler, train_loader)
         else:
-            model, optimizer, train_loader, validation_loader = accelerator.prepare(
+            model, optimizer, scheduler, train_loader, validation_loader = accelerator.prepare(
                 model,
                 optimizer,
+                scheduler,
                 train_loader,
                 validation_loader,
             )
@@ -115,13 +195,18 @@ class Trainer:
                     logits = model(batch["input_ids"])
                     loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
                 accelerator.backward(loss)
+                learning_rate = _current_learning_rate(optimizer)
                 optimizer.step()
+                scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
             elapsed = max(perf_counter() - started, 1e-9)
             if accelerator.is_main_process:
                 metric_row = {
                     "step": step,
                     "stage": "training",
+                    "optimizer": self.config.optimizer,
+                    "lr_schedule": self.config.lr_schedule,
+                    "learning_rate": learning_rate,
                     "train_loss": float(loss.detach().cpu()),
                     "train_perplexity": _perplexity(float(loss.detach().cpu())),
                     "train_top1_accuracy": _topk_accuracy(logits, batch["labels"], 1),
@@ -161,6 +246,7 @@ class Trainer:
                     accelerator,
                     model,
                     optimizer,
+                    scheduler,
                     self.config,
                     profile,
                     shard_path,
@@ -178,6 +264,7 @@ class Trainer:
             accelerator,
             model,
             optimizer,
+            scheduler,
             self.config,
             profile,
             shard_path,
@@ -196,6 +283,11 @@ class Trainer:
                         "run_id": self.config.run_id,
                         "training_backend": "accelerate",
                         "distributed_strategy": self.config.distributed_strategy,
+                        "optimizer": self.config.optimizer,
+                        "weight_decay": self.config.weight_decay,
+                        "lr_schedule": self.config.lr_schedule,
+                        "lr_warmup_steps": self.config.lr_warmup_steps,
+                        "min_learning_rate": self.config.min_learning_rate,
                         "dataset_format": dataset_format,
                         "world_size": accelerator.num_processes,
                         "gradient_accumulation_steps": self.config.gradient_accumulation_steps,
@@ -218,6 +310,104 @@ class Trainer:
         if self.config.mlflow_enabled:
             accelerator.end_training()
         return TrainResult(checkpoint_path=checkpoint_path, metrics_path=metrics_path, manifest_path=manifest_path)
+
+
+def _build_optimizer(model: torch.nn.Module, config: TrainConfig) -> torch.optim.Optimizer:
+    betas = (config.adam_beta1, config.adam_beta2)
+    if config.optimizer == "adamw":
+        return torch.optim.AdamW(
+            model.parameters(),
+            lr=config.learning_rate,
+            betas=betas,
+            eps=config.adam_eps,
+            weight_decay=config.weight_decay,
+        )
+    muon_params: list[torch.nn.Parameter] = []
+    muon_names: list[str] = []
+    adamw_params: list[torch.nn.Parameter] = []
+    adamw_names: list[str] = []
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad:
+            continue
+        if _use_muon(name, parameter):
+            muon_params.append(parameter)
+            muon_names.append(name)
+        else:
+            adamw_params.append(parameter)
+            adamw_names.append(name)
+    groups: list[dict[str, Any]] = []
+    if muon_params:
+        groups.append(
+            {
+                "params": muon_params,
+                "param_names": muon_names,
+                "algorithm": "muon",
+                "lr": config.learning_rate,
+                "weight_decay": config.weight_decay,
+                "momentum": config.muon_momentum,
+                "ns_steps": config.muon_ns_steps,
+            }
+        )
+    if adamw_params:
+        groups.append(
+            {
+                "params": adamw_params,
+                "param_names": adamw_names,
+                "algorithm": "adamw",
+                "lr": config.learning_rate,
+                "weight_decay": config.weight_decay,
+                "betas": betas,
+                "eps": config.adam_eps,
+            }
+        )
+    return MuonAdamW(groups)
+
+
+def _use_muon(name: str, parameter: torch.nn.Parameter) -> bool:
+    if parameter.ndim < 2:
+        return False
+    return "embedding" not in name and not name.endswith("output.weight")
+
+
+def _muon_orthogonalize(update: torch.Tensor, ns_steps: int) -> torch.Tensor:
+    original_shape = update.shape
+    matrix = update.reshape(update.shape[0], -1)
+    rows, cols = matrix.shape
+    transposed = rows > cols
+    if transposed:
+        matrix = matrix.T
+    x = matrix.float()
+    norm = x.norm()
+    if norm == 0:
+        return torch.zeros_like(update)
+    x = x / (norm + 1e-7)
+    for _ in range(ns_steps):
+        gram = x @ x.T
+        x = 3.4445 * x + (-4.7750 * gram + 2.0315 * (gram @ gram)) @ x
+    if transposed:
+        x = x.T
+    scale = math.sqrt(max(1.0, rows / cols))
+    return x.reshape(original_shape).to(dtype=update.dtype) * scale
+
+
+def _build_lr_scheduler(optimizer: torch.optim.Optimizer, config: TrainConfig) -> torch.optim.lr_scheduler.LambdaLR:
+    min_lr_ratio = config.min_learning_rate / config.learning_rate
+
+    def multiplier(step_index: int) -> float:
+        if config.lr_warmup_steps and step_index < config.lr_warmup_steps:
+            return (step_index + 1) / config.lr_warmup_steps
+        if config.lr_schedule == "constant":
+            return 1.0
+        decay_steps = max(config.max_steps - config.lr_warmup_steps - 1, 1)
+        progress = min(max((step_index - config.lr_warmup_steps) / decay_steps, 0.0), 1.0)
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return min_lr_ratio + (1.0 - min_lr_ratio) * cosine
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, multiplier)
+
+
+def _current_learning_rate(optimizer: torch.optim.Optimizer) -> float:
+    return float(optimizer.param_groups[0]["lr"])
 
 
 @torch.no_grad()
@@ -355,6 +545,7 @@ def _save_checkpoint(
     accelerator: Accelerator,
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
     config: TrainConfig,
     profile: dict[str, Any],
     shard_path: str,
@@ -372,6 +563,7 @@ def _save_checkpoint(
                 "step": step,
                 "model_state_dict": model_state_dict,
                 "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
                 "config": config.__dict__,
                 "profile": profile,
                 "shard_path": shard_path,
@@ -526,6 +718,11 @@ def _init_trackers(
             "intermediate_dim": config.intermediate_dim,
             "batch_size": config.batch_size,
             "learning_rate": config.learning_rate,
+            "optimizer": config.optimizer,
+            "weight_decay": config.weight_decay,
+            "lr_schedule": config.lr_schedule,
+            "lr_warmup_steps": config.lr_warmup_steps,
+            "min_learning_rate": config.min_learning_rate,
             "requested_device": config.device,
             "requested_precision": config.precision,
             "effective_precision": precision,
@@ -556,6 +753,7 @@ def _init_trackers(
 
 def _tracker_metrics(row: dict[str, object]) -> dict[str, float]:
     metrics: dict[str, float] = {
+        "train/learning_rate": float(row["learning_rate"]),
         "train/loss": float(row["train_loss"]),
         "train/perplexity": float(row["train_perplexity"]),
         "train/top1_accuracy": float(row["train_top1_accuracy"]),
@@ -582,6 +780,7 @@ def _progress_bar(accelerator: Accelerator, config: TrainConfig, start_step: int
 def _progress_postfix(row: dict[str, object]) -> dict[str, str]:
     return {
         "loss": f"{float(row['train_loss']):.4f}",
+        "lr": f"{float(row['learning_rate']):.2e}",
         "ppl": f"{float(row['train_perplexity']):.2f}",
         "top1": f"{float(row['train_top1_accuracy']):.2f}",
         "tok/s": f"{float(row['tokens_per_second']):.1f}",
