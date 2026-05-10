@@ -1,6 +1,7 @@
 import importlib.util
 import inspect
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,7 +21,7 @@ from mega_trading.events import EventBuilder, events_by_ticker_from_rows
 from mega_trading.kernels import triton_attention as triton_attention_module
 from mega_trading.kernels import triton_ops as triton_ops_module
 from mega_trading.model import LlamaAttention, RMSNorm, RotaryEmbedding, SwiGLU, TradingModel, _apply_rope, _triton_attention
-from mega_trading.report import run_report
+from mega_trading.report import _training_chart, run_report
 from mega_trading.tokenizer import MarketEventTokenizer
 from mega_trading.trainer import (
     MuonAdamW,
@@ -191,6 +192,34 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(block.attention.kv_heads, 2)
         self.assertIsInstance(block.feed_forward, SwiGLU)
         self.assertEqual(model(torch.randint(0, tokenizer.vocab_size, (2, 8))).shape, (2, 8, tokenizer.vocab_size))
+
+    def test_tied_output_initialization_keeps_initial_next_token_loss_reasonable(self) -> None:
+        torch.manual_seed(7)
+        model = TradingModel(vocab_size=512, block_size=16, hidden_dim=512, layers=1, attention_heads=8, dropout=0.0)
+        input_ids = torch.randint(0, 512, (4, 16))
+        labels = torch.randint(0, 512, (4, 16))
+
+        logits = model(input_ids)
+        loss = F.cross_entropy(logits.reshape(-1, logits.shape[-1]), labels.reshape(-1))
+
+        self.assertIs(model.output.weight, model.token_embedding.weight)
+        self.assertLess(float(model.token_embedding.weight.detach().std()), 0.05)
+        self.assertLess(float(loss.detach()), 20.0)
+
+    def test_training_chart_aligns_validation_points_to_metric_steps(self) -> None:
+        html = _training_chart(
+            [
+                {"step": 1, "train_loss": 10.0},
+                {"step": 100, "train_loss": 9.0, "validation_loss": 8.0},
+                {"step": 200, "train_loss": 7.0, "validation_loss": 6.0},
+            ]
+        )
+
+        match = re.search(r'stroke="#73a7ff"[^>]*points="([^"]+)"', html)
+
+        self.assertIsNotNone(match)
+        first_validation_x = float(match.group(1).split()[0].split(",")[0])
+        self.assertGreater(first_validation_x, 300.0)
 
     def test_rotary_embedding_precomputes_and_slices_positions(self) -> None:
         rope = RotaryEmbedding(head_dim=8, max_sequence_length=16, theta=10_000.0)

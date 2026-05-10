@@ -63,6 +63,7 @@ class TradingModel(nn.Module):
         )
         self.norm = RMSNorm(hidden_dim, eps=norm_eps)
         self.output = nn.Linear(hidden_dim, vocab_size, bias=False)
+        self.apply(_init_weights)
         self.output.weight = self.token_embedding.weight
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
@@ -259,6 +260,16 @@ def _rotate(value: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.
     odd = value[..., 1::2]
     rotated = torch.stack((even * cos - odd * sin, even * sin + odd * cos), dim=-1)
     return rotated.flatten(start_dim=-2)
+
+
+def _init_weights(module: nn.Module) -> None:
+    """Use small Transformer-style weights so tied logits start near log-vocab loss."""
+    if isinstance(module, nn.Linear):
+        nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.Embedding):
+        nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
 
 def _llama_intermediate_dim(hidden_dim: int) -> int:

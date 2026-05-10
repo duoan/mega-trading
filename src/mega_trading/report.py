@@ -241,8 +241,16 @@ def _split_chart(totals: dict[str, int]) -> str:
 
 
 def _training_chart(metrics: list[dict[str, Any]]) -> str:
-    train = [_as_float(row.get("train_loss")) for row in metrics]
-    val = [_as_float(row.get("validation_loss")) for row in metrics if row.get("validation_loss") is not None]
+    train = [
+        (float(row.get("step", index + 1)), value)
+        for index, row in enumerate(metrics)
+        if (value := _as_float(row.get("train_loss"))) is not None
+    ]
+    val = [
+        (float(row.get("step", index + 1)), value)
+        for index, row in enumerate(metrics)
+        if (value := _as_float(row.get("validation_loss"))) is not None
+    ]
     svg = _line_chart(
         [
             ("train loss", "#74d680", train),
@@ -491,10 +499,14 @@ def _config_section(profile: dict[str, Any], manifest: dict[str, Any] | None) ->
     return f"<section><h2>Run Configuration</h2><table><tbody>{body}</tbody></table></section>"
 
 
-def _line_chart(series: list[tuple[str, str, list[float | None]]], title: str) -> str:
+def _line_chart(series: list[tuple[str, str, list[tuple[float, float]]]], title: str) -> str:
     width, height = 760, 260
     padding = 42
-    values = [value for _, _, items in series for value in items if value is not None and math.isfinite(value)]
+    points_by_series = [
+        (label, color, [(x, y) for x, y in items if math.isfinite(x) and math.isfinite(y)])
+        for label, color, items in series
+    ]
+    values = [y for _, _, items in points_by_series for _, y in items]
     if not values:
         return f"<p class=\"warn\">No {escape(title)} data found.</p>"
     minimum = min(values)
@@ -502,17 +514,22 @@ def _line_chart(series: list[tuple[str, str, list[float | None]]], title: str) -
     if math.isclose(minimum, maximum):
         minimum -= 1.0
         maximum += 1.0
-    longest = max((len(items) for _, _, items in series), default=1)
+    x_values = [x for _, _, items in points_by_series for x, _ in items]
+    min_x = min(x_values)
+    max_x = max(x_values)
+    if math.isclose(min_x, max_x):
+        min_x -= 1.0
+        max_x += 1.0
 
-    def point(index: int, value: float) -> tuple[float, float]:
-        x = padding + (width - 2 * padding) * index / max(longest - 1, 1)
+    def point(x_value: float, value: float) -> tuple[float, float]:
+        x = padding + (width - 2 * padding) * (x_value - min_x) / (max_x - min_x)
         y = height - padding - (height - 2 * padding) * (value - minimum) / (maximum - minimum)
         return x, y
 
     polylines = []
     legend = []
-    for label, color, items in series:
-        points = [point(index, float(value)) for index, value in enumerate(items) if value is not None and math.isfinite(value)]
+    for label, color, items in points_by_series:
+        points = [point(x, y) for x, y in items]
         if len(points) < 2:
             continue
         encoded = " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
