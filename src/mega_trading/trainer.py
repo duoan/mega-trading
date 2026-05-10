@@ -107,6 +107,8 @@ class Trainer:
         for step in range(start_step, self.config.max_steps + 1):
             last_step = step
             batch = next(iterator)
+            # Separate compiled forward captures per step when CUDA graphs are enabled (e.g. compile_mode reduce-overhead).
+            _maybe_cudagraph_mark_step_begin(self.config, device)
             started = perf_counter()
             with accelerator.accumulate(model):
                 with accelerator.autocast(), _attention_kernel_context(self.config.attention_backend, device):
@@ -422,6 +424,15 @@ def _maybe_compile_model(model: TradingModel, config: TrainConfig, device: torch
     if device.type == "mps":
         raise RuntimeError("torch.compile is not supported for this training path on MPS")
     return torch.compile(model, mode=config.compile_mode)
+
+
+def _maybe_cudagraph_mark_step_begin(config: TrainConfig, device: torch.device) -> None:
+    """Tell torch.compile when a new training step starts so CUDAGraph outputs are not aliased across steps."""
+    if not config.compile or device.type != "cuda":
+        return
+    mark = getattr(torch.compiler, "cudagraph_mark_step_begin", None)
+    if callable(mark):
+        mark()
 
 
 @contextmanager

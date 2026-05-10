@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import torch
@@ -17,7 +17,12 @@ from mega_trading.events import EventBuilder, events_by_ticker_from_rows
 from mega_trading.model import LlamaAttention, RMSNorm, SwiGLU, TradingModel
 from mega_trading.report import run_report
 from mega_trading.tokenizer import MarketEventTokenizer
-from mega_trading.trainer import Trainer, _attention_kernel_context, _maybe_compile_model
+from mega_trading.trainer import (
+    Trainer,
+    _attention_kernel_context,
+    _maybe_compile_model,
+    _maybe_cudagraph_mark_step_begin,
+)
 
 
 class TrainingTests(unittest.TestCase):
@@ -43,8 +48,10 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(int(server.training.batch_size), 8)
         self.assertEqual(int(server.training.gradient_accumulation_steps), 8)
         self.assertEqual(int(server.training.max_eval_batches), 64)
+        self.assertEqual(str(server.training.compile_mode), "default")
         self.assertEqual(str(binance_modal.data.data_dir), "/data/binance-trades")
         self.assertEqual(str(binance_modal.data.mixture), "binance_public")
+        self.assertEqual(str(binance_modal.training.compile_mode), "reduce-overhead")
         self.assertEqual(str(binance_modal.training.distributed_strategy), "fsdp")
         self.assertEqual(int(binance_modal.build.numpy_partition_rows), 16384)
         self.assertTrue(bool(server.build.streaming_prepare))
@@ -160,6 +167,19 @@ class TrainingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "requires CUDA"):
             with _attention_kernel_context("flash", torch.device("cpu")):
                 pass
+
+    def test_cudagraph_mark_step_begin_skipped_without_cuda_or_compile(self) -> None:
+        mark = Mock()
+        with patch.object(torch.compiler, "cudagraph_mark_step_begin", mark, create=True):
+            _maybe_cudagraph_mark_step_begin(TrainConfig(run_id="x", compile=False), torch.device("cuda"))
+            _maybe_cudagraph_mark_step_begin(TrainConfig(run_id="x", compile=True), torch.device("cpu"))
+        mark.assert_not_called()
+
+    def test_cudagraph_mark_step_begin_called_when_compile_and_cuda(self) -> None:
+        mark = Mock()
+        with patch.object(torch.compiler, "cudagraph_mark_step_begin", mark, create=True):
+            _maybe_cudagraph_mark_step_begin(TrainConfig(run_id="x", compile=True), torch.device("cuda"))
+        mark.assert_called_once()
 
     def test_dataset_row_maps_to_next_token_example(self) -> None:
         example = tokens_to_example([1, 3, 4, 5])

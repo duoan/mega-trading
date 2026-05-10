@@ -50,7 +50,8 @@ training:
   distributed_strategy: ddp
   gradient_accumulation_steps: 8
   compile: true
-  compile_mode: reduce-overhead
+  # default avoids torch.compile CUDA-graph capture that conflicts with Accelerate backward on single-GPU DDP.
+  compile_mode: default
   attention_backend: flash
   checkpoint_interval: 1000
   resume_from_checkpoint: null
