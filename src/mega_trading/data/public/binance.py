@@ -320,6 +320,26 @@ def _iter_trades_zip_path(path: Path) -> Iterable[dict[str, str]]:
                 }
 
 
+def iter_trade_fields_from_archive(path: Path) -> Iterable[tuple[str, float, float, int, bool]]:
+    """Yield raw trade fields from a Binance ZIP with minimal Python object churn."""
+    with ZipFile(path) as archive:
+        csv_name = next(name for name in archive.namelist() if name.endswith(".csv"))
+        with archive.open(csv_name) as handle:
+            for line in handle:
+                if not line or line.startswith(b"trade_id"):
+                    continue
+                fields = line.rstrip(b"\r\n").split(b",")
+                if len(fields) < 6:
+                    continue
+                yield (
+                    fields[0].decode("ascii"),
+                    float(fields[1]),
+                    float(fields[2]),
+                    int(fields[4]),
+                    fields[5].lower() == b"true",
+                )
+
+
 def count_trade_rows_in_archive(path: Path) -> int:
     """Count CSV data rows in a Binance ZIP without constructing row dictionaries."""
     with ZipFile(path) as archive:

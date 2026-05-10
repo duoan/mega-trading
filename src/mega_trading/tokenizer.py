@@ -107,19 +107,40 @@ class MarketEventTokenizer:
         return _SPECIAL_TOKENS + size
 
     def encode_event(self, event: dict[str, object]) -> list[int]:
+        return [
+            self.encode_features(
+                action=str(event["action"]),
+                side=str(event["side"]),
+                relative_price_bps=float(event["relative_price_bps"]),
+                price_depth_bps=float(event["price_depth_bps"]),
+                size=float(event["size"]),
+                interarrival_seconds=float(event["interarrival_seconds"]),
+            )
+        ]
+
+    def encode_features(
+        self,
+        *,
+        action: str,
+        side: str,
+        relative_price_bps: float,
+        price_depth_bps: float,
+        size: float,
+        interarrival_seconds: float,
+    ) -> int:
         values = (
-            _ACTIONS.index(str(event["action"])),
-            _SIDES.index(str(event["side"])),
-            _bucket(float(event["relative_price_bps"]), self.relative_price_edges),
-            _bucket(float(event["price_depth_bps"]), self.price_depth_edges),
-            _bucket(_log_size(event), self.log_size_edges),
-            _bucket(float(event["interarrival_seconds"]), self.dt_edges),
+            _ACTIONS.index(action),
+            _SIDES.index(side),
+            _bucket(relative_price_bps, self.relative_price_edges),
+            _bucket(price_depth_bps, self.price_depth_edges),
+            _bucket(math.log(max(size, 1e-12)), self.log_size_edges),
+            _bucket(interarrival_seconds, self.dt_edges),
         )
         sizes = tuple(self.bucket_counts.values())
         for value, size in zip(values, sizes):
             if value < 0 or value >= size:
                 raise ValueError(f"token value out of range: {value} >= {size}")
-        return [_SPECIAL_TOKENS + _encode_mixed_radix(values, sizes)]
+        return _SPECIAL_TOKENS + _encode_mixed_radix(values, sizes)
 
     def decode_token(self, token_id: int) -> tuple[int, int, int, int, int, int]:
         if token_id < _SPECIAL_TOKENS or token_id >= self.vocab_size:

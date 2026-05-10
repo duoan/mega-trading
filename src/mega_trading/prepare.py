@@ -6,6 +6,7 @@ from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+import math
 import os
 from pathlib import Path
 from statistics import median
@@ -25,6 +26,7 @@ from mega_trading.data.public.binance import (
     BinanceTradeArchive,
     count_trade_rows_in_archive,
     download_binance_trade_archives,
+    iter_trade_fields_from_archive,
     iter_order_flow_event_dicts_for_symbol,
     iter_valid_trade_rows_from_archive,
     load_order_flow_from_archives,
@@ -512,10 +514,10 @@ def _write_symbol_token_stream_job(
     offset = 0
     token_stream[offset] = BOS_TOKEN
     offset += 1
-    for event in iter_order_flow_event_dicts_for_symbol(request, archives, qty_baseline):
+    for token in _iter_fast_symbol_tokens(request, archives, qty_baseline, tokenizer):
         if offset >= token_count - 1:
             break
-        token_stream[offset] = tokenizer.encode_event(event)[0]
+        token_stream[offset] = token
         offset += 1
     if offset < token_count:
         token_stream[offset] = EOS_TOKEN
@@ -531,6 +533,43 @@ def _write_symbol_token_stream_job(
         "sequence_count": sequence_count,
         "token_count": token_count,
     }
+
+
+def _iter_fast_symbol_tokens(
+    request: BinanceTradesIngestRequest,
+    archives: list[BinanceTradeArchive],
+    qty_baseline: float,
+    tokenizer: MarketEventTokenizer,
+) -> Iterable[int]:
+    start_seconds = _to_utc_datetime(str(request.start)).timestamp()
+    end_seconds = _to_utc_datetime(str(request.end)).timestamp()
+    previous_price: float | None = None
+    previous_time: float | None = None
+    for archive in sorted(archives, key=lambda item: item.partition):
+        for _trade_id, price, qty, raw_time, is_buyer_maker in iter_trade_fields_from_archive(archive.path):
+            timestamp = _binance_timestamp_seconds(raw_time)
+            if timestamp < start_seconds or timestamp > end_seconds or qty <= 0.0 or price <= 0.0:
+                continue
+            if previous_price is None or previous_time is None:
+                previous_price = price
+                previous_time = timestamp
+                continue
+            relative_price_bps = 10_000.0 * math.log(price / max(previous_price, 1e-12))
+            yield tokenizer.encode_features(
+                action="delete",
+                side="sell" if is_buyer_maker else "buy",
+                relative_price_bps=float(relative_price_bps),
+                price_depth_bps=abs(float(relative_price_bps)),
+                size=qty / max(qty_baseline, 1e-12),
+                interarrival_seconds=max(timestamp - previous_time, 1e-6),
+            )
+            previous_price = price
+            previous_time = timestamp
+
+
+def _binance_timestamp_seconds(value: int) -> float:
+    divisor = 1_000_000 if value >= 10**15 else 1_000
+    return value / divisor
 
 
 def _split_counts(
