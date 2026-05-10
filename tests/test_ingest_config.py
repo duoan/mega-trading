@@ -71,7 +71,7 @@ frequency = "daily"
         self.assertEqual(binance_local.sources[0].download_workers, 8)
         self.assertEqual(binance_local.sources[0].process_workers, 0)
         self.assertEqual(binance_modal_prep.output_dir, ".mega-trading/binance-modal")
-        self.assertGreaterEqual(len(binance_modal_prep.sources[0].tickers), 20)
+        self.assertGreaterEqual(len(binance_modal_prep.sources[0].tickers), 100)
         self.assertEqual(binance_modal_prep.sources[0].download_workers, 16)
         self.assertEqual(binance_modal_prep.sources[0].process_workers, 0)
 

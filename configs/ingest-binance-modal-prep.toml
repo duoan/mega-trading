@@ -3,12 +3,7 @@ output_dir = ".mega-trading/binance-modal"
 
 [[ingest.sources]]
 name = "binance_trades"
-tickers = [
-  "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-  "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "TRXUSDT",
-  "TONUSDT", "DOTUSDT", "MATICUSDT", "LTCUSDT", "BCHUSDT",
-  "UNIUSDT", "ATOMUSDT", "ETCUSDT", "FILUSDT", "NEARUSDT"
-]
+ticker_file = "binance-usdt-liquid-universe.txt"
 start = "2023-01-01T00:00:00Z"
 end = "2024-12-31T23:59:59Z"
 frequency = "monthly"

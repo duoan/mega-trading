@@ -14,6 +14,8 @@ The matching source TOML files are:
 - `configs/ingest-binance-modal-prep.toml`
 - `configs/ingest-demo.toml`
 
+The remote/server Binance ingest uses `configs/binance-usdt-liquid-universe.txt`, a 100+ symbol liquid USDT spot universe. Local ingest stays intentionally small for fast smoke tests.
+
 ## Local
 
 ```bash
