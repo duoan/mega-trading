@@ -320,6 +320,48 @@ def _iter_trades_zip_path(path: Path) -> Iterable[dict[str, str]]:
                 }
 
 
+def count_trade_rows_in_archive(path: Path) -> int:
+    """Count CSV data rows in a Binance ZIP without constructing row dictionaries."""
+    with ZipFile(path) as archive:
+        csv_name = next(name for name in archive.namelist() if name.endswith(".csv"))
+        with archive.open(csv_name) as handle:
+            first_line = handle.readline()
+            if not first_line:
+                return 0
+            has_header = first_line.startswith(b"trade_id")
+            count = 0 if has_header else 1
+            saw_rest = False
+            last_byte = first_line[-1:]
+            while chunk := handle.read(1024 * 1024):
+                saw_rest = True
+                count += chunk.count(b"\n")
+                last_byte = chunk[-1:]
+            if saw_rest and last_byte != b"\n":
+                count += 1
+            return count
+
+
+def sample_trade_quantities_from_archive(path: Path, limit: int) -> list[float]:
+    """Sample trade quantities from a Binance ZIP without timestamp conversion."""
+    if limit <= 0:
+        return []
+    quantities: list[float] = []
+    with ZipFile(path) as archive:
+        csv_name = next(name for name in archive.namelist() if name.endswith(".csv"))
+        with archive.open(csv_name) as handle:
+            text = io.TextIOWrapper(handle, encoding="utf-8")
+            for fields in csv.reader(text):
+                if not fields or fields[0] == "trade_id":
+                    continue
+                qty = float(fields[2])
+                price = float(fields[1])
+                if qty > 0.0 and price > 0.0:
+                    quantities.append(qty)
+                if len(quantities) >= limit:
+                    break
+    return quantities
+
+
 def _map_archive_stats(
     archives: list[BinanceTradeArchive],
     start_dt: datetime,

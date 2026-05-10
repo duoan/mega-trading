@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 from statistics import median
@@ -22,10 +23,12 @@ from mega_trading.data.ingest_config import IngestPipelineConfig
 from mega_trading.data.public.binance import (
     BINANCE_TRADES_BASE_URL,
     BinanceTradeArchive,
+    count_trade_rows_in_archive,
     download_binance_trade_archives,
     iter_order_flow_event_dicts_for_symbol,
     iter_valid_trade_rows_from_archive,
     load_order_flow_from_archives,
+    sample_trade_quantities_from_archive,
     _to_utc_datetime,
 )
 from mega_trading.events import BuildResult, EventBuilder, STREAM_CONTRACT, events_by_ticker_from_records, events_by_ticker_from_rows
@@ -238,35 +241,74 @@ def _streaming_symbol_stats(
     max_sample_rows: int,
     workers: int,
 ) -> tuple[dict[str, int], dict[str, float]]:
-    ticker_counts: dict[str, int] = {}
-    baselines: dict[str, float] = {}
-    jobs = [(request, symbol, archives, max_sample_rows) for symbol, archives in archives_by_symbol.items()]
+    ticker_row_counts: dict[str, int] = defaultdict(int)
+    qty_samples: dict[str, list[float]] = defaultdict(list)
+    max_archives_per_symbol = max((len(archives) for archives in archives_by_symbol.values()), default=1)
+    per_archive_sample_rows = max(256, min(4096, max_sample_rows // max(max_archives_per_symbol, 1)))
+    jobs = [
+        (request.frequency, str(request.start), str(request.end), archive, per_archive_sample_rows)
+        for archives in archives_by_symbol.values()
+        for archive in archives
+    ]
     results = (
-        [_streaming_symbol_stats_job(job) for job in jobs]
+        [_streaming_archive_stats_job(job) for job in jobs]
         if workers == 1
-        else _parallel_map(_streaming_symbol_stats_job, jobs, workers, "baseline scan")
+        else _parallel_map(_streaming_archive_stats_job, jobs, workers, "archive baseline scan")
     )
-    for symbol, row_count, baseline in results:
-        ticker_counts[symbol] = max(row_count - 1, 0)
-        if baseline is not None:
-            baselines[symbol] = baseline
+    for symbol, _partition, row_count, quantities in results:
+        ticker_row_counts[symbol] += row_count
+        sample = qty_samples[symbol]
+        remaining = max(max_sample_rows - len(sample), 0)
+        if remaining:
+            sample.extend(quantities[:remaining])
+    ticker_counts = {symbol: max(row_count - 1, 0) for symbol, row_count in ticker_row_counts.items()}
+    baselines = {symbol: median(quantities) for symbol, quantities in qty_samples.items() if quantities}
     return ticker_counts, baselines
 
 
-def _streaming_symbol_stats_job(
-    job: tuple[BinanceTradesIngestRequest, str, list[BinanceTradeArchive], int],
-) -> tuple[str, int, float | None]:
-    request, symbol, archives, max_sample_rows = job
-    start_dt = _to_utc_datetime(request.start)
-    end_dt = _to_utc_datetime(request.end)
+def _streaming_archive_stats_job(
+    job: tuple[str, str, str, BinanceTradeArchive, int],
+) -> tuple[str, str, int, list[float]]:
+    frequency, start, end, archive, sample_rows = job
+    start_dt = _to_utc_datetime(start)
+    end_dt = _to_utc_datetime(end)
+    if _archive_fully_covered(archive, frequency, start_dt, end_dt):
+        return (
+            archive.symbol,
+            archive.partition,
+            count_trade_rows_in_archive(archive.path),
+            sample_trade_quantities_from_archive(archive.path, sample_rows),
+        )
     row_count = 0
-    qty_sample: list[float] = []
-    for archive in archives:
-        for row in iter_valid_trade_rows_from_archive(archive.path, symbol, start_dt, end_dt):
-            row_count += 1
-            if len(qty_sample) < max_sample_rows:
-                qty_sample.append(float(row["qty"]))
-    return symbol, row_count, median(qty_sample) if qty_sample else None
+    quantities: list[float] = []
+    for row in iter_valid_trade_rows_from_archive(archive.path, archive.symbol, start_dt, end_dt):
+        row_count += 1
+        if len(quantities) < sample_rows:
+            quantities.append(float(row["qty"]))
+    return archive.symbol, archive.partition, row_count, quantities
+
+
+def _archive_fully_covered(
+    archive: BinanceTradeArchive,
+    frequency: str,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> bool:
+    partition_start, partition_stop = _archive_partition_bounds(archive.partition, frequency)
+    return start_dt <= partition_start and end_dt >= partition_stop - timedelta(microseconds=1)
+
+
+def _archive_partition_bounds(partition: str, frequency: str) -> tuple[datetime, datetime]:
+    if frequency == "daily":
+        start = datetime.fromisoformat(partition).replace(tzinfo=timezone.utc)
+        return start, start + timedelta(days=1)
+    if frequency == "monthly":
+        year, month = (int(part) for part in partition.split("-", 1))
+        start = datetime(year, month, 1, tzinfo=timezone.utc)
+        next_year = year + (1 if month == 12 else 0)
+        next_month = 1 if month == 12 else month + 1
+        return start, datetime(next_year, next_month, 1, tzinfo=timezone.utc)
+    raise ValueError("frequency must be daily or monthly")
 
 
 def _sample_streaming_events(
