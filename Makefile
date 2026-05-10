@@ -1,4 +1,4 @@
-.PHONY: test demo local remote server platform-demo install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance train-server-rtx6000 backtest-server-rtx6000
+.PHONY: test demo local remote server platform-demo install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance pull-modal-artifacts train-server-rtx6000 backtest-server-rtx6000
 
 test:
 	uv run python -m unittest discover -s tests
@@ -40,6 +40,11 @@ upload-binance-modal:
 
 train-modal-binance:
 	uv run modal run modal_train.py --mode cluster --run-id modal-binance --data-dir /data/binance-trades --strategy fsdp --max-steps 50000
+
+pull-modal-artifacts:
+	mkdir -p .mega-trading/binance-modal/runs .mega-trading/binance-modal/manifests
+	uv run modal volume get --force mega-trading-artifacts /binance-trades/runs .mega-trading/binance-modal/runs
+	uv run modal volume get --force mega-trading-artifacts /binance-trades/manifests .mega-trading/binance-modal/manifests
 
 train-server-rtx6000: install-flash-attn
 	uv run mega-trading train --config-name server-rtx6000

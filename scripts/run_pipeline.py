@@ -14,6 +14,8 @@ LOCAL_MIN_SEQUENCES = 50_000
 REMOTE_LOCAL_DATA_DIR = Path(".mega-trading/binance-modal")
 REMOTE_MIXTURE = "binance_public"
 REMOTE_DATA_DIR = "/data/binance-trades"
+MODAL_VOLUME_NAME = "mega-trading-artifacts"
+MODAL_VOLUME_DATA_PREFIX = "/binance-trades"
 
 
 def main() -> int:
@@ -22,6 +24,7 @@ def main() -> int:
     parser.add_argument("--local-steps", type=int, default=300, help="training steps for local training")
     parser.add_argument("--remote-steps", type=int, default=50_000, help="training steps for Modal training")
     parser.add_argument("--force-data", action="store_true", help="rebuild data even when numpy shards already exist")
+    parser.add_argument("--skip-artifact-sync", action="store_true", help="do not download Modal training outputs")
     args = parser.parse_args()
 
     if args.target == "local":
@@ -79,9 +82,9 @@ def main() -> int:
             "modal",
             "volume",
             "put",
-            "mega-trading-artifacts",
+            MODAL_VOLUME_NAME,
             str(REMOTE_LOCAL_DATA_DIR / "datasets"),
-            "/binance-trades/datasets",
+            f"{MODAL_VOLUME_DATA_PREFIX}/datasets",
         ]
     )
     _run(
@@ -103,6 +106,8 @@ def main() -> int:
             str(args.remote_steps),
         ]
     )
+    if not args.skip_artifact_sync:
+        _sync_remote_artifacts(REMOTE_LOCAL_DATA_DIR)
     return 0
 
 
@@ -149,6 +154,26 @@ def _shards_exist(data_dir: Path, mixture: str, min_sequences: int = 0) -> bool:
 def _run(command: list[str]) -> None:
     print("+ " + " ".join(command))
     subprocess.run(command, check=True)
+
+
+def _sync_remote_artifacts(local_data_dir: Path) -> None:
+    """Download Modal training outputs that are produced inside the shared data volume."""
+    for name in ("runs", "manifests"):
+        destination = local_data_dir / name
+        destination.mkdir(parents=True, exist_ok=True)
+        _run(
+            [
+                "uv",
+                "run",
+                "modal",
+                "volume",
+                "get",
+                "--force",
+                MODAL_VOLUME_NAME,
+                f"{MODAL_VOLUME_DATA_PREFIX}/{name}",
+                str(destination),
+            ]
+        )
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ make local
 make remote
 ```
 
-`make local` prepares a multi-symbol Binance public-trades slice directly into partitioned NumPy shards if needed, then runs a local train long enough to show a loss curve. `make remote` prepares the larger local dataset if needed, uploads it to Modal Volume, and launches Modal training. If the processed NumPy shards already exist, prepare is skipped.
+`make local` prepares a multi-symbol Binance public-trades slice directly into partitioned NumPy shards if needed, then runs a local train long enough to show a loss curve. `make remote` prepares the larger local dataset if needed, uploads it to Modal Volume, launches Modal training, then downloads `runs/` and `manifests/` back to `.mega-trading/binance-modal/`. If the processed NumPy shards already exist, prepare is skipped.
 
 Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar, and MLflow for metric tracking. By default MLflow writes to a local SQLite backend under `<data_dir>/runs/mlflow/mlflow.db`; set `training.mlflow_tracking_uri` to point at a remote MLflow server when needed.
 
