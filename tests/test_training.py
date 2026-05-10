@@ -15,6 +15,7 @@ from mega_trading.dataset import NumpyTickerTimeDataset, tokens_to_example
 from mega_trading.eval import run_eval
 from mega_trading.events import EventBuilder, events_by_ticker_from_rows
 from mega_trading.model import LlamaAttention, RMSNorm, SwiGLU, TradingModel
+from mega_trading.report import run_report
 from mega_trading.tokenizer import MarketEventTokenizer
 from mega_trading.trainer import Trainer, _attention_kernel_context, _maybe_compile_model
 
@@ -260,6 +261,7 @@ class TrainingTests(unittest.TestCase):
             ).train("datasets/mixture=public/tokens.npy")
             eval_result = run_eval(store, "train-test", rollouts=2, generated_tokens=8, device="cpu")
             backtest_result = run_backtest(store, "train-test", rollouts=2, generated_tokens=8, max_batches=1, device="cpu")
+            report_result = run_report(store, "train-test")
 
             metrics = json.loads(root.joinpath(train_result.metrics_path).read_text(encoding="utf-8"))["metrics"]
             manifest = store.read_manifest(train_result.manifest_path)
@@ -287,6 +289,7 @@ class TrainingTests(unittest.TestCase):
             self.assertIn("generated", report)
             self.assertEqual(backtest_report["stage"], "backtest")
             self.assertGreater(backtest_report["backtest_tokens"], 0)
+            self.assertIn("Backtest Dashboard", root.joinpath(report_result.report_path).read_text(encoding="utf-8"))
 
     def test_trainer_resumes_from_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -401,10 +404,39 @@ name = "fixture"
                 ),
                 0,
             )
+            self.assertEqual(
+                main(
+                    [
+                        "backtest",
+                        "--run-id",
+                        "train-cli",
+                        "--max-batches",
+                        "1",
+                        f"data.data_dir={root}",
+                        "eval.rollouts=1",
+                        "eval.generated_tokens=4",
+                        "eval.device=cpu",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                main(
+                    [
+                        "report",
+                        "--run-id",
+                        "train-cli",
+                        f"data.data_dir={root}",
+                    ]
+                ),
+                0,
+            )
 
             self.assertTrue((root / "datasets/mixture=public/tokens.npy").exists())
             self.assertTrue((root / "runs/train-cli/checkpoint.pt").exists())
             self.assertTrue((root / "evals/train-cli/report.json").exists())
+            self.assertTrue((root / "evals/train-cli/backtest.json").exists())
+            self.assertTrue((root / "reports/train-cli/backtest.html").exists())
 
 
 def _order_flow_events() -> dict[str, list[dict[str, object]]]:

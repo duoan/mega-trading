@@ -1,4 +1,4 @@
-.PHONY: test demo local remote server platform-demo install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance pull-modal-artifacts train-server-rtx6000 backtest-server-rtx6000
+.PHONY: test demo local remote server platform-demo install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance pull-modal-artifacts train-server-rtx6000 backtest-server-rtx6000 report-server-rtx6000 report-modal-binance
 
 test:
 	uv run python -m unittest discover -s tests
@@ -20,6 +20,8 @@ platform-demo:
 	uv run mega-trading prepare --help
 	uv run mega-trading train --help
 	uv run mega-trading eval --help
+	uv run mega-trading backtest --help
+	uv run mega-trading report --help
 
 install-flash-attn:
 	uv run python scripts/install_flash_attn.py --require-cuda
@@ -51,3 +53,9 @@ train-server-rtx6000: install-flash-attn
 
 backtest-server-rtx6000:
 	uv run mega-trading backtest --config-name server-rtx6000 --max-batches 128
+
+report-server-rtx6000:
+	uv run mega-trading report --config-name server-rtx6000
+
+report-modal-binance:
+	uv run mega-trading report --config-name modal-binance data.data_dir=.mega-trading/binance-modal run.run_id=modal-binance

@@ -14,6 +14,7 @@ from mega_trading.data.ingest_config import load_ingest_config
 from mega_trading.backtest import run_backtest
 from mega_trading.eval import run_eval
 from mega_trading.prepare import prepare_numpy_dataset
+from mega_trading.report import run_report
 from mega_trading.trainer import Trainer
 
 
@@ -41,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--run-id", default=None, help="run id to backtest")
     backtest.add_argument("--max-batches", type=int, default=128, help="maximum backtest batches to score")
     backtest.add_argument("overrides", nargs="*", help="Hydra overrides for data/eval settings")
+    report = subparsers.add_parser("report", help="render a local HTML backtest dashboard")
+    report.add_argument("--config-dir", default="configs", help="Hydra config directory")
+    report.add_argument("--config-name", default="default", help="Hydra config name")
+    report.add_argument("--run-id", default=None, help="run id to report")
+    report.add_argument("--output", default=None, help="relative output path for the HTML report")
+    report.add_argument("overrides", nargs="*", help="Hydra overrides for data settings")
     return parser
 
 
@@ -68,6 +75,10 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
         result = _run_backtest_config(config, args.run_id, int(args.max_batches))
         print(f"wrote backtest report to {config.data.data_dir}/{result.report_path}")
+    elif args.command == "report":
+        config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
+        result = _run_report_config(config, args.run_id, args.output)
+        print(f"wrote HTML report to {config.data.data_dir}/{result.report_path}")
     return 0
 
 
@@ -163,6 +174,16 @@ def _run_backtest_config(config: DictConfig, run_id: str | None, max_batches: in
         rollouts=int(config.eval.rollouts),
         generated_tokens=int(config.eval.generated_tokens),
         device=str(config.eval.device),
+    )
+
+
+def _run_report_config(config: DictConfig, run_id: str | None, output_path: str | None):
+    store = LocalObjectStore(Path(str(config.data.data_dir)))
+    return run_report(
+        store,
+        run_id=run_id or str(config.run.run_id),
+        mixture_name=str(config.data.mixture),
+        output_path=output_path,
     )
 
 
