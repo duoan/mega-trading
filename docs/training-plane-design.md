@@ -20,7 +20,7 @@ Training reads NumPy token shards:
 
 - `numpy/part-*/tokens.npy`: `int64` arrays with shape `[partition_rows, block_size + 1]`.
 - `numpy/part-*/ticker_ids.npy`: `int32` arrays mapping each row to a ticker id.
-- `numpy/symbol=<ticker>/stream/tokens.npy`: streaming Binance path, stored as a contiguous `int32` token stream; the dataset slices `[block_size + 1]` windows at training time using the prepared stride.
+- `numpy/symbol=<ticker>/partition=<month>/tokens.npy`: streaming Binance path, stored as contiguous `int32` token streams; the dataset slices `[block_size + 1]` windows at training time using the prepared stride.
 - `tokens-numpy.json`: dtype, shape, ticker map, partition paths, and per-ticker time-based train/validation/backtest counts.
 
 The profile artifact records the stream contract, feature order, sequence counts, block size, event size, vocabulary size, binning method, tokenizer path, and prepared split fractions. Training consumes the prepared train/validation rows and leaves the backtest rows untouched for downstream strategy evaluation.

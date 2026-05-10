@@ -86,7 +86,7 @@ datasets/mixture=<name>/tokens-profile.json
 datasets/mixture=<name>/tokens-numpy.json
 datasets/mixture=<name>/numpy/part-*/tokens.npy
 datasets/mixture=<name>/numpy/part-*/ticker_ids.npy
-datasets/mixture=<name>/numpy/symbol=<ticker>/stream/tokens.npy
+datasets/mixture=<name>/numpy/symbol=<ticker>/partition=<month>/tokens.npy
 ```
 
 `tokenizer.json` stores fitted bin edges for relative price, price depth, log relative size, and interarrival time.

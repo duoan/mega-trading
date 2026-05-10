@@ -199,7 +199,8 @@ def _prepare_streaming_binance_dataset(
     )
     profile_path = f"datasets/mixture={config.mixture_name}/tokens-profile.json"
     manifest_path = f"manifests/build/{config.mixture_name}.json"
-    profile = _streaming_profile(ticker_counts, sequence_counts, tokenizer, config, tokenizer_path, numpy_metadata)
+    actual_sequence_counts = _sequence_counts_from_numpy_metadata(numpy_metadata)
+    profile = _streaming_profile(ticker_counts, actual_sequence_counts, tokenizer, config, tokenizer_path, numpy_metadata)
     store.write_json(profile_path, profile)
     manifest_paths = [
         profile_path,
@@ -411,33 +412,39 @@ def _write_streaming_numpy_dataset(
     store.delete_tree_if_exists(root_path)
     tickers = sorted(sequence_counts)
     ticker_to_id = {ticker: index for index, ticker in enumerate(tickers)}
-    split_counts = _split_counts(sequence_counts, config.validation_fraction, config.backtest_fraction)
-    totals = {"train": 0, "validation": 0, "backtest": 0}
-    for counts in split_counts.values():
-        for split in totals:
-            totals[split] += counts[split]
-
     jobs = [
         (
             str(store.root),
             request,
             ticker,
-            archives_by_symbol[ticker],
+            archive,
             qty_baselines[ticker],
             tokenizer,
-            ticker_counts[ticker] + 2,
             root_path,
             ticker_to_id[ticker],
-            sequence_counts[ticker],
+            config.block_size,
+            config.stride,
         )
         for ticker in tickers
+        for archive in archives_by_symbol[ticker]
     ]
     results = (
-        [_write_symbol_token_stream_job(job) for job in jobs]
+        [_write_archive_token_stream_job(job) for job in jobs]
         if workers == 1
-        else _parallel_map(_write_symbol_token_stream_job, jobs, workers, "symbol token stream write")
+        else _parallel_map(_write_archive_token_stream_job, jobs, workers, "archive token stream write")
     )
-    results = sorted(results, key=lambda item: item["ticker"])
+    results = sorted(
+        (result for result in results if int(result["sequence_count"]) > 0),
+        key=lambda item: (item["ticker"], item["partition"]),
+    )
+    actual_sequence_counts: dict[str, int] = defaultdict(int)
+    for result in results:
+        actual_sequence_counts[str(result["ticker"])] += int(result["sequence_count"])
+    split_counts = _split_counts(actual_sequence_counts, config.validation_fraction, config.backtest_fraction)
+    totals = {"train": 0, "validation": 0, "backtest": 0}
+    for counts in split_counts.values():
+        for split in totals:
+            totals[split] += counts[split]
     partitions: list[dict[str, Any]] = []
     time_ranges = _empty_time_ranges(split_counts)
     row_offset = 0
@@ -479,16 +486,16 @@ def _write_streaming_numpy_dataset(
     return metadata
 
 
-def _write_symbol_token_stream_job(
+def _write_archive_token_stream_job(
     job: tuple[
         str,
         BinanceTradesIngestRequest,
         str,
-        list[BinanceTradeArchive],
+        BinanceTradeArchive,
         float,
         MarketEventTokenizer,
-        int,
         str,
+        int,
         int,
         int,
     ],
@@ -497,16 +504,17 @@ def _write_symbol_token_stream_job(
         root,
         request,
         ticker,
-        archives,
+        archive,
         qty_baseline,
         tokenizer,
-        token_count,
         root_path,
         ticker_id,
-        sequence_count,
+        block_size,
+        stride,
     ) = job
     root_dir = Path(root)
-    partition_id = f"symbol={ticker}/stream"
+    token_count = count_trade_rows_in_archive(archive.path) + 2
+    partition_id = f"symbol={ticker}/partition={archive.partition}"
     tokens_path = f"{root_path}/{partition_id}/tokens.npy"
     target = root_dir / tokens_path
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -514,7 +522,7 @@ def _write_symbol_token_stream_job(
     offset = 0
     token_stream[offset] = BOS_TOKEN
     offset += 1
-    for token in _iter_fast_symbol_tokens(request, archives, qty_baseline, tokenizer):
+    for token in _iter_fast_archive_tokens(request, archive, qty_baseline, tokenizer):
         if offset >= token_count - 1:
             break
         token_stream[offset] = token
@@ -525,19 +533,22 @@ def _write_symbol_token_stream_job(
     if offset < token_count:
         token_stream[offset:] = EOS_TOKEN
     token_stream.flush()
+    actual_token_count = offset
+    sequence_count = _sequence_count_from_event_count(max(actual_token_count - 2, 0), block_size, stride)
     return {
         "ticker": ticker,
         "ticker_id": ticker_id,
+        "partition": archive.partition,
         "partition_id": partition_id,
         "tokens_path": tokens_path,
         "sequence_count": sequence_count,
-        "token_count": token_count,
+        "token_count": actual_token_count,
     }
 
 
-def _iter_fast_symbol_tokens(
+def _iter_fast_archive_tokens(
     request: BinanceTradesIngestRequest,
-    archives: list[BinanceTradeArchive],
+    archive: BinanceTradeArchive,
     qty_baseline: float,
     tokenizer: MarketEventTokenizer,
 ) -> Iterable[int]:
@@ -545,26 +556,25 @@ def _iter_fast_symbol_tokens(
     end_seconds = _to_utc_datetime(str(request.end)).timestamp()
     previous_price: float | None = None
     previous_time: float | None = None
-    for archive in sorted(archives, key=lambda item: item.partition):
-        for _trade_id, price, qty, raw_time, is_buyer_maker in iter_trade_fields_from_archive(archive.path):
-            timestamp = _binance_timestamp_seconds(raw_time)
-            if timestamp < start_seconds or timestamp > end_seconds or qty <= 0.0 or price <= 0.0:
-                continue
-            if previous_price is None or previous_time is None:
-                previous_price = price
-                previous_time = timestamp
-                continue
-            relative_price_bps = 10_000.0 * math.log(price / max(previous_price, 1e-12))
-            yield tokenizer.encode_features(
-                action="delete",
-                side="sell" if is_buyer_maker else "buy",
-                relative_price_bps=float(relative_price_bps),
-                price_depth_bps=abs(float(relative_price_bps)),
-                size=qty / max(qty_baseline, 1e-12),
-                interarrival_seconds=max(timestamp - previous_time, 1e-6),
-            )
+    for _trade_id, price, qty, raw_time, is_buyer_maker in iter_trade_fields_from_archive(archive.path):
+        timestamp = _binance_timestamp_seconds(raw_time)
+        if timestamp < start_seconds or timestamp > end_seconds or qty <= 0.0 or price <= 0.0:
+            continue
+        if previous_price is None or previous_time is None:
             previous_price = price
             previous_time = timestamp
+            continue
+        relative_price_bps = 10_000.0 * math.log(price / max(previous_price, 1e-12))
+        yield tokenizer.encode_features(
+            action="delete",
+            side="sell" if is_buyer_maker else "buy",
+            relative_price_bps=float(relative_price_bps),
+            price_depth_bps=abs(float(relative_price_bps)),
+            size=qty / max(qty_baseline, 1e-12),
+            interarrival_seconds=max(timestamp - previous_time, 1e-6),
+        )
+        previous_price = price
+        previous_time = timestamp
 
 
 def _binance_timestamp_seconds(value: int) -> float:
@@ -588,6 +598,15 @@ def _split_counts(
             "backtest": backtest,
         }
     return result
+
+
+def _sequence_counts_from_numpy_metadata(metadata: dict[str, Any]) -> dict[str, int]:
+    split_counts = dict(dict(metadata["splits"])["counts"])
+    return {
+        str(ticker): sum(int(counts.get(split, 0)) for split in ("train", "validation", "backtest"))
+        for ticker, counts in split_counts.items()
+        if isinstance(counts, dict)
+    }
 
 
 def _heldout_count(count: int, fraction: float) -> int:
