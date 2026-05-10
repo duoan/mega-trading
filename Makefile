@@ -1,4 +1,4 @@
-.PHONY: test demo local remote server platform-demo sync-wandb-secret prep-binance-modal prep-server upload-binance-modal train-modal-binance train-server-rtx6000
+.PHONY: test demo local remote server platform-demo sync-wandb-secret install-flash-attn prep-binance-modal prep-server upload-binance-modal train-modal-binance train-server-rtx6000
 
 test:
 	uv run python -m unittest discover -s tests
@@ -24,6 +24,9 @@ platform-demo:
 sync-wandb-secret:
 	uv run python scripts/sync_wandb_modal_secret.py
 
+install-flash-attn:
+	uv run python scripts/install_flash_attn.py --require-cuda
+
 prep-binance-modal:
 	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-binance-modal-prep.toml --config-name binance-modal-prep
 
@@ -35,5 +38,5 @@ upload-binance-modal:
 train-modal-binance:
 	uv run modal run modal_train.py --mode cluster --run-id modal-binance --data-dir /data/binance-trades --strategy fsdp --max-steps 50000
 
-train-server-rtx6000:
+train-server-rtx6000: install-flash-attn
 	uv run mega-trading train --config-name server-rtx6000

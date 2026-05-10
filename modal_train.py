@@ -20,11 +20,12 @@ volume = modal.Volume.from_name("mega-trading-artifacts", create_if_missing=True
 wandb_secret = modal.Secret.from_name(WANDB_SECRET_NAME)
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
-    .apt_install("git")
-    .pip_install("uv")
+    modal.Image.from_registry("nvidia/cuda:12.8.1-devel-bookworm", add_python="3.11")
+    .apt_install("git", "build-essential")
+    .pip_install("uv", "ninja", "packaging")
     .add_local_dir(".", remote_path=REPO_DIR)
     .run_commands(f"cd {REPO_DIR} && uv sync --frozen")
+    .run_commands(f"cd {REPO_DIR} && uv run python scripts/install_flash_attn.py --require-cuda --force-cuda")
 )
 
 app = modal.App(APP_NAME, image=image)
