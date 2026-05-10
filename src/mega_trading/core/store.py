@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 from mega_trading.core.schemas import Manifest
 
@@ -18,18 +19,6 @@ class ArtifactNotFoundError(FileNotFoundError):
 class ArtifactPaths:
     run_id: str = "demo"
 
-    def raw(self, source: str, name: str) -> str:
-        return f"stage=01_raw/source={source}/{name}.jsonl"
-
-    def normalized(self, family: str, name: str) -> str:
-        return f"stage=02_normalized/family={family}/source={name}.jsonl"
-
-    def corpus(self, mixture: str, name: str) -> str:
-        return f"stage=04_corpus/mixture={mixture}/{name}.jsonl"
-
-    def shard(self, mixture: str, name: str) -> str:
-        return f"stage=05_shards/mixture={mixture}/{name}.jsonl"
-
     def eval(self, eval_run_id: str, name: str) -> str:
         suffix = "" if Path(name).suffix else ".json"
         return f"evals/{eval_run_id}/{name}{suffix}"
@@ -38,7 +27,7 @@ class ArtifactPaths:
         return f"manifests/{family}/{manifest_id}.json"
 
     def run(self, name: str) -> str:
-        suffix = "" if Path(name).suffix else ".jsonl"
+        suffix = "" if Path(name).suffix else ".json"
         return f"runs/{self.run_id}/{name}{suffix}"
 
 
@@ -64,30 +53,15 @@ class LocalObjectStore:
             raise ArtifactNotFoundError(path)
         return json.loads(target.read_text(encoding="utf-8"))
 
-    def write_jsonl(self, path: str, rows: list[dict[str, Any]]) -> None:
-        self.write_jsonl_iter(path, rows)
-
-    def write_jsonl_iter(self, path: str, rows: Iterable[dict[str, Any]]) -> int:
+    def delete_if_exists(self, path: str) -> None:
         target = self._resolve(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        row_count = 0
-        with target.open("w", encoding="utf-8") as handle:
-            for row in rows:
-                handle.write(json.dumps(row, sort_keys=True) + "\n")
-                row_count += 1
-        return row_count
+        if target.exists():
+            target.unlink()
 
-    def read_jsonl(self, path: str) -> list[dict[str, Any]]:
-        return list(self.iter_jsonl(path))
-
-    def iter_jsonl(self, path: str) -> Iterator[dict[str, Any]]:
+    def delete_tree_if_exists(self, path: str) -> None:
         target = self._resolve(path)
-        if not target.exists():
-            raise ArtifactNotFoundError(path)
-        with target.open(encoding="utf-8") as handle:
-            for line in handle:
-                if line.strip():
-                    yield json.loads(line)
+        if target.exists():
+            shutil.rmtree(target)
 
     def write_manifest(self, path: str, manifest: Manifest) -> None:
         self.write_json(path, manifest.to_dict())

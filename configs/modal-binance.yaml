@@ -20,6 +20,7 @@ build:
   tokenizer_price_bins: 8
   tokenizer_size_bins: 8
   tokenizer_time_bins: 4
+  numpy_partition_rows: 65536
 
 model:
   hidden_dim: 512

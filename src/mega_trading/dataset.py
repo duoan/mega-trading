@@ -13,54 +13,6 @@ from torch.utils.data import IterableDataset
 from mega_trading.core.store import LocalObjectStore
 
 
-class TokenDataset(IterableDataset[dict[str, torch.Tensor]]):
-    """Stream token rows as next-token prediction examples."""
-
-    def __init__(self, store: LocalObjectStore, shard_path: str, start: int = 0, stop: int | None = None) -> None:
-        super().__init__()
-        self.store = store
-        self.shard_path = shard_path
-        self.start = start
-        self.stop = stop
-
-    def __iter__(self):
-        for index, row in enumerate(self.store.iter_jsonl(self.shard_path)):
-            if index < self.start:
-                continue
-            if self.stop is not None and index >= self.stop:
-                break
-            yield row_to_example(row)
-
-
-class TickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
-    """Stream each ticker's early rows for train and late rows for validation."""
-
-    def __init__(
-        self,
-        store: LocalObjectStore,
-        shard_path: str,
-        train_counts: dict[str, int],
-        split: str,
-    ) -> None:
-        super().__init__()
-        if split not in {"train", "validation"}:
-            raise ValueError("split must be train or validation")
-        self.store = store
-        self.shard_path = shard_path
-        self.train_counts = train_counts
-        self.split = split
-
-    def __iter__(self):
-        seen: Counter[str] = Counter()
-        for row in self.store.iter_jsonl(self.shard_path):
-            ticker = str(row["ticker"])
-            index = seen[ticker]
-            seen[ticker] += 1
-            is_train = index < self.train_counts.get(ticker, 0)
-            if (self.split == "train" and is_train) or (self.split == "validation" and not is_train):
-                yield row_to_example(row)
-
-
 class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
     """Memory-map prebuilt token arrays and split rows by ticker time order."""
 
@@ -84,6 +36,9 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
         self.train_counts_by_id = {ticker_to_id[ticker]: count for ticker, count in train_counts.items() if ticker in ticker_to_id}
 
     def __iter__(self):
+        if bool(self.numpy_metadata.get("partitioned")):
+            yield from self._iter_partitions()
+            return
         tokens = np.load(_artifact_target(self.store, str(self.numpy_metadata["tokens_path"])), mmap_mode="r")
         ticker_ids = np.load(_artifact_target(self.store, str(self.numpy_metadata["ticker_ids_path"])), mmap_mode="r")
         seen: Counter[int] = Counter()
@@ -95,10 +50,18 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
             if (self.split == "train" and is_train) or (self.split == "validation" and not is_train):
                 yield tokens_to_example(tokens[row_index])
 
-
-def row_to_example(row: dict[str, Any]) -> dict[str, torch.Tensor]:
-    tokens = [int(token) for token in row["tokens"]]
-    return tokens_to_example(tokens)
+    def _iter_partitions(self):
+        seen: Counter[int] = Counter()
+        for partition in self.numpy_metadata.get("partitions", []):
+            tokens = np.load(_artifact_target(self.store, str(partition["tokens_path"])), mmap_mode="r")
+            ticker_ids = np.load(_artifact_target(self.store, str(partition["ticker_ids_path"])), mmap_mode="r")
+            for row_index in range(int(tokens.shape[0])):
+                ticker_id = int(ticker_ids[row_index])
+                index = seen[ticker_id]
+                seen[ticker_id] += 1
+                is_train = index < self.train_counts_by_id.get(ticker_id, 0)
+                if (self.split == "train" and is_train) or (self.split == "validation" and not is_train):
+                    yield tokens_to_example(tokens[row_index])
 
 
 def tokens_to_example(tokens: Iterable[int]) -> dict[str, torch.Tensor]:

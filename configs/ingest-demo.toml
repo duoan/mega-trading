@@ -1,9 +1,5 @@
 [ingest]
 output_dir = ".mega-trading/demo"
 
-[ingest.quality]
-enabled = true
-fail_on_error = true
-
 [[ingest.sources]]
 name = "fixture"

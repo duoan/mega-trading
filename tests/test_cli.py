@@ -30,7 +30,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("0.1.0", output.getvalue())
 
-    def test_ingest_command_runs_config_without_building_token_shards(self) -> None:
+    def test_prepare_command_writes_numpy_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "ingest-demo.toml"
             output_dir = Path(tmp) / "demo"
@@ -46,11 +46,20 @@ name = "fixture"
                 encoding="utf-8",
             )
 
-            exit_code = main(["ingest", "--config", str(config_path)])
+            exit_code = main(
+                [
+                    "prepare",
+                    "--ingest-config",
+                    str(config_path),
+                    "data.data_dir=" + str(output_dir),
+                    "build.block_size=4",
+                    "build.stride=2",
+                    "build.min_events_per_ticker=2",
+                ]
+            )
 
             self.assertEqual(exit_code, 0)
-            self.assertTrue((output_dir / "reports/data-readiness.json").exists())
-            self.assertFalse((output_dir / "stage=05_shards/mixture=demo/tokens.jsonl").exists())
+            self.assertTrue((output_dir / "stage=05_shards/mixture=public/tokens-numpy.json").exists())
 
     def test_config_applies_hydra_overrides(self) -> None:
         config = load_config(

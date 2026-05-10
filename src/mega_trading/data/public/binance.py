@@ -7,7 +7,6 @@ import csv
 import io
 import math
 import ssl
-from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Callable
@@ -16,77 +15,11 @@ from zipfile import ZipFile
 
 import certifi
 
-from mega_trading.core.schemas import Manifest, OrderFlowEventRecord
-from mega_trading.core.store import ArtifactPaths, LocalObjectStore
-from mega_trading.data.ingest import BinanceTradesIngestRequest, IngestResult, Ingestor
-from mega_trading.data.lance_store import LanceTableStore, LanceTables
+from mega_trading.core.schemas import OrderFlowEventRecord
+from mega_trading.data.ingest import BinanceTradesIngestRequest
 
 FetchZip = Callable[[str], bytes]
-
-
-class BinanceTradesIngestor(Ingestor[BinanceTradesIngestRequest]):
-    """Load Binance public trades and map executions to the shared feature contract."""
-
-    base_url = "https://data.binance.vision/data/spot/monthly/trades"
-
-    def __init__(
-        self,
-        store: LocalObjectStore,
-        table_store: LanceTableStore | None = None,
-        fetch_zip: FetchZip | None = None,
-    ) -> None:
-        self.store = store
-        self.table_store = table_store
-        self.fetch_zip = fetch_zip or _fetch_zip
-        self.tables = LanceTables()
-        self.paths = ArtifactPaths()
-
-    def ingest(self, request: BinanceTradesIngestRequest) -> IngestResult:
-        raw_rows = _load_binance_trade_rows(request, self.base_url, self.fetch_zip)
-        events = _trade_rows_to_order_flow(raw_rows)
-        event_rows = [asdict(event) for event in events]
-
-        raw_path = self.paths.raw("binance_trades", "trades")
-        normalized_path = self.paths.normalized("order_flow", "binance_trades")
-        self.store.write_jsonl(raw_path, raw_rows)
-        self.store.write_jsonl(normalized_path, event_rows)
-        if self.table_store:
-            self.table_store.write_table(self.tables.normalized("order_flow", "binance_trades"), event_rows)
-
-        raw_manifest = Manifest(
-            manifest_id="binance-trades-raw",
-            artifact_type="raw",
-            paths=[raw_path],
-            metadata={
-                "source": "binance_trades",
-                "dataset": "data.binance.vision spot monthly trades",
-                "record_count": str(len(raw_rows)),
-            },
-        )
-        raw_manifest_path = self.paths.manifest("ingest", "binance-trades-raw")
-        self.store.write_manifest(raw_manifest_path, raw_manifest)
-
-        normalization_manifest = Manifest(
-            manifest_id="binance-trades-order-flow-normalized",
-            artifact_type="normalized",
-            paths=[normalized_path],
-            metadata={
-                "source": "binance_trades",
-                "source_manifest_id": raw_manifest.manifest_id,
-                "order_flow": str(len(event_rows)),
-                "feature_contract": "paper-order-flow-v1",
-                "proxy_note": "public trades contain executions, not full add/cancel L3 order messages",
-            },
-        )
-        normalization_manifest_path = self.paths.manifest("normalization", "binance-trades-order-flow-normalized")
-        self.store.write_manifest(normalization_manifest_path, normalization_manifest)
-
-        return IngestResult(
-            raw_manifest_path=raw_manifest_path,
-            normalization_manifest_path=normalization_manifest_path,
-            normalized_counts={"order_flow": len(event_rows)},
-            quality_summary={"quarantined_records": 0, "duplicate_records": 0},
-        )
+BINANCE_TRADES_BASE_URL = "https://data.binance.vision/data/spot/monthly/trades"
 
 
 def _load_binance_trade_rows(request: BinanceTradesIngestRequest, base_url: str, fetch_zip: FetchZip) -> list[dict[str, object]]:
@@ -171,7 +104,7 @@ def _parse_trades_zip(payload: bytes) -> list[dict[str, str]]:
 def _trade_rows_to_order_flow(rows: list[dict[str, object]]) -> list[OrderFlowEventRecord]:
     events: list[OrderFlowEventRecord] = []
     previous_by_symbol: dict[str, dict[str, object]] = {}
-    qty_history_by_symbol: dict[str, list[float]] = {}
+    qty_baseline_by_symbol = _quantity_baselines(rows)
     for row in rows:
         symbol = str(row["symbol"]).upper()
         timestamp = _to_utc_datetime(str(row["timestamp"]))
@@ -180,12 +113,11 @@ def _trade_rows_to_order_flow(rows: list[dict[str, object]]) -> list[OrderFlowEv
         previous = previous_by_symbol.get(symbol)
         if previous is None:
             previous_by_symbol[symbol] = row
-            qty_history_by_symbol[symbol] = [qty]
             continue
         previous_price = max(float(previous["price"]), 1e-12)
         previous_time = _to_utc_datetime(str(previous["timestamp"]))
         relative_price_bps = 10_000.0 * math.log(price / previous_price)
-        qty_baseline = median(qty_history_by_symbol[symbol])
+        qty_baseline = qty_baseline_by_symbol[symbol]
         relative_size = qty / max(qty_baseline, 1e-12)
         side = "sell" if bool(row["is_buyer_maker"]) else "buy"
         event_id = f"binance-trades-{symbol}-{row['trade_id']}"
@@ -208,8 +140,14 @@ def _trade_rows_to_order_flow(rows: list[dict[str, object]]) -> list[OrderFlowEv
             )
         )
         previous_by_symbol[symbol] = row
-        qty_history_by_symbol[symbol].append(qty)
     return events
+
+
+def _quantity_baselines(rows: list[dict[str, object]]) -> dict[str, float]:
+    qty_by_symbol: dict[str, list[float]] = {}
+    for row in rows:
+        qty_by_symbol.setdefault(str(row["symbol"]).upper(), []).append(float(row["qty"]))
+    return {symbol: median(qtys) for symbol, qtys in qty_by_symbol.items()}
 
 
 def _fetch_zip(url: str) -> bytes:

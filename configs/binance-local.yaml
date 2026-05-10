@@ -20,6 +20,7 @@ build:
   tokenizer_price_bins: 8
   tokenizer_size_bins: 8
   tokenizer_time_bins: 4
+  numpy_partition_rows: 8192
 
 model:
   hidden_dim: 192
@@ -32,7 +33,7 @@ model:
   norm_eps: 0.00001
 
 training:
-  max_steps: 500
+  max_steps: 300
   batch_size: 16
   learning_rate: 0.0003
   validation_fraction: 0.1

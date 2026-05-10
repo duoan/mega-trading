@@ -13,8 +13,6 @@ REPO_DIR = "/workspace/mega-finance"
 DATA_VOLUME_PATH = "/data"
 DEFAULT_CONFIG_NAME = "modal-binance"
 DEFAULT_DATA_DIR = f"{DATA_VOLUME_PATH}/binance-trades"
-PAPER_CONFIG_NAME = "modal-paper"
-PAPER_DATA_DIR = f"{DATA_VOLUME_PATH}/hf-1m-paper"
 DEFAULT_GPU = "H100:8"
 WANDB_SECRET_NAME = "wandb-secret"
 

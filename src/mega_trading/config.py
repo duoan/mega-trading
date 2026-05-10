@@ -8,7 +8,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class BuildConfig:
     mixture_name: str = "public"
-    source: str = "hf_ohlcv_1m"
+    source: str = "fixture"
     block_size: int = 128
     stride: int = 64
     min_events_per_ticker: int = 32
@@ -19,6 +19,7 @@ class BuildConfig:
     tokenizer_price_bins: int = 16
     tokenizer_size_bins: int = 16
     tokenizer_time_bins: int = 4
+    numpy_partition_rows: int | None = None
 
     def __post_init__(self) -> None:
         if self.block_size < 4:
@@ -41,6 +42,8 @@ class BuildConfig:
         }.items():
             if value < 2:
                 raise ValueError(f"{name} must be at least 2")
+        if self.numpy_partition_rows is not None and self.numpy_partition_rows <= 0:
+            raise ValueError("numpy_partition_rows must be positive when set")
 
 
 @dataclass(frozen=True)

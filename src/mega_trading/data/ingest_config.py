@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 
-PAPER_SOURCES = {"fixture", "hf_ohlcv_1m", "binance_trades"}
+PAPER_SOURCES = {"fixture", "binance_trades"}
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class IngestSourceConfig:
     def __post_init__(self) -> None:
         if self.name not in PAPER_SOURCES:
             raise ValueError(f"unsupported ingest source for paper pipeline: {self.name}")
-        if self.name in {"hf_ohlcv_1m", "binance_trades"}:
+        if self.name == "binance_trades":
             if not self.tickers:
                 raise ValueError(f"{self.name} requires tickers")
             if not self.start or not self.end:
@@ -39,8 +39,6 @@ class IngestSourceConfig:
 class IngestPipelineConfig:
     output_dir: str
     sources: tuple[IngestSourceConfig, ...]
-    quality_enabled: bool = True
-    quality_fail_on_error: bool = False
 
     def __post_init__(self) -> None:
         if not self.output_dir:
@@ -52,14 +50,9 @@ class IngestPipelineConfig:
     def from_dict(cls, value: dict[str, Any], base_path: Path | None = None) -> "IngestPipelineConfig":
         config_base_path = base_path or Path.cwd()
         sources = tuple(_source_from_dict(source, config_base_path) for source in value.get("sources", []))
-        quality = value.get("quality", {})
-        if not isinstance(quality, dict):
-            quality = {}
         return cls(
             output_dir=str(value.get("output_dir", "")),
             sources=sources,
-            quality_enabled=bool(quality.get("enabled", True)),
-            quality_fail_on_error=bool(quality.get("fail_on_error", False)),
         )
 
     def enabled_sources(self) -> tuple[IngestSourceConfig, ...]:

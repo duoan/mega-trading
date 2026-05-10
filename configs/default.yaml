@@ -5,9 +5,9 @@ run:
   run_id: smoke
 
 data:
-  data_dir: .mega-trading/hf-1m
+  data_dir: .mega-trading/demo
   mixture: public
-  source: hf_ohlcv_1m
+  source: fixture
 
 build:
   block_size: 128
@@ -20,6 +20,7 @@ build:
   tokenizer_price_bins: 16
   tokenizer_size_bins: 16
   tokenizer_time_bins: 4
+  numpy_partition_rows: null
 
 model:
   hidden_dim: 128

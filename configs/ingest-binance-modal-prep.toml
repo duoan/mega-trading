@@ -1,10 +1,6 @@
 [ingest]
 output_dir = ".mega-trading/binance-modal"
 
-[ingest.quality]
-enabled = true
-fail_on_error = false
-
 [[ingest.sources]]
 name = "binance_trades"
 tickers = [

@@ -19,8 +19,6 @@ STREAM_CONTRACT = "paper-order-flow-token-v1"
 
 @dataclass(frozen=True)
 class BuildResult:
-    event_path: str
-    shard_path: str
     profile_path: str
     manifest_path: str
     tokenizer_path: str
@@ -32,12 +30,15 @@ class BuildResult:
 class EventBuilder:
     """Build paper-style event token streams from normalized order-flow rows."""
 
-    def __init__(self, store: LocalObjectStore, config: BuildConfig | None = None) -> None:
+    def __init__(
+        self,
+        store: LocalObjectStore,
+        config: BuildConfig | None = None,
+    ) -> None:
         self.store = store
         self.config = config or BuildConfig()
 
-    def build(self) -> BuildResult:
-        events_by_ticker = _events_by_ticker(self.store, self.config.source)
+    def build_events(self, events_by_ticker: dict[str, list[dict[str, Any]]]) -> BuildResult:
         if self.config.max_tickers is not None:
             selected = sorted(events_by_ticker)[: self.config.max_tickers]
             events_by_ticker = {ticker: events_by_ticker[ticker] for ticker in selected}
@@ -49,14 +50,11 @@ class EventBuilder:
         if not events_by_ticker:
             raise ValueError("no tickers had enough order-flow events")
 
-        event_path = f"stage=04_corpus/mixture={self.config.mixture_name}/events.jsonl"
-        shard_path = f"stage=05_shards/mixture={self.config.mixture_name}/tokens.jsonl"
         profile_path = f"stage=05_shards/mixture={self.config.mixture_name}/tokens-profile.json"
         tokenizer_path = f"stage=05_shards/mixture={self.config.mixture_name}/tokenizer.json"
         manifest_path = f"manifests/build/{self.config.mixture_name}.json"
 
         event_rows = [event for ticker in sorted(events_by_ticker) for event in events_by_ticker[ticker]]
-        self.store.write_jsonl(event_path, event_rows)
         tokenizer = MarketEventTokenizer.fit(
             event_rows,
             relative_price_bins=self.config.tokenizer_relative_price_bins,
@@ -71,31 +69,32 @@ class EventBuilder:
         sequence_rows = list(_sequence_rows(events_by_ticker, tokenizer, self.config.block_size, self.config.stride))
         if not sequence_rows:
             raise ValueError("not enough events to build token sequences")
-        self.store.write_jsonl(shard_path, sequence_rows)
-        numpy_metadata = _write_numpy_dataset(self.store, self.config.mixture_name, sequence_rows)
+        numpy_metadata = _write_numpy_dataset(
+            self.store,
+            self.config.mixture_name,
+            sequence_rows,
+            partition_rows=self.config.numpy_partition_rows,
+        )
 
         profile = _profile(event_rows, sequence_rows, tokenizer, self.config, tokenizer_path, numpy_metadata)
         self.store.write_json(profile_path, profile)
+        manifest_paths = [
+            profile_path,
+            tokenizer_path,
+            str(numpy_metadata["tokens_path"]),
+            str(numpy_metadata["ticker_ids_path"]),
+            str(numpy_metadata["metadata_path"]),
+        ]
         self.store.write_manifest(
             manifest_path,
             Manifest(
                 manifest_id=f"{self.config.mixture_name}-build",
                 artifact_type="event-token-build",
-                paths=[
-                    event_path,
-                    shard_path,
-                    profile_path,
-                    tokenizer_path,
-                    str(numpy_metadata["tokens_path"]),
-                    str(numpy_metadata["ticker_ids_path"]),
-                    str(numpy_metadata["metadata_path"]),
-                ],
+                paths=manifest_paths,
                 metadata=profile,
             ),
         )
         return BuildResult(
-            event_path=event_path,
-            shard_path=shard_path,
             profile_path=profile_path,
             manifest_path=manifest_path,
             tokenizer_path=tokenizer_path,
@@ -105,9 +104,7 @@ class EventBuilder:
         )
 
 
-def _events_by_ticker(store: LocalObjectStore, source: str) -> dict[str, list[dict[str, Any]]]:
-    path = f"stage=02_normalized/family=order_flow/source={source}.jsonl"
-    rows = store.read_jsonl(path)
+def events_by_ticker_from_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     events: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         event = {
@@ -200,7 +197,12 @@ def _profile(
     }
 
 
-def _write_numpy_dataset(store: LocalObjectStore, mixture_name: str, sequences: list[dict[str, Any]]) -> dict[str, Any]:
+def _write_numpy_dataset(
+    store: LocalObjectStore,
+    mixture_name: str,
+    sequences: list[dict[str, Any]],
+    partition_rows: int | None = None,
+) -> dict[str, Any]:
     tokens_path = f"stage=05_shards/mixture={mixture_name}/tokens.npy"
     ticker_ids_path = f"stage=05_shards/mixture={mixture_name}/ticker_ids.npy"
     metadata_path = f"stage=05_shards/mixture={mixture_name}/tokens-numpy.json"
@@ -208,6 +210,17 @@ def _write_numpy_dataset(store: LocalObjectStore, mixture_name: str, sequences: 
     ticker_to_id = {ticker: index for index, ticker in enumerate(tickers)}
     token_array = np.asarray([row["tokens"] for row in sequences], dtype=np.int64)
     ticker_id_array = np.asarray([ticker_to_id[str(row["ticker"])] for row in sequences], dtype=np.int32)
+    if partition_rows is not None and len(sequences) > partition_rows:
+        return _write_partitioned_numpy_dataset(
+            store,
+            mixture_name,
+            token_array,
+            ticker_id_array,
+            ticker_to_id,
+            metadata_path,
+            partition_rows,
+        )
+    store.delete_tree_if_exists(f"stage=05_shards/mixture={mixture_name}/numpy")
     _write_npy(store, tokens_path, token_array)
     _write_npy(store, ticker_ids_path, ticker_id_array)
     metadata: dict[str, Any] = {
@@ -219,6 +232,57 @@ def _write_numpy_dataset(store: LocalObjectStore, mixture_name: str, sequences: 
         "sequence_length": int(token_array.shape[1]),
         "tokens_dtype": str(token_array.dtype),
         "ticker_ids_dtype": str(ticker_id_array.dtype),
+        "partitioned": False,
+        "ticker_to_id": ticker_to_id,
+        "id_to_ticker": {str(index): ticker for ticker, index in ticker_to_id.items()},
+    }
+    store.write_json(metadata_path, metadata)
+    return metadata
+
+
+def _write_partitioned_numpy_dataset(
+    store: LocalObjectStore,
+    mixture_name: str,
+    token_array: np.ndarray,
+    ticker_id_array: np.ndarray,
+    ticker_to_id: dict[str, int],
+    metadata_path: str,
+    partition_rows: int,
+) -> dict[str, Any]:
+    root_path = f"stage=05_shards/mixture={mixture_name}/numpy"
+    store.delete_if_exists(f"stage=05_shards/mixture={mixture_name}/tokens.npy")
+    store.delete_if_exists(f"stage=05_shards/mixture={mixture_name}/ticker_ids.npy")
+    store.delete_tree_if_exists(root_path)
+    partitions: list[dict[str, Any]] = []
+    for partition_index, start in enumerate(range(0, int(token_array.shape[0]), partition_rows)):
+        stop = min(start + partition_rows, int(token_array.shape[0]))
+        partition_id = f"part-{partition_index:05d}"
+        tokens_path = f"{root_path}/{partition_id}/tokens.npy"
+        ticker_ids_path = f"{root_path}/{partition_id}/ticker_ids.npy"
+        _write_npy(store, tokens_path, token_array[start:stop])
+        _write_npy(store, ticker_ids_path, ticker_id_array[start:stop])
+        partitions.append(
+            {
+                "partition_id": partition_id,
+                "tokens_path": tokens_path,
+                "ticker_ids_path": ticker_ids_path,
+                "sequence_count": stop - start,
+                "row_start": start,
+                "row_stop": stop,
+            }
+        )
+    metadata: dict[str, Any] = {
+        "format": "mega-trading-numpy-token-v1",
+        "tokens_path": root_path,
+        "ticker_ids_path": root_path,
+        "metadata_path": metadata_path,
+        "sequence_count": int(token_array.shape[0]),
+        "sequence_length": int(token_array.shape[1]),
+        "tokens_dtype": str(token_array.dtype),
+        "ticker_ids_dtype": str(ticker_id_array.dtype),
+        "partitioned": True,
+        "partition_rows": partition_rows,
+        "partitions": partitions,
         "ticker_to_id": ticker_to_id,
         "id_to_ticker": {str(index): ticker for ticker, index in ticker_to_id.items()},
     }

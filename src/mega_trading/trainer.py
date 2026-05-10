@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 from mega_trading.config import TrainConfig
 from mega_trading.core.schemas import Manifest
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
-from mega_trading.dataset import NumpyTickerTimeDataset, TickerTimeDataset, cycle_batches, per_ticker_train_counts
+from mega_trading.dataset import NumpyTickerTimeDataset, cycle_batches, per_ticker_train_counts
 from mega_trading.events import STREAM_CONTRACT
 from mega_trading.model import TradingModel
 
@@ -98,7 +98,7 @@ class Trainer:
         _init_trackers(accelerator, self.store, self.config, shard_path, profile, train_count, validation_count, precision)
         loss_fn = nn.CrossEntropyLoss()
         iterator = cycle_batches(train_loader)
-        metrics_path = self.paths.run("metrics")
+        metrics_path = self.paths.run("metrics.json")
         progress = _progress_bar(accelerator, self.config, start_step)
         last_step = start_step - 1
 
@@ -137,7 +137,7 @@ class Trainer:
                     metric_row.update(_evaluate(model, validation_loader, accelerator, loss_fn, self.config.attention_backend, device))
                 metrics.append(metric_row)
                 accelerator.log(_wandb_metrics(metric_row), step=step)
-                self.store.write_jsonl(metrics_path, metrics)
+                self.store.write_json(metrics_path, {"metrics": metrics})
                 progress.set_postfix(_progress_postfix(metric_row), refresh=False)
             if self.config.checkpoint_interval and step % self.config.checkpoint_interval == 0:
                 _save_checkpoint(
@@ -257,17 +257,33 @@ def _dataset(
     numpy_metadata = profile.get("numpy_dataset")
     if isinstance(numpy_metadata, dict) and _numpy_dataset_exists(store, numpy_metadata):
         return NumpyTickerTimeDataset(store, numpy_metadata, train_counts, split=split)
-    return TickerTimeDataset(store, shard_path, train_counts, split=split)
+    raise FileNotFoundError(f"NumPy token dataset is missing for {shard_path}")
 
 
 def _dataset_format(store: LocalObjectStore, profile: dict[str, Any]) -> str:
     numpy_metadata = profile.get("numpy_dataset")
     if isinstance(numpy_metadata, dict) and _numpy_dataset_exists(store, numpy_metadata):
-        return "numpy"
-    return "jsonl"
+        return "numpy-partitioned" if bool(numpy_metadata.get("partitioned")) else "numpy"
+    raise FileNotFoundError("NumPy token dataset is missing")
 
 
 def _numpy_dataset_exists(store: LocalObjectStore, numpy_metadata: dict[str, Any]) -> bool:
+    if bool(numpy_metadata.get("partitioned")):
+        partitions = numpy_metadata.get("partitions")
+        if not isinstance(partitions, list) or not partitions:
+            return False
+        for partition in partitions:
+            if not isinstance(partition, dict):
+                return False
+            tokens_path = partition.get("tokens_path")
+            ticker_ids_path = partition.get("ticker_ids_path")
+            if not tokens_path or not ticker_ids_path:
+                return False
+            if not _checkpoint_target(store, str(tokens_path)).exists():
+                return False
+            if not _checkpoint_target(store, str(ticker_ids_path)).exists():
+                return False
+        return True
     tokens_path = numpy_metadata.get("tokens_path")
     ticker_ids_path = numpy_metadata.get("ticker_ids_path")
     if not tokens_path or not ticker_ids_path:
@@ -341,7 +357,7 @@ def _checkpoint_target(store: LocalObjectStore, checkpoint_path: str) -> Path:
 
 
 def _profile_path(shard_path: str) -> str:
-    return str(shard_path).removesuffix(".jsonl") + "-profile.json"
+    return str(shard_path).removesuffix(".npy") + "-profile.json"
 
 
 def _resolve_device(requested_device: str) -> torch.device:

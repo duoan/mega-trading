@@ -10,14 +10,9 @@ from omegaconf import DictConfig, OmegaConf
 
 from mega_trading.config import BuildConfig, TrainConfig
 from mega_trading.core.store import LocalObjectStore
-from mega_trading.data.ingest import BinanceTradesIngestRequest, FixtureIngestor, OhlcvIngestRequest
-from mega_trading.data.ingest_config import IngestPipelineConfig, load_ingest_config
-from mega_trading.data.lance_store import LanceTableStore
-from mega_trading.data.public.binance import BinanceTradesIngestor
-from mega_trading.data.public.market import HuggingFaceOhlcvIngestor
-from mega_trading.data.quality import DataQualityChecker
+from mega_trading.data.ingest_config import load_ingest_config
 from mega_trading.eval import run_eval
-from mega_trading.events import EventBuilder
+from mega_trading.prepare import prepare_numpy_dataset
 from mega_trading.trainer import Trainer
 
 
@@ -25,12 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mega-trading", description="Mega-Trading paper-style order-flow CLI.")
     parser.add_argument("--version", action="store_true", help="print the package version and exit")
     subparsers = parser.add_subparsers(dest="command")
-    ingest = subparsers.add_parser("ingest", help="run config-driven order-flow ingestion")
-    ingest.add_argument("--config", required=True, help="path to ingest TOML config")
-    build = subparsers.add_parser("build", help="build order-flow event/token shards")
-    build.add_argument("--config-dir", default="configs", help="Hydra config directory")
-    build.add_argument("--config-name", default="default", help="Hydra config name")
-    build.add_argument("overrides", nargs="*", help="Hydra overrides such as data.data_dir=.mega-trading/hf-1m")
+    prepare = subparsers.add_parser("prepare", help="prepare partitioned NumPy token shards")
+    prepare.add_argument("--ingest-config", required=True, help="path to source TOML config")
+    prepare.add_argument("--config-dir", default="configs", help="Hydra config directory")
+    prepare.add_argument("--config-name", default="default", help="Hydra config name")
+    prepare.add_argument("overrides", nargs="*", help="Hydra overrides for build settings")
     train = subparsers.add_parser("train", help="train decoder-only next-token model")
     train.add_argument("--config-dir", default="configs", help="Hydra config directory")
     train.add_argument("--config-name", default="default", help="Hydra config name")
@@ -50,13 +44,10 @@ def main(argv: list[str] | None = None) -> int:
         from mega_trading import __version__
 
         print(__version__)
-    elif args.command == "ingest":
-        _run_ingest_config(load_ingest_config(Path(args.config)))
-    elif args.command == "build":
+    elif args.command == "prepare":
         config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
-        result = _run_build_config(config)
-        print(f"wrote token shard to {config.data.data_dir}/{result.shard_path}")
-        print(f"profile: {result.profile_path}")
+        result = _run_prepare_config(config, Path(args.ingest_config))
+        print(f"wrote partition-ready NumPy metadata to {config.data.data_dir}/{result.numpy_metadata_path}")
     elif args.command == "train":
         config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
         result = _run_train_config(config)
@@ -77,8 +68,7 @@ def load_config(config_dir: Path, config_name: str, overrides: list[str]) -> Dic
     return config
 
 
-def _run_build_config(config: DictConfig):
-    store = LocalObjectStore(Path(str(config.data.data_dir)))
+def _run_prepare_config(config: DictConfig, ingest_config_path: Path):
     build_config = BuildConfig(
         mixture_name=str(config.data.mixture),
         source=str(config.data.source),
@@ -92,13 +82,14 @@ def _run_build_config(config: DictConfig):
         tokenizer_price_bins=int(config.build.tokenizer_price_bins),
         tokenizer_size_bins=int(config.build.tokenizer_size_bins),
         tokenizer_time_bins=int(config.build.tokenizer_time_bins),
+        numpy_partition_rows=_optional_int(config.build.numpy_partition_rows),
     )
-    return EventBuilder(store, build_config).build()
+    return prepare_numpy_dataset(load_ingest_config(ingest_config_path), build_config)
 
 
 def _run_train_config(config: DictConfig):
     store = LocalObjectStore(Path(str(config.data.data_dir)))
-    shard_path = f"stage=05_shards/mixture={config.data.mixture}/tokens.jsonl"
+    shard_path = f"stage=05_shards/mixture={config.data.mixture}/tokens.npy"
     train_config = TrainConfig(
         run_id=str(config.run.run_id),
         mixture_name=str(config.data.mixture),
@@ -144,39 +135,6 @@ def _run_eval_config(config: DictConfig, run_id: str | None):
         generated_tokens=int(config.eval.generated_tokens),
         device=str(config.eval.device),
     )
-
-
-def _run_ingest_config(config: IngestPipelineConfig) -> None:
-    store = LocalObjectStore(Path(config.output_dir))
-    table_store = LanceTableStore(Path(config.output_dir) / "lancedb")
-    normalization_manifests: list[str] = []
-    for source in config.enabled_sources():
-        if source.name == "fixture":
-            result = FixtureIngestor(store, table_store=table_store).ingest()
-        elif source.name == "hf_ohlcv_1m":
-            result = HuggingFaceOhlcvIngestor(store, table_store=table_store).ingest(
-                OhlcvIngestRequest(tickers=source.tickers, start=str(source.start), end=str(source.end))
-            )
-        elif source.name == "binance_trades":
-            result = BinanceTradesIngestor(store, table_store=table_store).ingest(
-                BinanceTradesIngestRequest(
-                    symbols=source.tickers,
-                    start=str(source.start),
-                    end=str(source.end),
-                    frequency=source.frequency,
-                    download_workers=source.download_workers,
-                )
-            )
-        else:
-            raise ValueError(f"unsupported ingest source: {source.name}")
-        normalization_manifests.append(result.normalization_manifest_path)
-    if config.quality_enabled:
-        DataQualityChecker(store).run(
-            normalization_manifests,
-            run_id="configured-ingest",
-            fail_on_error=config.quality_fail_on_error,
-        )
-    print(f"wrote configured ingest artifacts to {config.output_dir}")
 
 
 def _optional_int(value: object) -> int | None:

@@ -6,6 +6,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
@@ -26,7 +27,7 @@ def run_eval(
     generated_tokens: int = 128,
     device: str = "auto",
 ) -> EvalResult:
-    shard_path = f"stage=05_shards/mixture={mixture_name}/tokens.jsonl"
+    shard_path = f"stage=05_shards/mixture={mixture_name}/tokens.npy"
     profile = store.read_json(f"stage=05_shards/mixture={mixture_name}/tokens-profile.json")
     tokenizer = MarketEventTokenizer.from_dict(store.read_json(str(profile["tokenizer_path"])))
     checkpoint = torch.load(store.root / f"runs/{run_id}/checkpoint.pt", map_location="cpu")
@@ -42,7 +43,7 @@ def run_eval(
     resolved_device = _resolve_device(device)
     model.to(resolved_device)
 
-    real_depths = _price_depth_values_from_rows(store, shard_path, tokenizer, limit=rollouts)
+    real_depths = _price_depth_values_from_rows(store, shard_path, tokenizer, limit=rollouts, numpy_metadata=profile.get("numpy_dataset"))
     generated_depths = _generate_depths(model, tokenizer, resolved_device, int(profile["block_size"]), rollouts, generated_tokens)
     report = {
         "stage": "eval",
@@ -78,17 +79,36 @@ def _generate_depths(
 
 
 def _price_depth_values_from_rows(
-    store: LocalObjectStore, shard_path: str, tokenizer: MarketEventTokenizer, limit: int
+    store: LocalObjectStore,
+    shard_path: str,
+    tokenizer: MarketEventTokenizer,
+    limit: int,
+    numpy_metadata: object = None,
 ) -> list[float]:
     values: list[float] = []
-    for index, row in enumerate(store.iter_jsonl(shard_path)):
-        if index >= limit:
-            break
-        for token in row["tokens"]:
-            value = tokenizer.price_depth_value(int(token))
-            if value is not None:
-                values.append(value)
-    return values
+    if isinstance(numpy_metadata, dict) and bool(numpy_metadata.get("partitioned")):
+        rows_seen = 0
+        for partition in numpy_metadata.get("partitions", []):
+            tokens = np.load(store.root / str(partition["tokens_path"]), mmap_mode="r")
+            for row in tokens:
+                if rows_seen >= limit:
+                    return values
+                rows_seen += 1
+                for token in row:
+                    value = tokenizer.price_depth_value(int(token))
+                    if value is not None:
+                        values.append(value)
+        return values
+    numpy_path = store.root / shard_path
+    if numpy_path.exists():
+        tokens = np.load(numpy_path, mmap_mode="r")
+        for row in tokens[:limit]:
+            for token in row:
+                value = tokenizer.price_depth_value(int(token))
+                if value is not None:
+                    values.append(value)
+        return values
+    raise FileNotFoundError(f"NumPy token dataset is missing for {shard_path}")
 
 
 def _stylized_facts(returns: list[float]) -> dict[str, float]:

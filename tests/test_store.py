@@ -7,16 +7,13 @@ from mega_trading.core.store import ArtifactPaths, ArtifactNotFoundError, LocalO
 
 
 class StoreTests(unittest.TestCase):
-    def test_object_store_round_trip_jsonl(self) -> None:
+    def test_object_store_round_trip_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
 
-            store.write_jsonl("stage=01_raw/source=fixture/order_flow.jsonl", [{"id": "one"}, {"id": "two"}])
+            store.write_json("artifacts/example.json", {"id": "one"})
 
-            self.assertEqual(
-                store.read_jsonl("stage=01_raw/source=fixture/order_flow.jsonl"),
-                [{"id": "one"}, {"id": "two"}],
-            )
+            self.assertEqual(store.read_json("artifacts/example.json"), {"id": "one"})
 
     def test_missing_artifact_fails_with_clear_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -44,13 +41,9 @@ class StoreTests(unittest.TestCase):
     def test_artifact_paths_are_stable(self) -> None:
         paths = ArtifactPaths(run_id="demo")
 
-        self.assertEqual(paths.raw("fixture", "order_flow"), "stage=01_raw/source=fixture/order_flow.jsonl")
-        self.assertEqual(paths.normalized("order_flow", "fixture"), "stage=02_normalized/family=order_flow/source=fixture.jsonl")
-        self.assertEqual(paths.corpus("demo", "events"), "stage=04_corpus/mixture=demo/events.jsonl")
-        self.assertEqual(paths.shard("demo", "tokens"), "stage=05_shards/mixture=demo/tokens.jsonl")
         self.assertEqual(paths.eval("eval-1", "report"), "evals/eval-1/report.json")
         self.assertEqual(paths.manifest("ingest", "fixture"), "manifests/ingest/fixture.json")
-        self.assertEqual(paths.run("metrics"), "runs/demo/metrics.jsonl")
+        self.assertEqual(paths.run("metrics"), "runs/demo/metrics.json")
         self.assertEqual(paths.run("checkpoint.json"), "runs/demo/checkpoint.json")
 
 

@@ -1,44 +1,38 @@
 import io
-import tempfile
 import unittest
-from pathlib import Path
 from zipfile import ZipFile
 
-from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.ingest import BinanceTradesIngestRequest
-from mega_trading.data.public.binance import BinanceTradesIngestor
+from mega_trading.data.public.binance import BINANCE_TRADES_BASE_URL, _load_binance_trade_rows, _trade_rows_to_order_flow
 
 
 class BinanceTradesTests(unittest.TestCase):
-    def test_ingestor_writes_trade_level_order_flow_events(self) -> None:
+    def test_downloaded_trades_map_to_order_flow_events(self) -> None:
         fetched_urls: list[str] = []
 
         def fetch_zip(url: str) -> bytes:
             fetched_urls.append(url)
             return _trades_zip()
 
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LocalObjectStore(Path(tmp))
-            result = BinanceTradesIngestor(store, fetch_zip=fetch_zip).ingest(
-                BinanceTradesIngestRequest(
-                    symbols=("BTCUSDT",),
-                    start="2024-01-01T00:00:00Z",
-                    end="2024-01-01T00:00:03Z",
-                )
+        raw_rows = _load_binance_trade_rows(
+            BinanceTradesIngestRequest(
+                symbols=("BTCUSDT",),
+                start="2024-01-01T00:00:00Z",
+                end="2024-01-01T00:00:03Z",
+            ),
+            BINANCE_TRADES_BASE_URL,
+            fetch_zip,
             )
-            raw_rows = store.read_jsonl("stage=01_raw/source=binance_trades/trades.jsonl")
-            events = store.read_jsonl("stage=02_normalized/family=order_flow/source=binance_trades.jsonl")
-            manifest = store.read_manifest(result.normalization_manifest_path)
+        events = _trade_rows_to_order_flow(raw_rows)
 
         self.assertIn("BTCUSDT-trades-2024-01.zip", fetched_urls[0])
         self.assertEqual(len(raw_rows), 3)
         self.assertEqual(len(events), 2)
-        self.assertEqual(events[0]["ticker"], "BTCUSDT")
-        self.assertEqual(events[0]["action"], "delete")
-        self.assertEqual(events[0]["side"], "buy")
-        self.assertGreater(events[0]["price_depth_bps"], 0.0)
-        self.assertGreater(events[0]["size"], 0.0)
-        self.assertEqual(manifest.metadata["source"], "binance_trades")
+        self.assertEqual(events[0].ticker, "BTCUSDT")
+        self.assertEqual(events[0].action, "delete")
+        self.assertEqual(events[0].side, "buy")
+        self.assertGreater(events[0].price_depth_bps, 0.0)
+        self.assertGreater(events[0].size, 0.0)
 
 
 def _trades_zip() -> bytes:

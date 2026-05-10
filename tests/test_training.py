@@ -10,9 +10,9 @@ import torch
 from mega_trading.cli import load_config, main
 from mega_trading.config import BuildConfig, TrainConfig
 from mega_trading.core.store import LocalObjectStore
-from mega_trading.dataset import NumpyTickerTimeDataset, row_to_example
+from mega_trading.dataset import NumpyTickerTimeDataset, tokens_to_example
 from mega_trading.eval import run_eval
-from mega_trading.events import EventBuilder
+from mega_trading.events import EventBuilder, events_by_ticker_from_rows
 from mega_trading.model import LlamaAttention, RMSNorm, SwiGLU, TradingModel
 from mega_trading.tokenizer import MarketEventTokenizer
 from mega_trading.trainer import Trainer, _attention_kernel_context, _maybe_compile_model
@@ -20,31 +20,19 @@ from mega_trading.trainer import Trainer, _attention_kernel_context, _maybe_comp
 
 class TrainingTests(unittest.TestCase):
     def test_named_training_configs_parse_for_local_and_modal_runs(self) -> None:
-        local = load_config(Path("configs"), "local-mac", [])
         binance_local = load_config(Path("configs"), "binance-local", [])
         binance_modal_prep = load_config(Path("configs"), "binance-modal-prep", [])
         binance_modal = load_config(Path("configs"), "modal-binance", [])
-        proxy = load_config(Path("configs"), "modal-proxy", [])
-        paper = load_config(Path("configs"), "modal-paper", [])
 
-        self.assertEqual(str(local.data.data_dir), ".mega-trading/local-mac")
-        self.assertEqual(int(local.model.hidden_dim), 192)
-        self.assertEqual(str(local.training.device), "mps")
         self.assertEqual(str(binance_local.data.source), "binance_trades")
+        self.assertEqual(int(binance_local.build.numpy_partition_rows), 8192)
         self.assertEqual(str(binance_modal_prep.data.data_dir), ".mega-trading/binance-modal")
         self.assertEqual(str(binance_modal_prep.data.mixture), "binance_public")
+        self.assertEqual(int(binance_modal_prep.build.numpy_partition_rows), 65536)
         self.assertEqual(str(binance_modal.data.data_dir), "/data/binance-trades")
         self.assertEqual(str(binance_modal.data.mixture), "binance_public")
         self.assertEqual(str(binance_modal.training.distributed_strategy), "fsdp")
-        self.assertEqual(str(proxy.data.data_dir), "/data/hf-1m-proxy")
-        self.assertEqual(int(proxy.build.block_size), 512)
-        self.assertEqual(str(proxy.training.distributed_strategy), "fsdp")
-        self.assertEqual(str(paper.data.data_dir), "/data/hf-1m-paper")
-        self.assertEqual(int(paper.build.block_size), 1024)
-        self.assertEqual(int(paper.model.hidden_dim), 1536)
-        self.assertEqual(int(paper.model.layers), 20)
-        self.assertTrue(bool(paper.training.compile))
-        self.assertEqual(str(paper.training.attention_backend), "flash")
+        self.assertEqual(int(binance_modal.build.numpy_partition_rows), 65536)
 
     def test_train_config_validates_distributed_runtime_options(self) -> None:
         with self.assertRaisesRegex(ValueError, "distributed_strategy"):
@@ -61,16 +49,14 @@ class TrainingTests(unittest.TestCase):
     def test_event_builder_writes_token_shards_and_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_order_flow(root)
             store = LocalObjectStore(root)
 
             result = EventBuilder(
                 store,
                 BuildConfig(block_size=8, stride=4, min_events_per_ticker=5),
-            ).build()
+            ).build_events(_order_flow_events())
             profile = json.loads(root.joinpath(result.profile_path).read_text(encoding="utf-8"))
             tokenizer = json.loads(root.joinpath(result.tokenizer_path).read_text(encoding="utf-8"))
-            first_sequence = json.loads(root.joinpath(result.shard_path).read_text(encoding="utf-8").splitlines()[0])
             tokens = np.load(root / result.numpy_tokens_path, mmap_mode="r")
             ticker_ids = np.load(root / result.numpy_ticker_ids_path, mmap_mode="r")
             numpy_metadata = json.loads(root.joinpath(result.numpy_metadata_path).read_text(encoding="utf-8"))
@@ -81,10 +67,8 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(tokenizer["type"], "paper-order-flow-composite")
             self.assertGreater(profile["event_count"], 10)
             self.assertGreater(profile["sequence_count"], 1)
-            self.assertEqual(len(first_sequence["tokens"]), 9)
             self.assertEqual(tokens.shape, (profile["sequence_count"], profile["block_size"] + 1))
             self.assertEqual(ticker_ids.shape, (profile["sequence_count"],))
-            self.assertEqual(tokens[0].tolist(), first_sequence["tokens"])
             self.assertEqual(profile["numpy_dataset"]["format"], "mega-trading-numpy-token-v1")
             self.assertEqual(numpy_metadata["tokens_path"], result.numpy_tokens_path)
             self.assertIn("AAPL", numpy_metadata["ticker_to_id"])
@@ -150,7 +134,7 @@ class TrainingTests(unittest.TestCase):
                 pass
 
     def test_dataset_row_maps_to_next_token_example(self) -> None:
-        example = row_to_example({"tokens": [1, 3, 4, 5]})
+        example = tokens_to_example([1, 3, 4, 5])
 
         self.assertEqual(example["input_ids"].tolist(), [1, 3, 4])
         self.assertEqual(example["labels"].tolist(), [3, 4, 5])
@@ -158,12 +142,11 @@ class TrainingTests(unittest.TestCase):
     def test_numpy_dataset_maps_mmap_rows_to_next_token_examples(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_order_flow(root)
             store = LocalObjectStore(root)
             result = EventBuilder(
                 store,
                 BuildConfig(block_size=8, stride=4, min_events_per_ticker=5),
-            ).build()
+            ).build_events(_order_flow_events())
             profile = store.read_json(result.profile_path)
             dataset = NumpyTickerTimeDataset(
                 store,
@@ -176,15 +159,36 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(example["input_ids"].shape[0], 8)
             self.assertEqual(example["labels"].shape[0], 8)
 
+    def test_partitioned_numpy_dataset_maps_rows_to_examples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = LocalObjectStore(root)
+            result = EventBuilder(
+                store,
+                BuildConfig(block_size=8, stride=4, min_events_per_ticker=5, numpy_partition_rows=2),
+            ).build_events(_order_flow_events())
+            profile = store.read_json(result.profile_path)
+            numpy_metadata = dict(profile["numpy_dataset"])
+            dataset = NumpyTickerTimeDataset(
+                store,
+                numpy_metadata,
+                {"AAPL": 1, "MSFT": 1},
+                split="train",
+            )
+            example = next(iter(dataset))
+
+            self.assertTrue(numpy_metadata["partitioned"])
+            self.assertGreater(len(numpy_metadata["partitions"]), 1)
+            self.assertEqual(example["input_ids"].shape[0], 8)
+
     def test_trainer_and_eval_smoke_write_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_order_flow(root)
             store = LocalObjectStore(root)
             EventBuilder(
                 store,
                 BuildConfig(block_size=8, stride=4, min_events_per_ticker=5),
-            ).build()
+            ).build_events(_order_flow_events())
 
             train_result = Trainer(
                 store,
@@ -202,10 +206,10 @@ class TrainingTests(unittest.TestCase):
                     progress_bar=False,
                     checkpoint_interval=1,
                 ),
-            ).train("stage=05_shards/mixture=public/tokens.jsonl")
+            ).train("stage=05_shards/mixture=public/tokens.npy")
             eval_result = run_eval(store, "train-test", rollouts=2, generated_tokens=8, device="cpu")
 
-            metrics = [json.loads(line) for line in root.joinpath(train_result.metrics_path).read_text(encoding="utf-8").splitlines()]
+            metrics = json.loads(root.joinpath(train_result.metrics_path).read_text(encoding="utf-8"))["metrics"]
             manifest = store.read_manifest(train_result.manifest_path)
             checkpoint = torch.load(root / train_result.checkpoint_path, map_location="cpu", weights_only=False)
             report = json.loads(root.joinpath(eval_result.report_path).read_text(encoding="utf-8"))
@@ -228,12 +232,11 @@ class TrainingTests(unittest.TestCase):
     def test_trainer_resumes_from_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_order_flow(root)
             store = LocalObjectStore(root)
             EventBuilder(
                 store,
                 BuildConfig(block_size=8, stride=4, min_events_per_ticker=5),
-            ).build()
+            ).build_events(_order_flow_events())
 
             first = Trainer(
                 store,
@@ -250,7 +253,7 @@ class TrainingTests(unittest.TestCase):
                     wandb_enabled=False,
                     progress_bar=False,
                 ),
-            ).train("stage=05_shards/mixture=public/tokens.jsonl")
+            ).train("stage=05_shards/mixture=public/tokens.npy")
             resumed = Trainer(
                 store,
                 TrainConfig(
@@ -267,9 +270,9 @@ class TrainingTests(unittest.TestCase):
                     progress_bar=False,
                     resume_from_checkpoint=first.checkpoint_path,
                 ),
-            ).train("stage=05_shards/mixture=public/tokens.jsonl")
+            ).train("stage=05_shards/mixture=public/tokens.npy")
 
-            metrics = [json.loads(line) for line in root.joinpath(resumed.metrics_path).read_text(encoding="utf-8").splitlines()]
+            metrics = json.loads(root.joinpath(resumed.metrics_path).read_text(encoding="utf-8"))["metrics"]
             checkpoint = torch.load(root / resumed.checkpoint_path, map_location="cpu", weights_only=False)
             self.assertEqual([row["step"] for row in metrics], [1, 2])
             self.assertEqual(checkpoint["step"], 2)
@@ -277,13 +280,25 @@ class TrainingTests(unittest.TestCase):
     def test_cli_build_train_eval(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_order_flow(root)
+            ingest_config = root / "ingest-demo.toml"
+            ingest_config.write_text(
+                f"""
+[ingest]
+output_dir = "{root}"
+
+[[ingest.sources]]
+name = "fixture"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
 
             self.assertEqual(
                 main(
                     [
-                        "build",
-                        f"data.data_dir={root}",
+                        "prepare",
+                        "--ingest-config",
+                        str(ingest_config),
                         "build.block_size=8",
                         "build.stride=4",
                         "build.min_events_per_ticker=5",
@@ -328,14 +343,12 @@ class TrainingTests(unittest.TestCase):
                 0,
             )
 
-            self.assertTrue((root / "stage=05_shards/mixture=public/tokens.jsonl").exists())
+            self.assertTrue((root / "stage=05_shards/mixture=public/tokens.npy").exists())
             self.assertTrue((root / "runs/train-cli/checkpoint.pt").exists())
             self.assertTrue((root / "evals/train-cli/report.json").exists())
 
 
-def _write_order_flow(root: Path) -> None:
-    target = root / "stage=02_normalized/family=order_flow/source=hf_ohlcv_1m.jsonl"
-    target.parent.mkdir(parents=True)
+def _order_flow_events() -> dict[str, list[dict[str, object]]]:
     rows = []
     for ticker_index, ticker in enumerate(("AAPL", "MSFT")):
         for index in range(20):
@@ -352,12 +365,12 @@ def _write_order_flow(root: Path) -> None:
                     "price_depth_bps": float(1 + (index % 8) * 2 + ticker_index),
                     "size": float(1.0 + index * 0.1 + ticker_index * 0.05),
                     "interarrival_seconds": 60.0,
-                    "provider": "hf_ohlcv_1m",
-                    "source_ids": [f"hf:{ticker}:{index:04d}"],
+                    "provider": "fixture",
+                    "source_ids": [f"fixture:{ticker}:{index:04d}"],
                     "midprice_return_bps": float((1 if index % 2 else -1) * (index % 5)),
                 }
             )
-    target.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    return events_by_ticker_from_rows(rows)
 
 
 if __name__ == "__main__":
