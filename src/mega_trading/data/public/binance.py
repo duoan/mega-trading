@@ -40,6 +40,8 @@ def download_binance_trade_archives(
     base_url: str = BINANCE_TRADES_BASE_URL,
     fetch_zip: FetchZip | None = None,
 ) -> list[BinanceTradeArchive]:
+    if fetch_zip is None:
+        return _download_trade_archives_with_datatool(request, output_dir, base_url)
     fetch_zip = fetch_zip or _fetch_zip
     start_dt = _to_utc_datetime(request.start)
     end_dt = _to_utc_datetime(request.end)
@@ -48,6 +50,48 @@ def download_binance_trade_archives(
     with ThreadPoolExecutor(max_workers=request.download_workers) as executor:
         archives = list(executor.map(lambda task: _download_trade_archive(task, raw_root, fetch_zip), tasks))
     return sorted(archives, key=lambda archive: (archive.symbol, archive.partition))
+
+
+def _download_trade_archives_with_datatool(
+    request: BinanceTradesIngestRequest,
+    output_dir: Path,
+    base_url: str,
+) -> list[BinanceTradeArchive]:
+    try:
+        from binance_datatool.archive import DownloadRequest, download_archive_files
+    except ImportError as exc:
+        raise RuntimeError("binance-datatool is required for Binance archive downloads; run `uv sync` first") from exc
+
+    archives = _datatool_trade_archives(request, output_dir, base_url, require_exists=False)
+    requests = [DownloadRequest(url=archive.url, local_path=archive.path) for archive in archives if not archive.path.exists()]
+    if requests:
+        result = download_archive_files(requests, inherit_proxy=False, progress_bar=True)
+        if result.failed_requests:
+            failed = ", ".join(str(item.local_path) for item in result.failed_requests[:5])
+            raise RuntimeError(f"failed to download {len(result.failed_requests)} Binance archives: {failed}")
+    return _datatool_trade_archives(request, output_dir, base_url, require_exists=True)
+
+
+def _datatool_trade_archives(
+    request: BinanceTradesIngestRequest,
+    output_dir: Path,
+    base_url: str,
+    require_exists: bool,
+) -> list[BinanceTradeArchive]:
+    start_dt = _to_utc_datetime(request.start)
+    end_dt = _to_utc_datetime(request.end)
+    archive_home = _datatool_archive_home(output_dir)
+    archives: list[BinanceTradeArchive] = []
+    for symbol, partition, url in _trade_file_tasks(request, base_url, start_dt, end_dt):
+        path = archive_home / "data" / "spot" / request.frequency / "trades" / symbol / f"{symbol}-trades-{partition}.zip"
+        if require_exists and not path.exists():
+            raise FileNotFoundError(f"binance-datatool did not download expected archive: {path}")
+        archives.append(BinanceTradeArchive(symbol=symbol, partition=partition, url=url, path=path))
+    return sorted(archives, key=lambda archive: (archive.symbol, archive.partition))
+
+
+def _datatool_archive_home(output_dir: Path) -> Path:
+    return output_dir / "stage=01_raw" / "source=binance_trades"
 
 
 def load_order_flow_from_archives(

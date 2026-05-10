@@ -24,13 +24,13 @@ No non-order-flow data family is part of the active data plane.
 Binance preparation is staged for server-scale runs:
 
 ```text
-parallel download
-  -> stage=01_raw/source=binance_trades/.../*.zip
+binance-datatool aria2 download
+  -> stage=01_raw/source=binance_trades/data/spot/<freq>/trades/<symbol>/*.zip
   -> multi-process parse/convert from cached ZIPs
   -> partitioned NumPy shards
 ```
 
-The raw cache keeps download progress visible on disk and allows retries without re-downloading. Processing uses all CPU cores when `process_workers = 0`.
+The raw cache keeps download progress visible on disk and allows retries without re-downloading. `binance-datatool` provides the exact archive downloader, while Mega-Trading keeps the date-window selection and downstream order-flow conversion. Processing uses all CPU cores when `process_workers = 0`.
 
 ## Event Contract
 

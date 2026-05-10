@@ -2,6 +2,8 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 from zipfile import ZipFile
 
 from mega_trading.data.ingest import BinanceTradesIngestRequest
@@ -30,7 +32,7 @@ class BinanceTradesTests(unittest.TestCase):
             ),
             BINANCE_TRADES_BASE_URL,
             fetch_zip,
-            )
+        )
         events = _trade_rows_to_order_flow(raw_rows)
 
         self.assertIn("BTCUSDT-trades-2024-01.zip", fetched_urls[0])
@@ -66,6 +68,32 @@ class BinanceTradesTests(unittest.TestCase):
             self.assertIn("stage=01_raw", str(archives[0].path))
             self.assertEqual(len(events), 2)
             self.assertEqual(events[0].ticker, "BTCUSDT")
+
+    def test_default_download_uses_binance_datatool_for_requested_archives_only(self) -> None:
+        request = BinanceTradesIngestRequest(
+            symbols=("BTCUSDT",),
+            start="2024-01-01T00:00:00Z",
+            end="2024-01-01T00:00:03Z",
+            frequency="daily",
+            process_workers=1,
+        )
+
+        def fake_download(requests, **_kwargs):
+            for item in requests:
+                item.local_path.parent.mkdir(parents=True, exist_ok=True)
+                item.local_path.write_bytes(_trades_zip())
+            return SimpleNamespace(failed_requests=[])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("binance_datatool.archive.download_archive_files", side_effect=fake_download) as download:
+                archives = download_binance_trade_archives(request, Path(tmp), BINANCE_TRADES_BASE_URL)
+            events = load_order_flow_from_archives(request, archives)
+
+            requested = download.call_args.args[0]
+            self.assertEqual(len(requested), 1)
+            self.assertIn("BTCUSDT-trades-2024-01-01.zip", requested[0].url)
+            self.assertIn("data/spot/daily/trades/BTCUSDT", str(requested[0].local_path))
+            self.assertEqual(len(events), 2)
 
 
 def _trades_zip() -> bytes:
