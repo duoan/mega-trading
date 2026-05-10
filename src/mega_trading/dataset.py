@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 from typing import Any, Iterable
 
+import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 
@@ -59,8 +61,48 @@ class TickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
                 yield row_to_example(row)
 
 
+class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
+    """Memory-map prebuilt token arrays and split rows by ticker time order."""
+
+    def __init__(
+        self,
+        store: LocalObjectStore,
+        numpy_metadata: dict[str, Any],
+        train_counts: dict[str, int],
+        split: str,
+    ) -> None:
+        super().__init__()
+        if split not in {"train", "validation"}:
+            raise ValueError("split must be train or validation")
+        if numpy_metadata.get("format") != "mega-trading-numpy-token-v1":
+            raise ValueError("unsupported numpy token dataset format")
+        self.store = store
+        self.numpy_metadata = numpy_metadata
+        self.train_counts = train_counts
+        self.split = split
+        ticker_to_id = {str(ticker): int(ticker_id) for ticker, ticker_id in dict(numpy_metadata["ticker_to_id"]).items()}
+        self.train_counts_by_id = {ticker_to_id[ticker]: count for ticker, count in train_counts.items() if ticker in ticker_to_id}
+
+    def __iter__(self):
+        tokens = np.load(_artifact_target(self.store, str(self.numpy_metadata["tokens_path"])), mmap_mode="r")
+        ticker_ids = np.load(_artifact_target(self.store, str(self.numpy_metadata["ticker_ids_path"])), mmap_mode="r")
+        seen: Counter[int] = Counter()
+        for row_index in range(int(tokens.shape[0])):
+            ticker_id = int(ticker_ids[row_index])
+            index = seen[ticker_id]
+            seen[ticker_id] += 1
+            is_train = index < self.train_counts_by_id.get(ticker_id, 0)
+            if (self.split == "train" and is_train) or (self.split == "validation" and not is_train):
+                yield tokens_to_example(tokens[row_index])
+
+
 def row_to_example(row: dict[str, Any]) -> dict[str, torch.Tensor]:
     tokens = [int(token) for token in row["tokens"]]
+    return tokens_to_example(tokens)
+
+
+def tokens_to_example(tokens: Iterable[int]) -> dict[str, torch.Tensor]:
+    tokens = [int(token) for token in tokens]
     if len(tokens) < 2:
         raise ValueError("token row must contain at least two tokens")
     input_ids = torch.tensor(tokens[:-1], dtype=torch.long)
@@ -100,3 +142,10 @@ def cycle_batches(loader: Iterable[dict[str, torch.Tensor]]):
             yield batch
         if not yielded:
             raise ValueError("training dataset is empty")
+
+
+def _artifact_target(store: LocalObjectStore, path: str) -> Path:
+    target = Path(path)
+    if target.is_absolute() or ".." in target.parts:
+        raise ValueError(f"artifact path must be relative and safe: {path}")
+    return store.root / target

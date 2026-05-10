@@ -1,0 +1,59 @@
+defaults:
+  - _self_
+
+run:
+  run_id: modal-proxy
+
+data:
+  data_dir: /data/hf-1m-proxy
+  mixture: modal_proxy
+  source: hf_ohlcv_1m
+
+build:
+  block_size: 512
+  stride: 256
+  min_events_per_ticker: 2048
+  max_tickers: null
+  tokenizer_method: quantile
+  tokenizer_clip_quantile: 0.01
+  tokenizer_relative_price_bins: 8
+  tokenizer_price_bins: 8
+  tokenizer_size_bins: 8
+  tokenizer_time_bins: 4
+
+model:
+  hidden_dim: 128
+  layers: 8
+  attention_heads: 4
+  kv_heads: 2
+  intermediate_dim: 384
+  dropout: 0.05
+  rope_theta: 500000.0
+  norm_eps: 0.00001
+
+training:
+  max_steps: 20000
+  batch_size: 16
+  learning_rate: 0.0002
+  validation_fraction: 0.02
+  eval_interval: 500
+  seed: 7
+  device: cuda
+  precision: mixed
+  distributed_strategy: fsdp
+  gradient_accumulation_steps: 4
+  compile: true
+  compile_mode: reduce-overhead
+  attention_backend: flash
+  checkpoint_interval: 1000
+  resume_from_checkpoint: null
+  wandb_enabled: true
+  wandb_project: mega-trading
+  wandb_entity: null
+  wandb_mode: online
+  progress_bar: true
+
+eval:
+  rollouts: 32
+  generated_tokens: 512
+  device: cuda

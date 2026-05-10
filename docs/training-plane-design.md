@@ -26,6 +26,14 @@ Each token shard row includes:
 
 The profile artifact records the stream contract, feature order, sequence counts, block size, event size, vocabulary size, binning method, and tokenizer path.
 
+The build stage also materializes a numpy dataset next to the JSONL shard:
+
+- `tokens.npy`: contiguous `int64` array with shape `[sequence_count, block_size + 1]`.
+- `ticker_ids.npy`: `int32` array mapping each row to a ticker id.
+- `tokens-numpy.json`: dtype, shape, ticker map, and artifact paths.
+
+Training memory-maps these arrays by default when they exist. This removes JSON parsing from the hot path and lets external experiments consume `input_ids = tokens[:, :-1]` and `labels = tokens[:, 1:]` directly.
+
 ## Outputs
 
 Each training run writes:
@@ -34,6 +42,25 @@ Each training run writes:
 - `runs/<run_id>/checkpoint.pt`
 - `manifests/training/<run_id>.json`
 
+Periodic checkpoints can also be written under `runs/<run_id>/checkpoints/step-*.pt` when `training.checkpoint_interval` is set. Resume uses `training.resume_from_checkpoint` and validates the shard path, stream contract, vocabulary size, and block size before loading model and optimizer state.
+
 ## Metrics
 
 Training metrics include next-token loss, perplexity, top-1/top-5 token accuracy, validation loss/perplexity, tokens/sec, checkpoint path, and manifest path.
+
+## Distributed Execution
+
+The training loop is built around Hugging Face Accelerate. A normal Python or console-script launch runs single process. `torchrun` or `accelerate launch` turns the same CLI into DDP. Setting `training.distributed_strategy=fsdp` passes an FSDP plugin to Accelerate for sharded training.
+
+Performance-oriented switches are config-driven:
+
+- `training.gradient_accumulation_steps`
+- `training.compile` and `training.compile_mode`
+- `training.attention_backend`: `auto`, `flash`, `efficient`, or `math`
+- `training.precision`: `auto`, `fp32`, or `mixed`
+
+The model already uses PyTorch scaled dot-product attention, so the flash path is selected through CUDA SDPA backends instead of a separate attention implementation.
+
+## Modal
+
+`modal_train.py` provides the cloud launcher. The single-node function runs the existing CLI on one GPU node. The clustered function uses `modal.experimental.clustered(..., rdma=True)` and starts `torch.distributed.run` with the Modal container rank, master address, and one process per GPU.

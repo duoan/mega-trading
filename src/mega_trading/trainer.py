@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, Iterator
 
 from accelerate import Accelerator
 import torch
@@ -16,7 +18,7 @@ from tqdm.auto import tqdm
 from mega_trading.config import TrainConfig
 from mega_trading.core.schemas import Manifest
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
-from mega_trading.dataset import TickerTimeDataset, cycle_batches, per_ticker_train_counts
+from mega_trading.dataset import NumpyTickerTimeDataset, TickerTimeDataset, cycle_batches, per_ticker_train_counts
 from mega_trading.events import STREAM_CONTRACT
 from mega_trading.model import TradingModel
 
@@ -49,8 +51,9 @@ class Trainer:
         if train_count <= 0:
             raise ValueError("training shard has no train rows")
 
-        train_dataset = TickerTimeDataset(self.store, shard_path, train_counts, split="train")
-        validation_dataset = TickerTimeDataset(self.store, shard_path, train_counts, split="validation") if validation_count else None
+        dataset_format = _dataset_format(self.store, profile)
+        train_dataset = _dataset(self.store, profile, shard_path, train_counts, split="train")
+        validation_dataset = _dataset(self.store, profile, shard_path, train_counts, split="validation") if validation_count else None
         train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size)
         validation_loader = (
             DataLoader(validation_dataset, batch_size=self.config.batch_size, shuffle=False) if validation_dataset else None
@@ -72,6 +75,16 @@ class Trainer:
             norm_eps=self.config.norm_eps,
         )
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate)
+        resume_state = _load_resume_checkpoint(self.store, self.config.resume_from_checkpoint)
+        start_step = 1
+        metrics: list[dict[str, object]] = []
+        if resume_state is not None:
+            _validate_resume_checkpoint(resume_state, profile, shard_path)
+            model.load_state_dict(resume_state["model_state_dict"])
+            optimizer.load_state_dict(resume_state["optimizer_state_dict"])
+            start_step = int(resume_state.get("step", 0)) + 1
+            metrics = [dict(row) for row in resume_state.get("metrics", [])]
+        model = _maybe_compile_model(model, self.config, device)
         if validation_loader is None:
             model, optimizer, train_loader = accelerator.prepare(model, optimizer, train_loader)
         else:
@@ -85,19 +98,21 @@ class Trainer:
         _init_trackers(accelerator, self.store, self.config, shard_path, profile, train_count, validation_count, precision)
         loss_fn = nn.CrossEntropyLoss()
         iterator = cycle_batches(train_loader)
-        metrics: list[dict[str, object]] = []
         metrics_path = self.paths.run("metrics")
-        progress = _progress_bar(accelerator, self.config)
+        progress = _progress_bar(accelerator, self.config, start_step)
+        last_step = start_step - 1
 
-        for step in range(1, self.config.max_steps + 1):
+        for step in range(start_step, self.config.max_steps + 1):
+            last_step = step
             batch = next(iterator)
             started = perf_counter()
-            optimizer.zero_grad(set_to_none=True)
-            with accelerator.autocast():
-                logits = model(batch["input_ids"])
-                loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
-            accelerator.backward(loss)
-            optimizer.step()
+            with accelerator.accumulate(model):
+                with accelerator.autocast(), _attention_kernel_context(self.config.attention_backend, device):
+                    logits = model(batch["input_ids"])
+                    loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
+                accelerator.backward(loss)
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
             elapsed = max(perf_counter() - started, 1e-9)
             if accelerator.is_main_process:
                 metric_row = {
@@ -109,32 +124,52 @@ class Trainer:
                     "train_top5_accuracy": _topk_accuracy(logits, batch["labels"], 5),
                     "train_sequence_count": train_count,
                     "validation_sequence_count": validation_count,
-                    "tokens_per_second": int(batch["labels"].numel()) / elapsed,
+                    "world_size": accelerator.num_processes,
+                    "distributed_strategy": self.config.distributed_strategy,
+                    "dataset_format": dataset_format,
+                    "gradient_accumulation_steps": self.config.gradient_accumulation_steps,
+                    "compile_enabled": self.config.compile,
+                    "attention_backend": self.config.attention_backend,
+                    "tokens_per_second": _tokens_per_second(batch, elapsed, accelerator),
+                    "tokens_per_gpu_second": _tokens_per_second(batch, elapsed, accelerator) / accelerator.num_processes,
                 }
                 if validation_loader is not None and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
-                    metric_row.update(_evaluate(model, validation_loader, accelerator, loss_fn))
+                    metric_row.update(_evaluate(model, validation_loader, accelerator, loss_fn, self.config.attention_backend, device))
                 metrics.append(metric_row)
                 accelerator.log(_wandb_metrics(metric_row), step=step)
                 self.store.write_jsonl(metrics_path, metrics)
                 progress.set_postfix(_progress_postfix(metric_row), refresh=False)
+            if self.config.checkpoint_interval and step % self.config.checkpoint_interval == 0:
+                _save_checkpoint(
+                    self.store,
+                    self.paths.run(f"checkpoints/step-{step:06d}.pt"),
+                    accelerator,
+                    model,
+                    optimizer,
+                    self.config,
+                    profile,
+                    shard_path,
+                    metrics,
+                    step,
+                )
             progress.update(1)
         progress.close()
 
         checkpoint_path = self.paths.run("checkpoint.pt")
-        checkpoint_target = self.store.root / checkpoint_path
-        checkpoint_target.parent.mkdir(parents=True, exist_ok=True)
         manifest_path = self.paths.manifest("training", self.config.run_id)
-        accelerator.wait_for_everyone()
+        _save_checkpoint(
+            self.store,
+            checkpoint_path,
+            accelerator,
+            model,
+            optimizer,
+            self.config,
+            profile,
+            shard_path,
+            metrics,
+            last_step,
+        )
         if accelerator.is_main_process:
-            torch.save(
-                {
-                    "stage": "training",
-                    "model_state_dict": accelerator.get_state_dict(model),
-                    "config": self.config.__dict__,
-                    "profile": profile,
-                },
-                checkpoint_target,
-            )
             self.store.write_manifest(
                 manifest_path,
                 Manifest(
@@ -145,11 +180,21 @@ class Trainer:
                         "stage": "training",
                         "run_id": self.config.run_id,
                         "training_backend": "accelerate",
+                        "distributed_strategy": self.config.distributed_strategy,
+                        "dataset_format": dataset_format,
+                        "world_size": accelerator.num_processes,
+                        "gradient_accumulation_steps": self.config.gradient_accumulation_steps,
+                        "compile_enabled": self.config.compile,
+                        "compile_mode": self.config.compile_mode,
+                        "attention_backend": self.config.attention_backend,
+                        "mixed_precision": precision,
                         "stream_contract": STREAM_CONTRACT,
                         "train_sequence_count": train_count,
                         "validation_sequence_count": validation_count,
                         "vocab_size": int(profile["vocab_size"]),
                         "block_size": int(profile["block_size"]),
+                        "checkpoint_interval": self.config.checkpoint_interval,
+                        "resume_from_checkpoint": self.config.resume_from_checkpoint,
                     },
                 ),
             )
@@ -164,13 +209,15 @@ def _evaluate(
     validation_loader: DataLoader,
     accelerator: Accelerator,
     loss_fn: nn.Module,
+    attention_backend: str,
+    device: torch.device,
 ) -> dict[str, float]:
     model.eval()
     losses: list[torch.Tensor] = []
     top1: list[float] = []
     top5: list[float] = []
     for batch in validation_loader:
-        with accelerator.autocast():
+        with accelerator.autocast(), _attention_kernel_context(attention_backend, device):
             logits = model(batch["input_ids"])
             loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
         losses.append(accelerator.gather_for_metrics(loss.detach()).mean().cpu())
@@ -194,6 +241,103 @@ def _topk_accuracy(logits: torch.Tensor, labels: torch.Tensor, k: int) -> float:
 
 def _perplexity(loss: float) -> float:
     return math.exp(min(loss, 20.0))
+
+
+def _tokens_per_second(batch: dict[str, torch.Tensor], elapsed: float, accelerator: Accelerator) -> float:
+    return int(batch["labels"].numel()) * accelerator.num_processes / elapsed
+
+
+def _dataset(
+    store: LocalObjectStore,
+    profile: dict[str, Any],
+    shard_path: str,
+    train_counts: dict[str, int],
+    split: str,
+) -> torch.utils.data.IterableDataset:
+    numpy_metadata = profile.get("numpy_dataset")
+    if isinstance(numpy_metadata, dict) and _numpy_dataset_exists(store, numpy_metadata):
+        return NumpyTickerTimeDataset(store, numpy_metadata, train_counts, split=split)
+    return TickerTimeDataset(store, shard_path, train_counts, split=split)
+
+
+def _dataset_format(store: LocalObjectStore, profile: dict[str, Any]) -> str:
+    numpy_metadata = profile.get("numpy_dataset")
+    if isinstance(numpy_metadata, dict) and _numpy_dataset_exists(store, numpy_metadata):
+        return "numpy"
+    return "jsonl"
+
+
+def _numpy_dataset_exists(store: LocalObjectStore, numpy_metadata: dict[str, Any]) -> bool:
+    tokens_path = numpy_metadata.get("tokens_path")
+    ticker_ids_path = numpy_metadata.get("ticker_ids_path")
+    if not tokens_path or not ticker_ids_path:
+        return False
+    return _checkpoint_target(store, str(tokens_path)).exists() and _checkpoint_target(store, str(ticker_ids_path)).exists()
+
+
+def _load_resume_checkpoint(store: LocalObjectStore, resume_from_checkpoint: str | None) -> dict[str, Any] | None:
+    if resume_from_checkpoint is None:
+        return None
+    target = _checkpoint_target(store, resume_from_checkpoint)
+    if not target.exists():
+        raise FileNotFoundError(f"checkpoint not found: {resume_from_checkpoint}")
+    return dict(torch.load(target, map_location="cpu", weights_only=False))
+
+
+def _validate_resume_checkpoint(state: dict[str, Any], profile: dict[str, Any], shard_path: str) -> None:
+    if state.get("stage") != "training":
+        raise ValueError("resume checkpoint is not a training checkpoint")
+    saved_profile = dict(state.get("profile", {}))
+    for key in ("stream_contract", "vocab_size", "block_size"):
+        if saved_profile.get(key) != profile.get(key):
+            raise ValueError(f"resume checkpoint profile mismatch for {key}")
+    if state.get("shard_path") != shard_path:
+        raise ValueError("resume checkpoint was created for a different shard")
+    if "model_state_dict" not in state or "optimizer_state_dict" not in state:
+        raise ValueError("resume checkpoint is missing model or optimizer state")
+
+
+def _save_checkpoint(
+    store: LocalObjectStore,
+    checkpoint_path: str,
+    accelerator: Accelerator,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    config: TrainConfig,
+    profile: dict[str, Any],
+    shard_path: str,
+    metrics: list[dict[str, object]],
+    step: int,
+) -> None:
+    accelerator.wait_for_everyone()
+    model_state_dict = accelerator.get_state_dict(model)
+    if accelerator.is_main_process:
+        target = _checkpoint_target(store, checkpoint_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "stage": "training",
+                "step": step,
+                "model_state_dict": model_state_dict,
+                "optimizer_state_dict": optimizer.state_dict(),
+                "config": config.__dict__,
+                "profile": profile,
+                "shard_path": shard_path,
+                "metrics": metrics,
+                "rng_state": torch.get_rng_state(),
+            },
+            target,
+        )
+    accelerator.wait_for_everyone()
+
+
+def _checkpoint_target(store: LocalObjectStore, checkpoint_path: str) -> Path:
+    target = Path(checkpoint_path)
+    if target.is_absolute():
+        return target
+    if ".." in target.parts:
+        raise ValueError(f"checkpoint path must be relative and safe: {checkpoint_path}")
+    return store.root / target
 
 
 def _profile_path(shard_path: str) -> str:
@@ -222,6 +366,41 @@ def _resolve_precision(requested_precision: str, device: torch.device) -> str:
     return requested_precision
 
 
+def _maybe_compile_model(model: TradingModel, config: TrainConfig, device: torch.device) -> torch.nn.Module:
+    if not config.compile:
+        return model
+    if device.type == "mps":
+        raise RuntimeError("torch.compile is not supported for this training path on MPS")
+    return torch.compile(model, mode=config.compile_mode)
+
+
+@contextmanager
+def _attention_kernel_context(backend: str, device: torch.device) -> Iterator[None]:
+    if backend == "auto":
+        yield
+        return
+    if device.type != "cuda":
+        raise RuntimeError(f"{backend} attention backend requires CUDA")
+    try:
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        mapping = {
+            "flash": SDPBackend.FLASH_ATTENTION,
+            "efficient": SDPBackend.EFFICIENT_ATTENTION,
+            "math": SDPBackend.MATH,
+        }
+        with sdpa_kernel(mapping[backend]):
+            yield
+    except (ImportError, AttributeError):
+        flags = {
+            "flash": dict(enable_flash=True, enable_mem_efficient=False, enable_math=False),
+            "efficient": dict(enable_flash=False, enable_mem_efficient=True, enable_math=False),
+            "math": dict(enable_flash=False, enable_mem_efficient=False, enable_math=True),
+        }
+        with torch.backends.cuda.sdp_kernel(**flags[backend]):
+            yield
+
+
 def _mps_available() -> bool:
     mps = getattr(torch.backends, "mps", None)
     return bool(mps is not None and mps.is_available())
@@ -230,7 +409,23 @@ def _mps_available() -> bool:
 def _accelerator(device: torch.device, precision: str, config: TrainConfig) -> Accelerator:
     mixed_precision = "fp16" if precision == "mixed" else "no"
     log_with = "wandb" if config.wandb_enabled else None
-    return Accelerator(cpu=device.type == "cpu", mixed_precision=mixed_precision, log_with=log_with)
+    kwargs: dict[str, Any] = {
+        "cpu": device.type == "cpu",
+        "mixed_precision": mixed_precision,
+        "log_with": log_with,
+        "gradient_accumulation_steps": config.gradient_accumulation_steps,
+    }
+    if config.distributed_strategy == "fsdp":
+        kwargs["fsdp_plugin"] = _fsdp_plugin()
+    return Accelerator(**kwargs)
+
+
+def _fsdp_plugin() -> Any:
+    try:
+        from accelerate import FullyShardedDataParallelPlugin
+    except ImportError as exc:
+        raise RuntimeError("FSDP requires an Accelerate version with FullyShardedDataParallelPlugin") from exc
+    return FullyShardedDataParallelPlugin()
 
 
 def _init_trackers(
@@ -269,6 +464,13 @@ def _init_trackers(
             "requested_precision": config.precision,
             "effective_precision": precision,
             "training_backend": "accelerate",
+            "distributed_strategy": config.distributed_strategy,
+            "dataset_format": _dataset_format(store, profile),
+            "world_size": accelerator.num_processes,
+            "gradient_accumulation_steps": config.gradient_accumulation_steps,
+            "compile_enabled": config.compile,
+            "compile_mode": config.compile_mode,
+            "attention_backend": config.attention_backend,
             "stream_contract": STREAM_CONTRACT,
         },
         init_kwargs={
@@ -290,6 +492,7 @@ def _wandb_metrics(row: dict[str, object]) -> dict[str, float]:
         "train/top1_accuracy": float(row["train_top1_accuracy"]),
         "train/top5_accuracy": float(row["train_top5_accuracy"]),
         "train/tokens_per_second": float(row["tokens_per_second"]),
+        "train/tokens_per_gpu_second": float(row["tokens_per_gpu_second"]),
     }
     for key in ("validation_loss", "validation_perplexity", "validation_top1_accuracy", "validation_top5_accuracy"):
         if key in row:
@@ -297,9 +500,9 @@ def _wandb_metrics(row: dict[str, object]) -> dict[str, float]:
     return metrics
 
 
-def _progress_bar(accelerator: Accelerator, config: TrainConfig) -> Any:
+def _progress_bar(accelerator: Accelerator, config: TrainConfig, start_step: int) -> Any:
     return tqdm(
-        total=config.max_steps,
+        total=max(config.max_steps - start_step + 1, 0),
         desc=f"train:{config.run_id}",
         disable=not config.progress_bar or not accelerator.is_local_main_process,
         dynamic_ncols=True,

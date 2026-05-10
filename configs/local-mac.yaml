@@ -2,50 +2,50 @@ defaults:
   - _self_
 
 run:
-  run_id: smoke
+  run_id: local-mac
 
 data:
-  data_dir: .mega-trading/hf-1m
-  mixture: public
+  data_dir: .mega-trading/local-mac
+  mixture: local_mac
   source: hf_ohlcv_1m
 
 build:
   block_size: 128
   stride: 64
-  min_events_per_ticker: 32
-  max_tickers: null
+  min_events_per_ticker: 64
+  max_tickers: 8
   tokenizer_method: quantile
   tokenizer_clip_quantile: 0.01
-  tokenizer_relative_price_bins: 16
-  tokenizer_price_bins: 16
-  tokenizer_size_bins: 16
+  tokenizer_relative_price_bins: 8
+  tokenizer_price_bins: 8
+  tokenizer_size_bins: 8
   tokenizer_time_bins: 4
 
 model:
-  hidden_dim: 128
-  layers: 4
-  attention_heads: 4
-  kv_heads: null
-  intermediate_dim: null
+  hidden_dim: 192
+  layers: 6
+  attention_heads: 6
+  kv_heads: 2
+  intermediate_dim: 512
   dropout: 0.1
   rope_theta: 500000.0
   norm_eps: 0.00001
 
 training:
-  max_steps: 100
-  batch_size: 32
+  max_steps: 500
+  batch_size: 16
   learning_rate: 0.0003
   validation_fraction: 0.1
-  eval_interval: 20
+  eval_interval: 50
   seed: 7
-  device: auto
-  precision: auto
+  device: mps
+  precision: fp32
   distributed_strategy: ddp
   gradient_accumulation_steps: 1
   compile: false
   compile_mode: default
   attention_backend: auto
-  checkpoint_interval: null
+  checkpoint_interval: 100
   resume_from_checkpoint: null
   wandb_enabled: true
   wandb_project: mega-trading
@@ -56,4 +56,4 @@ training:
 eval:
   rollouts: 8
   generated_tokens: 128
-  device: auto
+  device: mps

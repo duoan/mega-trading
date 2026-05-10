@@ -63,6 +63,13 @@ class TrainConfig:
     seed: int = 7
     device: str = "auto"
     precision: str = "auto"
+    distributed_strategy: str = "ddp"
+    gradient_accumulation_steps: int = 1
+    compile: bool = False
+    compile_mode: str = "default"
+    attention_backend: str = "auto"
+    checkpoint_interval: int | None = None
+    resume_from_checkpoint: str | None = None
     wandb_enabled: bool = True
     wandb_project: str = "mega-trading"
     wandb_entity: str | None = None
@@ -107,5 +114,17 @@ class TrainConfig:
             raise ValueError("device must be one of: auto, cpu, cuda, mps")
         if self.precision not in {"auto", "fp32", "mixed"}:
             raise ValueError("precision must be one of: auto, fp32, mixed")
+        if self.distributed_strategy not in {"ddp", "fsdp"}:
+            raise ValueError("distributed_strategy must be one of: ddp, fsdp")
+        if self.gradient_accumulation_steps <= 0:
+            raise ValueError("gradient_accumulation_steps must be positive")
+        if self.compile_mode not in {"default", "reduce-overhead", "max-autotune"}:
+            raise ValueError("compile_mode must be one of: default, reduce-overhead, max-autotune")
+        if self.attention_backend not in {"auto", "flash", "efficient", "math"}:
+            raise ValueError("attention_backend must be one of: auto, flash, efficient, math")
+        if self.checkpoint_interval is not None and self.checkpoint_interval <= 0:
+            raise ValueError("checkpoint_interval must be positive when set")
+        if self.resume_from_checkpoint is not None and not self.resume_from_checkpoint:
+            raise ValueError("resume_from_checkpoint must be a non-empty path when set")
         if self.wandb_mode not in {"online", "offline", "disabled"}:
             raise ValueError("wandb_mode must be one of: online, offline, disabled")

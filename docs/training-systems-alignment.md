@@ -26,21 +26,22 @@ Project response:
 
 - Provide training entry points for generative event-sequence training.
 - Keep training stages config-driven so model requirements can be translated into system configurations.
-- Support local CPU smoke tests and future GPU jobs through the same artifact contracts.
-- Design the training loop so it can later scale to FSDP/DeepSpeed/Ray without rewriting data contracts.
+- Support local CPU smoke tests, single-node GPU jobs, and multi-instance Modal jobs through the same artifact contracts.
+- Support DDP by launching the existing CLI with `torchrun` or `accelerate launch`, and support FSDP through Accelerate's FSDP plugin.
 
 72-hour implementation target:
 
 - One small local training path.
 - One GPU-ready training path using the same local contract.
+- One Modal launcher for single-node and clustered multi-node training.
 - Shared configs, manifests, metrics, and checkpointing.
 
 Long-term path:
 
-- Multi-GPU and multi-node execution.
+- Larger multi-GPU and multi-node execution.
 - Distributed shard streaming.
 - Elastic workers.
-- FSDP/DeepSpeed integration.
+- DeepSpeed or Ray integration if the workload outgrows the Accelerate path.
 - Training job queue and experiment scheduler.
 
 ### Optimize GPU Utilization, Throughput, And Training Efficiency
@@ -79,6 +80,9 @@ Project response:
   - precision
   - batch size
   - gradient accumulation
+- distributed strategy
+- attention backend
+- `torch.compile` mode
   - checkpoint interval
   - shard mixture
   - GPU type
@@ -230,7 +234,8 @@ The training-system-specific deliverables should be:
 
 - `configs/*.yaml` for model training jobs.
 - A local training loop that emits training metrics.
-- A GPU-ready training entry point.
+- GPU-ready DDP/FSDP training entry points.
+- Modal single-node and clustered launchers.
 - Numeric feature shards with manifests.
 - Checkpoint save/resume validation.
 - Training efficiency metrics for dataloading, throughput, and checkpointing.

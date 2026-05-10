@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Iterable
+
+import numpy as np
 
 from mega_trading.config import BuildConfig
 from mega_trading.core.schemas import Manifest
@@ -21,6 +24,9 @@ class BuildResult:
     profile_path: str
     manifest_path: str
     tokenizer_path: str
+    numpy_tokens_path: str
+    numpy_ticker_ids_path: str
+    numpy_metadata_path: str
 
 
 class EventBuilder:
@@ -66,19 +72,37 @@ class EventBuilder:
         if not sequence_rows:
             raise ValueError("not enough events to build token sequences")
         self.store.write_jsonl(shard_path, sequence_rows)
+        numpy_metadata = _write_numpy_dataset(self.store, self.config.mixture_name, sequence_rows)
 
-        profile = _profile(event_rows, sequence_rows, tokenizer, self.config, tokenizer_path)
+        profile = _profile(event_rows, sequence_rows, tokenizer, self.config, tokenizer_path, numpy_metadata)
         self.store.write_json(profile_path, profile)
         self.store.write_manifest(
             manifest_path,
             Manifest(
                 manifest_id=f"{self.config.mixture_name}-build",
                 artifact_type="event-token-build",
-                paths=[event_path, shard_path, profile_path, tokenizer_path],
+                paths=[
+                    event_path,
+                    shard_path,
+                    profile_path,
+                    tokenizer_path,
+                    str(numpy_metadata["tokens_path"]),
+                    str(numpy_metadata["ticker_ids_path"]),
+                    str(numpy_metadata["metadata_path"]),
+                ],
                 metadata=profile,
             ),
         )
-        return BuildResult(event_path, shard_path, profile_path, manifest_path, tokenizer_path)
+        return BuildResult(
+            event_path=event_path,
+            shard_path=shard_path,
+            profile_path=profile_path,
+            manifest_path=manifest_path,
+            tokenizer_path=tokenizer_path,
+            numpy_tokens_path=str(numpy_metadata["tokens_path"]),
+            numpy_ticker_ids_path=str(numpy_metadata["ticker_ids_path"]),
+            numpy_metadata_path=str(numpy_metadata["metadata_path"]),
+        )
 
 
 def _events_by_ticker(store: LocalObjectStore, source: str) -> dict[str, list[dict[str, Any]]]:
@@ -150,6 +174,7 @@ def _profile(
     tokenizer: MarketEventTokenizer,
     config: BuildConfig,
     tokenizer_path: str,
+    numpy_metadata: dict[str, Any],
 ) -> dict[str, Any]:
     ticker_counts = Counter(str(event["ticker"]) for event in events)
     sequence_counts = Counter(str(row["ticker"]) for row in sequences)
@@ -171,7 +196,47 @@ def _profile(
         "tokenizer_method": tokenizer.binning_method,
         "tokenizer_clip_quantile": tokenizer.clip_quantile,
         "tokenizer_bucket_counts": tokenizer.bucket_counts,
+        "numpy_dataset": numpy_metadata,
     }
+
+
+def _write_numpy_dataset(store: LocalObjectStore, mixture_name: str, sequences: list[dict[str, Any]]) -> dict[str, Any]:
+    tokens_path = f"stage=05_shards/mixture={mixture_name}/tokens.npy"
+    ticker_ids_path = f"stage=05_shards/mixture={mixture_name}/ticker_ids.npy"
+    metadata_path = f"stage=05_shards/mixture={mixture_name}/tokens-numpy.json"
+    tickers = sorted({str(row["ticker"]) for row in sequences})
+    ticker_to_id = {ticker: index for index, ticker in enumerate(tickers)}
+    token_array = np.asarray([row["tokens"] for row in sequences], dtype=np.int64)
+    ticker_id_array = np.asarray([ticker_to_id[str(row["ticker"])] for row in sequences], dtype=np.int32)
+    _write_npy(store, tokens_path, token_array)
+    _write_npy(store, ticker_ids_path, ticker_id_array)
+    metadata: dict[str, Any] = {
+        "format": "mega-trading-numpy-token-v1",
+        "tokens_path": tokens_path,
+        "ticker_ids_path": ticker_ids_path,
+        "metadata_path": metadata_path,
+        "sequence_count": int(token_array.shape[0]),
+        "sequence_length": int(token_array.shape[1]),
+        "tokens_dtype": str(token_array.dtype),
+        "ticker_ids_dtype": str(ticker_id_array.dtype),
+        "ticker_to_id": ticker_to_id,
+        "id_to_ticker": {str(index): ticker for ticker, index in ticker_to_id.items()},
+    }
+    store.write_json(metadata_path, metadata)
+    return metadata
+
+
+def _write_npy(store: LocalObjectStore, path: str, value: np.ndarray) -> None:
+    target = _artifact_target(store, path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.save(target, value)
+
+
+def _artifact_target(store: LocalObjectStore, path: str) -> Path:
+    target = Path(path)
+    if target.is_absolute() or ".." in target.parts:
+        raise ValueError(f"artifact path must be relative and safe: {path}")
+    return store.root / target
 
 
 def _round_robin(groups: list[list[dict[str, Any]]]) -> Iterable[dict[str, Any]]:
