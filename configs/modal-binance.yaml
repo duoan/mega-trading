@@ -38,6 +38,7 @@ training:
   learning_rate: 0.0002
   validation_fraction: 0.02
   eval_interval: 1000
+  max_eval_batches: null
   seed: 7
   device: cuda
   precision: mixed

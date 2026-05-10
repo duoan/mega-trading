@@ -134,7 +134,17 @@ class Trainer:
                     "tokens_per_gpu_second": _tokens_per_second(batch, elapsed, accelerator) / accelerator.num_processes,
                 }
                 if validation_loader is not None and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
-                    metric_row.update(_evaluate(model, validation_loader, accelerator, loss_fn, self.config.attention_backend, device))
+                    metric_row.update(
+                        _evaluate(
+                            model,
+                            validation_loader,
+                            accelerator,
+                            loss_fn,
+                            self.config.attention_backend,
+                            device,
+                            self.config.max_eval_batches,
+                        )
+                    )
                 metrics.append(metric_row)
                 accelerator.log(_wandb_metrics(metric_row), step=step)
                 self.store.write_json(metrics_path, {"metrics": metrics})
@@ -195,6 +205,7 @@ class Trainer:
                         "block_size": int(profile["block_size"]),
                         "checkpoint_interval": self.config.checkpoint_interval,
                         "resume_from_checkpoint": self.config.resume_from_checkpoint,
+                        "max_eval_batches": self.config.max_eval_batches,
                     },
                 ),
             )
@@ -211,18 +222,23 @@ def _evaluate(
     loss_fn: nn.Module,
     attention_backend: str,
     device: torch.device,
+    max_batches: int | None,
 ) -> dict[str, float]:
     model.eval()
     losses: list[torch.Tensor] = []
     top1: list[float] = []
     top5: list[float] = []
+    batches = 0
     for batch in validation_loader:
+        if max_batches is not None and batches >= max_batches:
+            break
         with accelerator.autocast(), _attention_kernel_context(attention_backend, device):
             logits = model(batch["input_ids"])
             loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
         losses.append(accelerator.gather_for_metrics(loss.detach()).mean().cpu())
         top1.append(_topk_accuracy(logits, batch["labels"], 1))
         top5.append(_topk_accuracy(logits, batch["labels"], 5))
+        batches += 1
     model.train()
     validation_loss = float(torch.stack(losses).mean()) if losses else 0.0
     return {
@@ -230,6 +246,7 @@ def _evaluate(
         "validation_perplexity": _perplexity(validation_loss),
         "validation_top1_accuracy": sum(top1) / max(len(top1), 1),
         "validation_top5_accuracy": sum(top5) / max(len(top5), 1),
+        "validation_batches": float(batches),
     }
 
 

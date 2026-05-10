@@ -45,6 +45,8 @@ class TrainingTests(unittest.TestCase):
             TrainConfig(run_id="bad", attention_backend="xformers")
         with self.assertRaisesRegex(ValueError, "checkpoint_interval"):
             TrainConfig(run_id="bad", checkpoint_interval=0)
+        with self.assertRaisesRegex(ValueError, "max_eval_batches"):
+            TrainConfig(run_id="bad", max_eval_batches=0)
 
     def test_event_builder_writes_token_shards_and_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,6 +207,7 @@ class TrainingTests(unittest.TestCase):
                     wandb_enabled=False,
                     progress_bar=False,
                     checkpoint_interval=1,
+                    max_eval_batches=1,
                 ),
             ).train("stage=05_shards/mixture=public/tokens.npy")
             eval_result = run_eval(store, "train-test", rollouts=2, generated_tokens=8, device="cpu")
@@ -216,6 +219,7 @@ class TrainingTests(unittest.TestCase):
             self.assertTrue(root.joinpath(train_result.checkpoint_path).exists())
             self.assertTrue(root.joinpath("runs/train-test/checkpoints/step-000001.pt").exists())
             self.assertIn("validation_loss", metrics[-1])
+            self.assertEqual(metrics[-1]["validation_batches"], 1.0)
             self.assertEqual(metrics[-1]["distributed_strategy"], "ddp")
             self.assertEqual(metrics[-1]["dataset_format"], "numpy")
             self.assertEqual(metrics[-1]["world_size"], 1)
@@ -224,6 +228,7 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(manifest.metadata["dataset_format"], "numpy")
             self.assertEqual(manifest.metadata["gradient_accumulation_steps"], 1)
             self.assertEqual(manifest.metadata["attention_backend"], "auto")
+            self.assertEqual(manifest.metadata["max_eval_batches"], 1)
             self.assertIn("optimizer_state_dict", checkpoint)
             self.assertEqual(checkpoint["step"], 2)
             self.assertEqual(report["stage"], "eval")

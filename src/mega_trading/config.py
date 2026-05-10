@@ -55,6 +55,7 @@ class TrainConfig:
     learning_rate: float = 3e-4
     validation_fraction: float = 0.1
     eval_interval: int = 20
+    max_eval_batches: int | None = None
     hidden_dim: int = 128
     layers: int = 4
     attention_heads: int = 4
@@ -90,6 +91,8 @@ class TrainConfig:
             raise ValueError("validation_fraction must be in [0.0, 1.0)")
         if self.eval_interval <= 0:
             raise ValueError("eval_interval must be positive")
+        if self.max_eval_batches is not None and self.max_eval_batches <= 0:
+            raise ValueError("max_eval_batches must be positive when set")
         if self.hidden_dim <= 0:
             raise ValueError("hidden_dim must be positive")
         if self.layers <= 0:

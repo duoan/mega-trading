@@ -38,6 +38,7 @@ training:
   learning_rate: 0.0003
   validation_fraction: 0.1
   eval_interval: 50
+  max_eval_batches: 16
   seed: 7
   device: mps
   precision: fp32

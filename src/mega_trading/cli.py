@@ -98,6 +98,7 @@ def _run_train_config(config: DictConfig):
         learning_rate=float(config.training.learning_rate),
         validation_fraction=float(config.training.validation_fraction),
         eval_interval=int(config.training.eval_interval),
+        max_eval_batches=_optional_int(config.training.max_eval_batches),
         hidden_dim=int(config.model.hidden_dim),
         layers=int(config.model.layers),
         attention_heads=int(config.model.attention_heads),
