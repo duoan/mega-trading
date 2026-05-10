@@ -86,10 +86,11 @@ stage=05_shards/mixture=<name>/tokens-profile.json
 stage=05_shards/mixture=<name>/tokens-numpy.json
 stage=05_shards/mixture=<name>/numpy/part-*/tokens.npy
 stage=05_shards/mixture=<name>/numpy/part-*/ticker_ids.npy
+stage=05_shards/mixture=<name>/numpy/symbol=<ticker>/stream/tokens.npy
 ```
 
 `tokenizer.json` stores fitted bin edges for relative price, price depth, log relative size, and interarrival time.
-`tokens-numpy.json` also stores per-ticker chronological split counts. The order is train, validation, then backtest, so the backtest rows are held-out future windows for each ticker.
+`tokens-numpy.json` also stores per-ticker chronological split counts. The order is train, validation, then backtest, so the backtest rows are held-out future windows for each ticker. Streaming Binance builds store contiguous per-ticker token streams and slice training windows lazily, avoiding materialized overlapping sequence matrices.
 
 ## Run
 

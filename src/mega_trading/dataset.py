@@ -44,6 +44,9 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
         }
 
     def __iter__(self):
+        if self.numpy_metadata.get("storage") == "token_stream":
+            yield from self._iter_token_streams()
+            return
         if bool(self.numpy_metadata.get("partitioned")):
             yield from self._iter_partitions()
             return
@@ -68,6 +71,19 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
                 seen[ticker_id] += 1
                 if _row_in_split(index, self.split_counts_by_id.get(ticker_id, {}), self.split):
                     yield tokens_to_example(tokens[row_index])
+
+    def _iter_token_streams(self):
+        sequence_length = int(self.numpy_metadata["sequence_length"])
+        stride = int(self.numpy_metadata["stride"])
+        for partition in self.numpy_metadata.get("partitions", []):
+            ticker_id = int(partition["ticker_id"])
+            counts = self.split_counts_by_id.get(ticker_id, {})
+            tokens = np.load(_artifact_target(self.store, str(partition["tokens_path"])), mmap_mode="r")
+            for index in range(int(partition["sequence_count"])):
+                if not _row_in_split(index, counts, self.split):
+                    continue
+                offset = index * stride
+                yield tokens_to_example(tokens[offset : offset + sequence_length])
 
 
 def tokens_to_example(tokens: Iterable[int]) -> dict[str, torch.Tensor]:

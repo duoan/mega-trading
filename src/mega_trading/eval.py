@@ -86,6 +86,22 @@ def _price_depth_values_from_rows(
     numpy_metadata: object = None,
 ) -> list[float]:
     values: list[float] = []
+    if isinstance(numpy_metadata, dict) and numpy_metadata.get("storage") == "token_stream":
+        rows_seen = 0
+        sequence_length = int(numpy_metadata["sequence_length"])
+        stride = int(numpy_metadata["stride"])
+        for partition in numpy_metadata.get("partitions", []):
+            tokens = np.load(store.root / str(partition["tokens_path"]), mmap_mode="r")
+            for index in range(int(partition["sequence_count"])):
+                if rows_seen >= limit:
+                    return values
+                rows_seen += 1
+                offset = index * stride
+                for token in tokens[offset : offset + sequence_length]:
+                    value = tokenizer.price_depth_value(int(token))
+                    if value is not None:
+                        values.append(value)
+        return values
     if isinstance(numpy_metadata, dict) and bool(numpy_metadata.get("partitioned")):
         rows_seen = 0
         for partition in numpy_metadata.get("partitions", []):

@@ -283,11 +283,24 @@ def _dataset(
 def _dataset_format(store: LocalObjectStore, profile: dict[str, Any]) -> str:
     numpy_metadata = profile.get("numpy_dataset")
     if isinstance(numpy_metadata, dict) and _numpy_dataset_exists(store, numpy_metadata):
+        if numpy_metadata.get("storage") == "token_stream":
+            return "numpy-token-stream"
         return "numpy-partitioned" if bool(numpy_metadata.get("partitioned")) else "numpy"
     raise FileNotFoundError("NumPy token dataset is missing")
 
 
 def _numpy_dataset_exists(store: LocalObjectStore, numpy_metadata: dict[str, Any]) -> bool:
+    if numpy_metadata.get("storage") == "token_stream":
+        partitions = numpy_metadata.get("partitions")
+        if not isinstance(partitions, list) or not partitions:
+            return False
+        for partition in partitions:
+            if not isinstance(partition, dict):
+                return False
+            tokens_path = partition.get("tokens_path")
+            if not tokens_path or not _checkpoint_target(store, str(tokens_path)).exists():
+                return False
+        return True
     if bool(numpy_metadata.get("partitioned")):
         partitions = numpy_metadata.get("partitions")
         if not isinstance(partitions, list) or not partitions:

@@ -191,6 +191,7 @@ def _prepare_streaming_binance_dataset(
         qty_baselines,
         tokenizer,
         config,
+        ticker_counts,
         sequence_counts,
         workers,
     )
@@ -396,6 +397,7 @@ def _write_streaming_numpy_dataset(
     qty_baselines: dict[str, float],
     tokenizer: MarketEventTokenizer,
     config: BuildConfig,
+    ticker_counts: dict[str, int],
     sequence_counts: dict[str, int],
     workers: int,
 ) -> dict[str, Any]:
@@ -421,43 +423,40 @@ def _write_streaming_numpy_dataset(
             archives_by_symbol[ticker],
             qty_baselines[ticker],
             tokenizer,
-            config.block_size,
-            config.stride,
-            partition_rows,
+            ticker_counts[ticker] + 2,
             root_path,
             ticker_to_id[ticker],
-            split_counts[ticker],
+            sequence_counts[ticker],
         )
         for ticker in tickers
     ]
     results = (
-        [_write_symbol_numpy_partitions_job(job) for job in jobs]
+        [_write_symbol_token_stream_job(job) for job in jobs]
         if workers == 1
-        else _parallel_map(_write_symbol_numpy_partitions_job, jobs, workers, "symbol shard write")
+        else _parallel_map(_write_symbol_token_stream_job, jobs, workers, "symbol token stream write")
     )
     results = sorted(results, key=lambda item: item["ticker"])
     partitions: list[dict[str, Any]] = []
-    time_ranges: dict[str, dict[str, dict[str, Any]]] = {}
+    time_ranges = _empty_time_ranges(split_counts)
     row_offset = 0
     for result in results:
-        ticker = str(result["ticker"])
-        time_ranges[ticker] = dict(result["time_ranges"])
-        for partition in result["partitions"]:
-            sequence_count = int(partition["sequence_count"])
-            adjusted = dict(partition)
-            adjusted["row_start"] = row_offset
-            adjusted["row_stop"] = row_offset + sequence_count
-            partitions.append(adjusted)
-            row_offset += sequence_count
+        sequence_count = int(result["sequence_count"])
+        adjusted = dict(result)
+        adjusted["row_start"] = row_offset
+        adjusted["row_stop"] = row_offset + sequence_count
+        partitions.append(adjusted)
+        row_offset += sequence_count
 
     metadata: dict[str, Any] = {
         "format": "mega-trading-numpy-token-v1",
+        "storage": "token_stream",
         "tokens_path": root_path,
         "ticker_ids_path": root_path,
         "metadata_path": metadata_path,
         "sequence_count": row_offset,
         "sequence_length": config.block_size + 1,
-        "tokens_dtype": "int64",
+        "stride": config.stride,
+        "tokens_dtype": "int32",
         "ticker_ids_dtype": "int32",
         "partitioned": True,
         "partition_rows": partition_rows,
@@ -478,7 +477,7 @@ def _write_streaming_numpy_dataset(
     return metadata
 
 
-def _write_symbol_numpy_partitions_job(
+def _write_symbol_token_stream_job(
     job: tuple[
         str,
         BinanceTradesIngestRequest,
@@ -487,11 +486,9 @@ def _write_symbol_numpy_partitions_job(
         float,
         MarketEventTokenizer,
         int,
-        int,
-        int,
         str,
         int,
-        dict[str, int],
+        int,
     ],
 ) -> dict[str, Any]:
     (
@@ -501,68 +498,38 @@ def _write_symbol_numpy_partitions_job(
         archives,
         qty_baseline,
         tokenizer,
-        block_size,
-        stride,
-        partition_rows,
+        token_count,
         root_path,
         ticker_id,
-        split_counts,
+        sequence_count,
     ) = job
-    sequence_length = block_size + 1
-    token_buffer = np.empty((partition_rows, sequence_length), dtype=np.int64)
-    ticker_buffer = np.empty((partition_rows,), dtype=np.int32)
-    time_ranges = _empty_time_ranges({ticker: split_counts})[ticker]
-    partitions: list[dict[str, Any]] = []
-    fill = 0
-    local_offset = 0
-    local_index = 0
     root_dir = Path(root)
-
-    def flush() -> None:
-        nonlocal fill, local_offset
-        if fill == 0:
-            return
-        partition_index = len(partitions)
-        partition_id = f"symbol={ticker}/part-{partition_index:05d}"
-        tokens_path = f"{root_path}/{partition_id}/tokens.npy"
-        ticker_ids_path = f"{root_path}/{partition_id}/ticker_ids.npy"
-        _write_npy_path(root_dir / tokens_path, token_buffer[:fill])
-        _write_npy_path(root_dir / ticker_ids_path, ticker_buffer[:fill])
-        partitions.append(
-            {
-                "partition_id": partition_id,
-                "tokens_path": tokens_path,
-                "ticker_ids_path": ticker_ids_path,
-                "sequence_count": fill,
-                "row_start": local_offset,
-                "row_stop": local_offset + fill,
-            }
-        )
-        local_offset += fill
-        fill = 0
-
-    for row in _iter_symbol_sequence_rows(
-        ticker,
-        iter_order_flow_event_dicts_for_symbol(request, archives, qty_baseline),
-        tokenizer,
-        block_size,
-        stride,
-    ):
-        split = _split_for_index(local_index, split_counts)
-        if split is not None:
-            _update_time_range(time_ranges[split], row)
-        token_buffer[fill, :] = np.asarray(row["tokens"], dtype=np.int64)
-        ticker_buffer[fill] = ticker_id
-        fill += 1
-        local_index += 1
-        if fill >= partition_rows:
-            flush()
-    flush()
+    partition_id = f"symbol={ticker}/stream"
+    tokens_path = f"{root_path}/{partition_id}/tokens.npy"
+    target = root_dir / tokens_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    token_stream = np.lib.format.open_memmap(target, mode="w+", dtype=np.int32, shape=(token_count,))
+    offset = 0
+    token_stream[offset] = BOS_TOKEN
+    offset += 1
+    for event in iter_order_flow_event_dicts_for_symbol(request, archives, qty_baseline):
+        if offset >= token_count - 1:
+            break
+        token_stream[offset] = tokenizer.encode_event(event)[0]
+        offset += 1
+    if offset < token_count:
+        token_stream[offset] = EOS_TOKEN
+        offset += 1
+    if offset < token_count:
+        token_stream[offset:] = EOS_TOKEN
+    token_stream.flush()
     return {
         "ticker": ticker,
-        "sequence_count": local_index,
-        "partitions": partitions,
-        "time_ranges": time_ranges,
+        "ticker_id": ticker_id,
+        "partition_id": partition_id,
+        "tokens_path": tokens_path,
+        "sequence_count": sequence_count,
+        "token_count": token_count,
     }
 
 

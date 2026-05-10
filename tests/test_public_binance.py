@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZipFile
 
+from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.ingest import BinanceTradesIngestRequest
 from mega_trading.config import BuildConfig
 from mega_trading.data.ingest_config import IngestPipelineConfig, IngestSourceConfig
@@ -19,6 +20,7 @@ from mega_trading.data.public.binance import (
     download_binance_trade_archives,
     load_order_flow_from_archives,
 )
+from mega_trading.dataset import NumpyTickerTimeDataset
 from mega_trading.prepare import prepare_numpy_dataset
 
 
@@ -183,8 +185,20 @@ class BinanceTradesTests(unittest.TestCase):
             metadata = json.loads(root.joinpath(result.numpy_metadata_path).read_text(encoding="utf-8"))
             profile = json.loads(root.joinpath(result.profile_path).read_text(encoding="utf-8"))
             self.assertTrue(metadata["partitioned"])
+            self.assertEqual(metadata["storage"], "token_stream")
             self.assertGreater(metadata["sequence_count"], 0)
             self.assertTrue(profile["streaming_prepare"])
+            example = next(
+                iter(
+                    NumpyTickerTimeDataset(
+                        LocalObjectStore(root),
+                        metadata,
+                        dict(metadata["splits"]["counts"]),
+                        split="train",
+                    )
+                )
+            )
+            self.assertEqual(example["input_ids"].shape[0], 4)
 
 
 def _trades_zip(row_count: int = 3) -> bytes:
