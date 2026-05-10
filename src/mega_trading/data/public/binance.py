@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import csv
 import io
@@ -32,6 +33,7 @@ class BinanceTradeArchive:
     partition: str
     url: str
     path: Path
+    key: str
 
 
 def download_binance_trade_archives(
@@ -62,20 +64,76 @@ def _download_trade_archives_with_datatool(
     except ImportError as exc:
         raise RuntimeError("binance-datatool is required for Binance archive downloads; run `uv sync` first") from exc
 
-    archives = _datatool_trade_archives(request, output_dir, base_url, require_exists=False)
+    archives = _available_datatool_trade_archives(request, output_dir, base_url)
+    if not archives:
+        raise ValueError("no Binance trade archives exist for the configured symbols and date window")
     requests = [DownloadRequest(url=archive.url, local_path=archive.path) for archive in archives if not archive.path.exists()]
     if requests:
         result = download_archive_files(requests, inherit_proxy=False, progress_bar=True)
         if result.failed_requests:
             failed = ", ".join(str(item.local_path) for item in result.failed_requests[:5])
             raise RuntimeError(f"failed to download {len(result.failed_requests)} Binance archives: {failed}")
-    return _datatool_trade_archives(request, output_dir, base_url, require_exists=True)
+    return _datatool_trade_archives(request, output_dir, base_url, available_keys={archive.key for archive in archives}, require_exists=True)
+
+
+def _available_datatool_trade_archives(
+    request: BinanceTradesIngestRequest,
+    output_dir: Path,
+    base_url: str,
+) -> list[BinanceTradeArchive]:
+    available_keys = _list_available_trade_archive_keys(request)
+    archives = _datatool_trade_archives(request, output_dir, base_url, available_keys=available_keys, require_exists=False)
+    expected_count = len(_trade_file_tasks(request, base_url, _to_utc_datetime(request.start), _to_utc_datetime(request.end)))
+    skipped_count = expected_count - len(archives)
+    if skipped_count:
+        symbols_with_data = sorted({archive.symbol for archive in archives})
+        missing_symbols = sorted(set(symbol.upper() for symbol in request.symbols) - set(symbols_with_data))
+        print(
+            "binance archive listing: "
+            f"using {len(archives)}/{expected_count} configured archives; "
+            f"skipping {skipped_count} missing symbol/month files"
+        )
+        if missing_symbols:
+            raise ValueError(f"no Binance trade archives found for configured symbols: {', '.join(missing_symbols)}")
+    return archives
+
+
+def _list_available_trade_archive_keys(request: BinanceTradesIngestRequest) -> set[str]:
+    try:
+        from binance_datatool.archive import ArchiveClient
+        from binance_datatool.common import DataFrequency, DataType, TradeType
+    except ImportError as exc:
+        raise RuntimeError("binance-datatool is required for Binance archive listing; run `uv sync` first") from exc
+
+    async def _list() -> set[str]:
+        client = ArchiveClient()
+        results = await client.list_symbol_files_batch(
+            TradeType.spot,
+            DataFrequency(request.frequency),
+            DataType.trades,
+            sorted({symbol.upper() for symbol in request.symbols}),
+            progress_bar=True,
+        )
+        keys: set[str] = set()
+        listing_errors: dict[str, str] = {}
+        for symbol, (files, error) in results.items():
+            if error is not None:
+                listing_errors[symbol] = error
+                continue
+            keys.update(file.key for file in files if file.key.endswith(".zip"))
+        if listing_errors:
+            detail = "; ".join(f"{symbol}: {error}" for symbol, error in sorted(listing_errors.items())[:5])
+            raise RuntimeError(f"failed to list Binance archives: {detail}")
+        return keys
+
+    return asyncio.run(_list())
 
 
 def _datatool_trade_archives(
     request: BinanceTradesIngestRequest,
     output_dir: Path,
     base_url: str,
+    available_keys: set[str] | None,
     require_exists: bool,
 ) -> list[BinanceTradeArchive]:
     start_dt = _to_utc_datetime(request.start)
@@ -83,10 +141,13 @@ def _datatool_trade_archives(
     archive_home = _datatool_archive_home(output_dir)
     archives: list[BinanceTradeArchive] = []
     for symbol, partition, url in _trade_file_tasks(request, base_url, start_dt, end_dt):
+        key = f"data/spot/{request.frequency}/trades/{symbol}/{symbol}-trades-{partition}.zip"
+        if available_keys is not None and key not in available_keys:
+            continue
         path = archive_home / "data" / "spot" / request.frequency / "trades" / symbol / f"{symbol}-trades-{partition}.zip"
         if require_exists and not path.exists():
             raise FileNotFoundError(f"binance-datatool did not download expected archive: {path}")
-        archives.append(BinanceTradeArchive(symbol=symbol, partition=partition, url=url, path=path))
+        archives.append(BinanceTradeArchive(symbol=symbol, partition=partition, url=url, path=path, key=key))
     return sorted(archives, key=lambda archive: (archive.symbol, archive.partition))
 
 
@@ -173,7 +234,8 @@ def _download_trade_archive(
         tmp = target.with_suffix(target.suffix + ".tmp")
         tmp.write_bytes(fetch_zip(url))
         tmp.replace(target)
-    return BinanceTradeArchive(symbol=symbol, partition=partition, url=url, path=target)
+    key = f"data/{url.split('/data/', 1)[1]}" if "/data/" in url else target.name
+    return BinanceTradeArchive(symbol=symbol, partition=partition, url=url, path=target, key=key)
 
 
 def _load_trade_file(

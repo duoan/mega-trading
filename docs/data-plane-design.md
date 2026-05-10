@@ -30,7 +30,7 @@ binance-datatool aria2 download
   -> partitioned NumPy shards
 ```
 
-The raw cache keeps download progress visible on disk and allows retries without re-downloading. `binance-datatool` provides the exact archive downloader, while Mega-Trading keeps the date-window selection and downstream order-flow conversion. Processing uses all CPU cores when `process_workers = 0`.
+The raw cache keeps download progress visible on disk and allows retries without re-downloading. `binance-datatool` lists the remote archive and downloads existing ZIPs with aria2, while Mega-Trading keeps the date-window selection and downstream order-flow conversion. Missing symbol/month files are skipped because some Binance spot pairs launch late or migrate; a symbol with no files in the configured window is treated as a configuration error. Processing uses all CPU cores when `process_workers = 0`.
 
 ## Event Contract
 

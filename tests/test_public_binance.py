@@ -84,9 +84,11 @@ class BinanceTradesTests(unittest.TestCase):
                 item.local_path.write_bytes(_trades_zip())
             return SimpleNamespace(failed_requests=[])
 
+        available_keys = {"data/spot/daily/trades/BTCUSDT/BTCUSDT-trades-2024-01-01.zip"}
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("binance_datatool.archive.download_archive_files", side_effect=fake_download) as download:
-                archives = download_binance_trade_archives(request, Path(tmp), BINANCE_TRADES_BASE_URL)
+            with patch("mega_trading.data.public.binance._list_available_trade_archive_keys", return_value=available_keys):
+                with patch("binance_datatool.archive.download_archive_files", side_effect=fake_download) as download:
+                    archives = download_binance_trade_archives(request, Path(tmp), BINANCE_TRADES_BASE_URL)
             events = load_order_flow_from_archives(request, archives)
 
             requested = download.call_args.args[0]
@@ -94,6 +96,31 @@ class BinanceTradesTests(unittest.TestCase):
             self.assertIn("BTCUSDT-trades-2024-01-01.zip", requested[0].url)
             self.assertIn("data/spot/daily/trades/BTCUSDT", str(requested[0].local_path))
             self.assertEqual(len(events), 2)
+
+    def test_default_download_skips_missing_symbol_month_archives(self) -> None:
+        request = BinanceTradesIngestRequest(
+            symbols=("BTCUSDT",),
+            start="2024-01-01T00:00:00Z",
+            end="2024-01-02T00:00:03Z",
+            frequency="daily",
+            process_workers=1,
+        )
+        available_keys = {"data/spot/daily/trades/BTCUSDT/BTCUSDT-trades-2024-01-01.zip"}
+
+        def fake_download(requests, **_kwargs):
+            for item in requests:
+                item.local_path.parent.mkdir(parents=True, exist_ok=True)
+                item.local_path.write_bytes(_trades_zip())
+            return SimpleNamespace(failed_requests=[])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("mega_trading.data.public.binance._list_available_trade_archive_keys", return_value=available_keys):
+                with patch("binance_datatool.archive.download_archive_files", side_effect=fake_download) as download:
+                    archives = download_binance_trade_archives(request, Path(tmp), BINANCE_TRADES_BASE_URL)
+
+            self.assertEqual(len(download.call_args.args[0]), 1)
+            self.assertEqual(len(archives), 1)
+            self.assertEqual(archives[0].partition, "2024-01-01")
 
 
 def _trades_zip() -> bytes:
