@@ -20,7 +20,11 @@ MODAL_VOLUME_DATA_PREFIX = "/binance-trades"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the simple Mega-Trading local or remote pipeline.")
-    parser.add_argument("target", choices=["local", "remote"], help="local trains on this machine; remote uploads data and trains on Modal")
+    parser.add_argument(
+        "target",
+        choices=["local", "remote", "server"],
+        help="local trains on this machine; server trains on local CUDA; remote uploads data and trains on Modal",
+    )
     parser.add_argument("--local-steps", type=int, default=300, help="training steps for local training")
     parser.add_argument("--local-backtest-batches", type=int, default=32, help="maximum local backtest batches to score")
     parser.add_argument("--remote-steps", type=int, default=50_000, help="training steps for Modal training")
@@ -98,6 +102,9 @@ def main() -> int:
         min_sequences=0,
         force=args.force_data,
     )
+    if args.target == "server":
+        _run(["uv", "run", "mega-trading", "train", "--config-name", "server-rtx6000"])
+        return 0
     _run(
         [
             "uv",

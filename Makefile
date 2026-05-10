@@ -13,7 +13,8 @@ local:
 remote:
 	uv run python scripts/run_pipeline.py remote
 
-server: prep-server train-server-rtx6000
+server:
+	uv run python scripts/run_pipeline.py server
 
 platform-demo:
 	uv run mega-trading --help

@@ -41,6 +41,8 @@ make report-modal-binance
 
 The report is written to `reports/<run_id>/backtest.html` under the configured data directory and visualizes loss curves, split counts, held-out backtest metrics, real-vs-generated stylized facts, and artifact paths.
 
+`make server` uses the same prepared dataset as Modal under `.mega-trading/binance-modal/datasets`. If that NumPy dataset already exists, the prepare step is skipped and training starts directly.
+
 ## Distributed Training
 
 The same `mega-trading train` entry point supports local CPU smoke runs, single-node GPU runs, and distributed launches. Accelerate handles device placement, DDP, optional FSDP wrapping, gradient accumulation, mixed precision, and main-process checkpoint writing.
