@@ -48,6 +48,7 @@ def prepare_numpy_dataset(ingest_config: IngestPipelineConfig, build_config: Bui
             source_events_by_ticker = events_by_ticker_from_rows(rows)
         elif source.name == "binance_trades":
             store = LocalObjectStore(Path(ingest_config.output_dir))
+            raw_root = Path(ingest_config.raw_dir or ingest_config.output_dir)
             request = BinanceTradesIngestRequest(
                 symbols=source.tickers,
                 start=str(source.start),
@@ -56,10 +57,17 @@ def prepare_numpy_dataset(ingest_config: IngestPipelineConfig, build_config: Bui
                 download_workers=source.download_workers,
                 process_workers=source.process_workers,
             )
-            archives = download_binance_trade_archives(request, store.root, BINANCE_TRADES_BASE_URL)
+            archives = download_binance_trade_archives(request, raw_root, BINANCE_TRADES_BASE_URL)
             if build_config.streaming_prepare:
                 _clean_intermediates(store, build_config)
-                result = _prepare_streaming_binance_dataset(store, request, archives, build_config, source_started_at)
+                result = _prepare_streaming_binance_dataset(
+                    store,
+                    request,
+                    archives,
+                    build_config,
+                    source_started_at,
+                    raw_root,
+                )
                 print(
                     "direct prepare: "
                     f"streamed Binance archives as NumPy shards in {perf_counter() - started_at:.1f}s; "
@@ -109,6 +117,7 @@ def _prepare_streaming_binance_dataset(
     archives: list[BinanceTradeArchive],
     config: BuildConfig,
     started_at: float,
+    raw_root: Path,
 ) -> BuildResult:
     archives_by_symbol = _archives_by_symbol(archives)
     if config.max_tickers is not None:
@@ -200,7 +209,15 @@ def _prepare_streaming_binance_dataset(
     profile_path = f"datasets/mixture={config.mixture_name}/tokens-profile.json"
     manifest_path = f"manifests/build/{config.mixture_name}.json"
     actual_sequence_counts = _sequence_counts_from_numpy_metadata(numpy_metadata)
-    profile = _streaming_profile(ticker_counts, actual_sequence_counts, tokenizer, config, tokenizer_path, numpy_metadata)
+    profile = _streaming_profile(
+        ticker_counts,
+        actual_sequence_counts,
+        tokenizer,
+        config,
+        tokenizer_path,
+        numpy_metadata,
+        raw_root,
+    )
     store.write_json(profile_path, profile)
     manifest_paths = [
         profile_path,
@@ -651,6 +668,7 @@ def _streaming_profile(
     config: BuildConfig,
     tokenizer_path: str,
     numpy_metadata: dict[str, Any],
+    raw_root: Path,
 ) -> dict[str, Any]:
     return {
         "stream_contract": STREAM_CONTRACT,
@@ -675,6 +693,7 @@ def _streaming_profile(
         "streaming_prepare": True,
         "streaming_tokenizer_sample_events": config.streaming_tokenizer_sample_events,
         "streaming_baseline_sample_rows": config.streaming_baseline_sample_rows,
+        "raw_data_dir": str(raw_root),
         "numpy_dataset": numpy_metadata,
     }
 

@@ -21,16 +21,16 @@ No non-order-flow data family is part of the active data plane.
 
 ## Binance Preparation
 
-Binance preparation is staged for server-scale runs:
+Binance preparation is staged for large environment runs:
 
 ```text
 binance-datatool aria2 download
-  -> stage=01_raw/source=binance_trades/data/spot/<freq>/trades/<symbol>/*.zip
+  -> .mega-trading/raw/source=binance_trades/data/spot/<freq>/trades/<symbol>/*.zip
   -> multi-process parse/convert from cached ZIPs
   -> partitioned NumPy shards
 ```
 
-The raw cache keeps download progress visible on disk and allows retries without re-downloading. `binance-datatool` lists the remote archive and downloads existing ZIPs with aria2, while Mega-Trading keeps the date-window selection and downstream order-flow conversion. Missing symbol/month files are skipped because some Binance spot pairs launch late or migrate; a symbol with no files in the configured window is treated as a configuration error. Large Binance configs use bounded-memory streaming prepare: sampled baselines/tokenizer fitting, repeated ZIP scans, and incremental NumPy partition writes instead of materializing all events in RAM. Read-only ZIP scans and per-symbol NumPy shard writes run in parallel across tickers. Processing uses all CPU cores when `process_workers = 0`.
+The raw cache is shared by `mac`, `rtx`, and `modal`, keeps download progress visible on disk, and allows retries without re-downloading. `binance-datatool` lists the remote archive and downloads existing ZIPs with aria2, while Mega-Trading keeps the date-window selection and downstream order-flow conversion. Missing symbol/month files are skipped because some Binance spot pairs launch late or migrate; a symbol with no files in the configured window is treated as a configuration error. Large Binance configs use bounded-memory streaming prepare: sampled baselines/tokenizer fitting, repeated ZIP scans, and incremental NumPy partition writes instead of materializing all events in RAM. Read-only ZIP scans and per-symbol NumPy shard writes run in parallel across tickers. Processing uses all CPU cores when `process_workers = 0`.
 
 ## Event Contract
 
@@ -95,5 +95,5 @@ datasets/mixture=<name>/numpy/symbol=<ticker>/partition=<month>/tokens.npy
 ## Run
 
 ```bash
-make local
+make mac
 ```

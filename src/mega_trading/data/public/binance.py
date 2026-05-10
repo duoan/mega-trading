@@ -48,7 +48,7 @@ def download_binance_trade_archives(
     start_dt = _to_utc_datetime(request.start)
     end_dt = _to_utc_datetime(request.end)
     tasks = _trade_file_tasks(request, base_url, start_dt, end_dt)
-    raw_root = output_dir / "stage=01_raw" / "source=binance_trades" / f"frequency={request.frequency}"
+    raw_root = output_dir / "source=binance_trades" / f"frequency={request.frequency}"
     with ThreadPoolExecutor(max_workers=request.download_workers) as executor:
         archives = list(executor.map(lambda task: _download_trade_archive(task, raw_root, fetch_zip), tasks))
     return sorted(archives, key=lambda archive: (archive.symbol, archive.partition))
@@ -161,7 +161,7 @@ def _datatool_trade_archives(
 
 
 def _datatool_archive_home(output_dir: Path) -> Path:
-    return output_dir / "stage=01_raw" / "source=binance_trades"
+    return output_dir / "source=binance_trades"
 
 
 def load_order_flow_from_archives(

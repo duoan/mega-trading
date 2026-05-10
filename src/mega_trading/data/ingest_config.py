@@ -42,10 +42,13 @@ class IngestSourceConfig:
 class IngestPipelineConfig:
     output_dir: str
     sources: tuple[IngestSourceConfig, ...]
+    raw_dir: str | None = None
 
     def __post_init__(self) -> None:
         if not self.output_dir:
             raise ValueError("ingest output_dir is required")
+        if self.raw_dir is not None and not self.raw_dir:
+            raise ValueError("ingest raw_dir must be non-empty when set")
         if not self.sources:
             raise ValueError("at least one ingest source is required")
 
@@ -56,6 +59,7 @@ class IngestPipelineConfig:
         return cls(
             output_dir=str(value.get("output_dir", "")),
             sources=sources,
+            raw_dir=_optional_string(value.get("raw_dir")),
         )
 
     def enabled_sources(self) -> tuple[IngestSourceConfig, ...]:

@@ -17,7 +17,7 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_ingest_config(Path(args.ingest_config))
-    output_dir = Path(config.output_dir)
+    raw_dir = Path(config.raw_dir or config.output_dir)
     for source in config.enabled_sources():
         if source.name != "binance_trades":
             continue
@@ -30,10 +30,10 @@ def main() -> int:
             download_workers=source.download_workers,
             process_workers=source.process_workers,
         )
-        archives = download_binance_trade_archives(request, output_dir, BINANCE_TRADES_BASE_URL)
+        archives = download_binance_trade_archives(request, raw_dir, BINANCE_TRADES_BASE_URL)
         print(
             "download binance: "
-            f"cached {len(archives)} archives under {output_dir / 'stage=01_raw'} "
+            f"cached {len(archives)} archives under {raw_dir} "
             f"in {perf_counter() - started_at:.1f}s"
         )
     return 0

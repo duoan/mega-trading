@@ -73,7 +73,7 @@ class BinanceTradesTests(unittest.TestCase):
 
             self.assertEqual(len(fetched_urls), 1)
             self.assertTrue(archives[0].path.exists())
-            self.assertIn("stage=01_raw", str(archives[0].path))
+            self.assertIn("source=binance_trades", str(archives[0].path))
             self.assertEqual(len(events), 2)
             self.assertEqual(events[0].ticker, "BTCUSDT")
 
@@ -143,6 +143,7 @@ class BinanceTradesTests(unittest.TestCase):
     def test_streaming_prepare_writes_partitioned_numpy_without_materializing_downloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            raw_root = root / "shared-raw"
             archives = []
             for symbol in ("BTCUSDT", "ETHUSDT"):
                 archive_path = root / "raw" / f"{symbol}-trades-2024-01-01.zip"
@@ -159,6 +160,7 @@ class BinanceTradesTests(unittest.TestCase):
                 )
             ingest_config = IngestPipelineConfig(
                 output_dir=str(root),
+                raw_dir=str(raw_root),
                 sources=(
                     IngestSourceConfig(
                         name="binance_trades",
@@ -179,11 +181,13 @@ class BinanceTradesTests(unittest.TestCase):
                 streaming_tokenizer_sample_events=8,
                 streaming_baseline_sample_rows=8,
             )
-            with patch("mega_trading.prepare.download_binance_trade_archives", return_value=archives):
+            with patch("mega_trading.prepare.download_binance_trade_archives", return_value=archives) as download_archives:
                 result = prepare_numpy_dataset(ingest_config, build_config)
 
             metadata = json.loads(root.joinpath(result.numpy_metadata_path).read_text(encoding="utf-8"))
             profile = json.loads(root.joinpath(result.profile_path).read_text(encoding="utf-8"))
+            self.assertEqual(download_archives.call_args.args[1], raw_root)
+            self.assertEqual(profile["raw_data_dir"], str(raw_root))
             self.assertTrue(metadata["partitioned"])
             self.assertEqual(metadata["storage"], "token_stream")
             self.assertGreater(metadata["sequence_count"], 0)

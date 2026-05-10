@@ -28,7 +28,7 @@ class StoreTests(unittest.TestCase):
             manifest = Manifest(
                 manifest_id="manifest-1",
                 artifact_type="raw",
-                paths=["stage=01_raw/source=fixture/order_flow.jsonl"],
+                paths=["raw/source=fixture/order_flow.jsonl"],
                 metadata={"source": "fixture"},
             )
 

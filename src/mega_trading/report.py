@@ -318,7 +318,7 @@ def _ticker_forecast_chart(
     partition = _latest_partition_for_ticker(profile, ticker)
     if partition is None:
         return ""
-    archive_path = _raw_archive_path(store, ticker, str(partition["partition"]))
+    archive_path = _raw_archive_path(store, profile, ticker, str(partition["partition"]))
     if archive_path is None:
         return ""
     candles = _candles_from_archive(archive_path)
@@ -339,14 +339,35 @@ def _latest_partition_for_ticker(profile: dict[str, Any], ticker: str) -> dict[s
     return sorted(partitions, key=lambda item: str(item.get("partition", "")))[-1]
 
 
-def _raw_archive_path(store: LocalObjectStore, ticker: str, partition: str) -> Path | None:
-    raw_root = store.root / "stage=01_raw" / "source=binance_trades" / "data" / "spot"
-    matches = sorted(raw_root.glob(f"*/trades/{ticker}/{ticker}-trades-{partition}.zip"))
-    if matches:
-        return matches[-1]
-    symbol_roots = sorted(raw_root.glob(f"*/trades/{ticker}"))
-    archives = sorted(path for root in symbol_roots for path in root.glob(f"{ticker}-trades-*.zip"))
-    return archives[-1] if archives else None
+def _raw_archive_path(store: LocalObjectStore, profile: dict[str, Any], ticker: str, partition: str) -> Path | None:
+    raw_roots = [_raw_archive_root(path) for path in _raw_data_dirs(store, profile)]
+    for raw_root in raw_roots:
+        matches = sorted(raw_root.glob(f"*/trades/{ticker}/{ticker}-trades-{partition}.zip"))
+        if matches:
+            return matches[-1]
+    for raw_root in raw_roots:
+        symbol_roots = sorted(raw_root.glob(f"*/trades/{ticker}"))
+        archives = sorted(path for root in symbol_roots for path in root.glob(f"{ticker}-trades-*.zip"))
+        if archives:
+            return archives[-1]
+    return None
+
+
+def _raw_data_dirs(store: LocalObjectStore, profile: dict[str, Any]) -> list[Path]:
+    values = [profile.get("raw_data_dir")]
+    numpy_dataset = profile.get("numpy_dataset", {})
+    if isinstance(numpy_dataset, dict):
+        values.append(numpy_dataset.get("raw_data_dir"))
+    roots: list[Path] = []
+    for value in values:
+        if value:
+            roots.append(Path(str(value)))
+    roots.append(store.root)
+    return roots
+
+
+def _raw_archive_root(raw_data_dir: Path) -> Path:
+    return raw_data_dir / "source=binance_trades" / "data" / "spot"
 
 
 def _candles_from_archive(path: Path) -> list[dict[str, float]]:
