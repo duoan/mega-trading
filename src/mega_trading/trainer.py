@@ -16,6 +16,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
+from mega_trading.checkpoint import load_checkpoint_model_state, normalized_model_state_dict
 from mega_trading.config import TrainConfig
 from mega_trading.core.schemas import Manifest
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
@@ -160,7 +161,7 @@ class Trainer:
         metrics: list[dict[str, object]] = []
         if resume_state is not None:
             _validate_resume_checkpoint(resume_state, profile, shard_path)
-            model.load_state_dict(resume_state["model_state_dict"])
+            load_checkpoint_model_state(model, resume_state)
             optimizer.load_state_dict(resume_state["optimizer_state_dict"])
             if "scheduler_state_dict" in resume_state:
                 scheduler.load_state_dict(resume_state["scheduler_state_dict"])
@@ -554,7 +555,7 @@ def _save_checkpoint(
     step: int,
 ) -> None:
     accelerator.wait_for_everyone()
-    model_state_dict = accelerator.get_state_dict(model)
+    model_state_dict = normalized_model_state_dict(accelerator.get_state_dict(model))
     if accelerator.is_main_process:
         target = _checkpoint_target(store, checkpoint_path)
         target.parent.mkdir(parents=True, exist_ok=True)

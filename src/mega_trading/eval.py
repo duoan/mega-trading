@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
+from mega_trading.checkpoint import load_checkpoint_model_state
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
 from mega_trading.model import TradingModel
 from mega_trading.tokenizer import BOS_TOKEN, MarketEventTokenizer
@@ -43,7 +44,7 @@ def run_eval(
         rope_theta=float(checkpoint["config"].get("rope_theta", 500_000.0)),
         norm_eps=float(checkpoint["config"].get("norm_eps", 1e-5)),
     )
-    model.load_state_dict(checkpoint["model_state_dict"])
+    load_checkpoint_model_state(model, checkpoint)
     resolved_device = _resolve_device(device)
     model.to(resolved_device)
 

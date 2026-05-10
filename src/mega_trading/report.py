@@ -12,6 +12,7 @@ import numpy as np
 import torch
 
 from mega_trading.backtest import _model_from_checkpoint
+from mega_trading.checkpoint import load_checkpoint_model_state
 from mega_trading.core.store import ArtifactNotFoundError, LocalObjectStore
 from mega_trading.data.public.binance import iter_trade_fields_from_archive
 from mega_trading.tokenizer import MarketEventTokenizer
@@ -275,7 +276,7 @@ def _ticker_forecast_charts(store: LocalObjectStore, profile: dict[str, Any], ru
         tokenizer = MarketEventTokenizer.from_dict(store.read_json(str(profile["tokenizer_path"])))
         checkpoint = torch.load(store.root / "runs" / run_id / "checkpoint.pt", map_location="cpu", weights_only=False)
         model = _model_from_checkpoint(profile, checkpoint)
-        model.load_state_dict(checkpoint["model_state_dict"])
+        load_checkpoint_model_state(model, checkpoint)
         model.eval()
     except Exception as exc:  # pragma: no cover - defensive for very large or partial checkpoints
         return [f"<p class=\"warn\">Could not load model forecast path: {escape(str(exc))}</p>"]

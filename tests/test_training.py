@@ -512,6 +512,13 @@ class TrainingTests(unittest.TestCase):
                     max_eval_batches=1,
                 ),
             ).train("datasets/mixture=public/tokens.npy")
+            checkpoint_path = root / train_result.checkpoint_path
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+            checkpoint["model_state_dict"] = {
+                f"_orig_mod.{key}": value for key, value in checkpoint["model_state_dict"].items()
+            }
+            torch.save(checkpoint, checkpoint_path)
+
             eval_result = run_eval(store, "train-test", rollouts=2, generated_tokens=8, device="cpu")
             backtest_result = run_backtest(store, "train-test", rollouts=2, generated_tokens=8, max_batches=1, device="cpu")
             report_result = run_report(store, "train-test")
@@ -522,6 +529,7 @@ class TrainingTests(unittest.TestCase):
             report = json.loads(root.joinpath(eval_result.report_path).read_text(encoding="utf-8"))
             backtest_report = json.loads(root.joinpath(backtest_result.report_path).read_text(encoding="utf-8"))
             self.assertTrue(root.joinpath(train_result.checkpoint_path).exists())
+            self.assertTrue(all(key.startswith("_orig_mod.") for key in checkpoint["model_state_dict"]))
             self.assertTrue(root.joinpath("runs/train-test/checkpoints/step-000001.pt").exists())
             self.assertIn("validation_loss", metrics[-1])
             self.assertEqual(metrics[-1]["validation_batches"], 1.0)

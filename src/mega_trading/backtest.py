@@ -10,6 +10,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
+from mega_trading.checkpoint import load_checkpoint_model_state
 from mega_trading.core.store import ArtifactPaths, LocalObjectStore
 from mega_trading.dataset import NumpyTickerTimeDataset, prepared_split_counts, split_totals
 from mega_trading.eval import _distribution_l1, _generate_depths, _stylized_facts
@@ -46,7 +47,7 @@ def run_backtest(
     tokenizer = MarketEventTokenizer.from_dict(store.read_json(str(profile["tokenizer_path"])))
     checkpoint = torch.load(store.root / f"runs/{run_id}/checkpoint.pt", map_location="cpu")
     model = _model_from_checkpoint(profile, checkpoint)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    load_checkpoint_model_state(model, checkpoint)
     resolved_device = _resolve_device(device)
     model.to(resolved_device)
     model.eval()
