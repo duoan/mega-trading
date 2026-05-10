@@ -1,110 +1,118 @@
-"""One-command local and remote training pipelines."""
+"""One-command Mac, RTX, and Modal training pipelines."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 
-LOCAL_DATA_DIR = Path(".mega-trading/binance-local")
-LOCAL_MIXTURE = "binance_local"
-LOCAL_MIN_SEQUENCES = 50_000
-REMOTE_LOCAL_DATA_DIR = Path(".mega-trading/binance-modal")
-REMOTE_MIXTURE = "binance_public"
-REMOTE_DATA_DIR = "/data/binance-trades"
 MODAL_VOLUME_NAME = "mega-trading-artifacts"
-MODAL_VOLUME_DATA_PREFIX = "/binance-trades"
+MODAL_VOLUME_DATA_PREFIX = "/modal"
+MODAL_RUNTIME_DATA_DIR = "/data/modal"
+
+
+@dataclass(frozen=True)
+class Environment:
+    name: str
+    data_dir: Path
+    ingest_config: str
+    min_sequences: int = 0
+
+    @property
+    def config_name(self) -> str:
+        return self.name
+
+    @property
+    def mixture(self) -> str:
+        return self.name
+
+
+MAC = Environment("mac", Path(".mega-trading/mac"), "configs/ingest-mac.toml", min_sequences=50_000)
+RTX = Environment("rtx", Path(".mega-trading/rtx"), "configs/ingest-rtx.toml")
+MODAL = Environment("modal", Path(".mega-trading/modal"), "configs/ingest-modal.toml")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the simple Mega-Trading local or remote pipeline.")
+    parser = argparse.ArgumentParser(description="Run a Mega-Trading environment pipeline.")
     parser.add_argument(
         "target",
-        choices=["local", "remote", "server"],
-        help="local trains on this machine; server trains on local CUDA; remote uploads data and trains on Modal",
+        choices=["mac", "rtx", "modal"],
+        help="environment to run end to end",
     )
-    parser.add_argument("--local-steps", type=int, default=300, help="training steps for local training")
-    parser.add_argument("--local-backtest-batches", type=int, default=32, help="maximum local backtest batches to score")
-    parser.add_argument("--remote-steps", type=int, default=50_000, help="training steps for Modal training")
+    parser.add_argument("--mac-steps", type=int, default=300, help="training steps for the mac environment")
+    parser.add_argument("--mac-backtest-batches", type=int, default=32, help="maximum mac backtest batches to score")
+    parser.add_argument("--rtx-backtest-batches", type=int, default=128, help="maximum rtx backtest batches to score")
+    parser.add_argument("--modal-steps", type=int, default=50_000, help="training steps for the Modal environment")
+    parser.add_argument("--modal-backtest-batches", type=int, default=128, help="maximum modal backtest batches to score")
     parser.add_argument("--force-data", action="store_true", help="rebuild data even when numpy shards already exist")
     parser.add_argument("--skip-artifact-sync", action="store_true", help="do not download Modal training outputs")
     args = parser.parse_args()
 
-    if args.target == "local":
-        _ensure_data(
-            data_dir=LOCAL_DATA_DIR,
-            mixture=LOCAL_MIXTURE,
-            prepare_command=[
-                "uv",
-                "run",
-                "python",
-                "scripts/prepare_numpy_dataset.py",
-                "--ingest-config",
-                "configs/ingest-binance-local.toml",
-                "--config-name",
-                "binance-local",
-            ],
-            min_sequences=LOCAL_MIN_SEQUENCES,
-            force=args.force_data,
-        )
-        _run(
-            [
-                "uv",
-                "run",
-                "mega-trading",
-                "train",
-                "--config-name",
-                "binance-local",
-                f"training.max_steps={args.local_steps}",
+    if args.target == "mac":
+        _run_environment(
+            MAC,
+            train_overrides=[
+                f"training.max_steps={args.mac_steps}",
                 "training.eval_interval=50",
                 "training.mlflow_enabled=false",
-            ]
-        )
-        _run(
-            [
-                "uv",
-                "run",
-                "mega-trading",
-                "backtest",
-                "--config-name",
-                "binance-local",
-                "--max-batches",
-                str(args.local_backtest_batches),
-            ]
-        )
-        _run(
-            [
-                "uv",
-                "run",
-                "mega-trading",
-                "report",
-                "--config-name",
-                "binance-local",
-            ]
+            ],
+            backtest_batches=args.mac_backtest_batches,
+            force_data=args.force_data,
         )
         return 0
 
+    if args.target == "rtx":
+        _run_environment(RTX, train_overrides=[], backtest_batches=args.rtx_backtest_batches, force_data=args.force_data)
+        return 0
+
+    _run_modal(args)
+    return 0
+
+
+def _run_environment(
+    environment: Environment,
+    train_overrides: list[str],
+    backtest_batches: int,
+    force_data: bool,
+    command_overrides: list[str] | None = None,
+) -> None:
+    command_overrides = command_overrides or []
     _ensure_data(
-        data_dir=REMOTE_LOCAL_DATA_DIR,
-        mixture=REMOTE_MIXTURE,
-        prepare_command=[
+        data_dir=environment.data_dir,
+        mixture=environment.mixture,
+        prepare_command=_prepare_command(environment, command_overrides),
+        min_sequences=environment.min_sequences,
+        force=force_data,
+    )
+    _run(["uv", "run", "mega-trading", "train", "--config-name", environment.config_name, *command_overrides, *train_overrides])
+    _run(
+        [
             "uv",
             "run",
-            "python",
-            "scripts/prepare_numpy_dataset.py",
-            "--ingest-config",
-            "configs/ingest-binance-modal-prep.toml",
+            "mega-trading",
+            "backtest",
             "--config-name",
-            "binance-modal-prep",
-        ],
-        min_sequences=0,
+            environment.config_name,
+            "--max-batches",
+            str(backtest_batches),
+            *command_overrides,
+        ]
+    )
+    _run(["uv", "run", "mega-trading", "report", "--config-name", environment.config_name, *command_overrides])
+
+
+def _run_modal(args: argparse.Namespace) -> None:
+    staging_overrides = [f"data.data_dir={MODAL.data_dir}", "eval.device=auto"]
+    _ensure_data(
+        data_dir=MODAL.data_dir,
+        mixture=MODAL.mixture,
+        prepare_command=_prepare_command(MODAL, staging_overrides),
+        min_sequences=MODAL.min_sequences,
         force=args.force_data,
     )
-    if args.target == "server":
-        _run(["uv", "run", "mega-trading", "train", "--config-name", "server-rtx6000"])
-        return 0
     _run(
         [
             "uv",
@@ -113,7 +121,7 @@ def main() -> int:
             "volume",
             "put",
             MODAL_VOLUME_NAME,
-            str(REMOTE_LOCAL_DATA_DIR / "datasets"),
+            str(MODAL.data_dir / "datasets"),
             f"{MODAL_VOLUME_DATA_PREFIX}/datasets",
         ]
     )
@@ -127,18 +135,47 @@ def main() -> int:
             "--mode",
             "cluster",
             "--run-id",
-            "modal-binance",
+            MODAL.name,
+            "--config-name",
+            MODAL.config_name,
             "--data-dir",
-            REMOTE_DATA_DIR,
+            MODAL_RUNTIME_DATA_DIR,
             "--strategy",
             "fsdp",
             "--max-steps",
-            str(args.remote_steps),
+            str(args.modal_steps),
         ]
     )
     if not args.skip_artifact_sync:
-        _sync_remote_artifacts(REMOTE_LOCAL_DATA_DIR)
-    return 0
+        _sync_modal_artifacts(MODAL.data_dir)
+        _run(
+            [
+                "uv",
+                "run",
+                "mega-trading",
+                "backtest",
+                "--config-name",
+                MODAL.config_name,
+                "--max-batches",
+                str(args.modal_backtest_batches),
+                *staging_overrides,
+            ]
+        )
+        _run(["uv", "run", "mega-trading", "report", "--config-name", MODAL.config_name, *staging_overrides])
+
+
+def _prepare_command(environment: Environment, overrides: list[str] | None = None) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "python",
+        "scripts/prepare_numpy_dataset.py",
+        "--ingest-config",
+        environment.ingest_config,
+        "--config-name",
+        environment.config_name,
+        *(overrides or []),
+    ]
 
 
 def _ensure_data(
@@ -186,10 +223,10 @@ def _run(command: list[str]) -> None:
     subprocess.run(command, check=True)
 
 
-def _sync_remote_artifacts(local_data_dir: Path) -> None:
+def _sync_modal_artifacts(data_dir: Path) -> None:
     """Download Modal training outputs that are produced inside the shared data volume."""
     for name in ("runs", "manifests"):
-        destination = local_data_dir / name
+        destination = data_dir / name
         destination.mkdir(parents=True, exist_ok=True)
         _run(
             [

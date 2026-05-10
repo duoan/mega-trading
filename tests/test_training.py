@@ -37,39 +37,39 @@ from mega_trading.trainer import (
 
 
 class TrainingTests(unittest.TestCase):
-    def test_named_training_configs_parse_for_local_and_modal_runs(self) -> None:
-        binance_local = load_config(Path("configs"), "binance-local", [])
-        binance_modal_prep = load_config(Path("configs"), "binance-modal-prep", [])
-        server = load_config(Path("configs"), "server-rtx6000", [])
-        binance_modal = load_config(Path("configs"), "modal-binance", [])
+    def test_named_environment_configs_parse_for_mac_rtx_and_modal_runs(self) -> None:
+        mac = load_config(Path("configs"), "mac", [])
+        rtx = load_config(Path("configs"), "rtx", [])
+        modal = load_config(Path("configs"), "modal", [])
 
-        self.assertEqual(str(binance_local.data.source), "binance_trades")
-        self.assertEqual(int(binance_local.build.numpy_partition_rows), 8192)
-        self.assertEqual(str(binance_modal_prep.data.data_dir), ".mega-trading/binance-modal")
-        self.assertEqual(str(binance_modal_prep.data.mixture), "binance_public")
-        self.assertEqual(int(binance_modal_prep.build.numpy_partition_rows), 16384)
-        self.assertEqual(float(binance_modal_prep.build.validation_fraction), 0.02)
-        self.assertEqual(float(binance_modal_prep.build.backtest_fraction), 0.10)
-        self.assertTrue(bool(binance_modal_prep.build.streaming_prepare))
-        self.assertEqual(str(server.data.data_dir), ".mega-trading/binance-modal")
-        self.assertEqual(str(server.training.device), "cuda")
-        self.assertEqual(str(server.training.distributed_strategy), "ddp")
-        self.assertEqual(int(server.model.hidden_dim), 1024)
-        self.assertEqual(int(server.model.layers), 20)
-        self.assertEqual(int(server.training.batch_size), 8)
-        self.assertEqual(int(server.training.gradient_accumulation_steps), 8)
-        self.assertEqual(int(server.training.max_eval_batches), 64)
-        self.assertEqual(str(server.training.compile_mode), "default")
-        self.assertEqual(str(server.training.optimizer), "muon")
-        self.assertEqual(str(server.training.lr_schedule), "cosine")
-        self.assertEqual(int(server.training.lr_warmup_steps), 1000)
-        self.assertEqual(float(server.training.min_learning_rate), 0.00002)
-        self.assertEqual(str(binance_modal.data.data_dir), "/data/binance-trades")
-        self.assertEqual(str(binance_modal.data.mixture), "binance_public")
-        self.assertEqual(str(binance_modal.training.compile_mode), "reduce-overhead")
-        self.assertEqual(str(binance_modal.training.distributed_strategy), "fsdp")
-        self.assertEqual(int(binance_modal.build.numpy_partition_rows), 16384)
-        self.assertTrue(bool(server.build.streaming_prepare))
+        self.assertEqual(str(mac.run.run_id), "mac")
+        self.assertEqual(str(mac.data.data_dir), ".mega-trading/mac")
+        self.assertEqual(str(mac.data.mixture), "mac")
+        self.assertEqual(str(mac.data.source), "binance_trades")
+        self.assertEqual(int(mac.build.numpy_partition_rows), 8192)
+        self.assertEqual(str(mac.training.device), "mps")
+        self.assertEqual(str(rtx.run.run_id), "rtx")
+        self.assertEqual(str(rtx.data.data_dir), ".mega-trading/rtx")
+        self.assertEqual(str(rtx.data.mixture), "rtx")
+        self.assertEqual(str(rtx.training.device), "cuda")
+        self.assertEqual(str(rtx.training.distributed_strategy), "ddp")
+        self.assertEqual(int(rtx.model.hidden_dim), 1024)
+        self.assertEqual(int(rtx.model.layers), 20)
+        self.assertEqual(int(rtx.training.batch_size), 8)
+        self.assertEqual(int(rtx.training.gradient_accumulation_steps), 8)
+        self.assertEqual(int(rtx.training.max_eval_batches), 64)
+        self.assertEqual(str(rtx.training.compile_mode), "default")
+        self.assertEqual(str(rtx.training.optimizer), "muon")
+        self.assertEqual(str(rtx.training.lr_schedule), "cosine")
+        self.assertEqual(int(rtx.training.lr_warmup_steps), 1000)
+        self.assertEqual(float(rtx.training.min_learning_rate), 0.00002)
+        self.assertTrue(bool(rtx.build.streaming_prepare))
+        self.assertEqual(str(modal.run.run_id), "modal")
+        self.assertEqual(str(modal.data.data_dir), "/data/modal")
+        self.assertEqual(str(modal.data.mixture), "modal")
+        self.assertEqual(str(modal.training.compile_mode), "reduce-overhead")
+        self.assertEqual(str(modal.training.distributed_strategy), "fsdp")
+        self.assertEqual(int(modal.build.numpy_partition_rows), 16384)
 
     def test_train_config_validates_distributed_runtime_options(self) -> None:
         self.assertEqual(TrainConfig(run_id="triton", attention_backend="triton").attention_backend, "triton")
@@ -305,7 +305,7 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(triton_ops_module.triton_apply_rope.__module__, "mega_trading.kernels.triton_ops")
         self.assertEqual(triton_ops_module.triton_swiglu_gate.__module__, "mega_trading.kernels.triton_ops")
 
-    def test_triton_attention_benchmark_defaults_match_server_rtx6000_shape(self) -> None:
+    def test_triton_attention_benchmark_defaults_match_rtx_shape(self) -> None:
         benchmark = _load_script("benchmark_triton_attention.py")
         args = benchmark._parse_args([])
 
@@ -318,7 +318,7 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(args.mode, "forward")
         self.assertEqual(triton_attention_module._attention_tile_shape(args.sequence_length, args.head_dim), (64, 64))
 
-    def test_triton_ops_benchmark_defaults_match_server_rtx6000_shape(self) -> None:
+    def test_triton_ops_benchmark_defaults_match_rtx_shape(self) -> None:
         benchmark = _load_script("benchmark_triton_ops.py")
         args = benchmark._parse_args([])
 
@@ -365,7 +365,7 @@ class TrainingTests(unittest.TestCase):
 
     @unittest.skipUnless(
         torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
-        "server-shape Triton attention parity requires CUDA and triton",
+        "RTX-shape Triton attention parity requires CUDA and triton",
     )
     def test_server_shape_triton_attention_matches_torch_causal_gqa(self) -> None:
         torch.manual_seed(13)
@@ -387,7 +387,7 @@ class TrainingTests(unittest.TestCase):
 
     @unittest.skipUnless(
         torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
-        "server-shape Triton attention backward parity requires CUDA and triton",
+        "RTX-shape Triton attention backward parity requires CUDA and triton",
     )
     def test_server_shape_triton_attention_backward_matches_torch_causal_gqa(self) -> None:
         torch.manual_seed(17)

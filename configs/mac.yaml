@@ -2,17 +2,17 @@ defaults:
   - _self_
 
 run:
-  run_id: binance-modal-prep
+  run_id: mac
 
 data:
-  data_dir: .mega-trading/binance-modal
-  mixture: binance_public
+  data_dir: .mega-trading/mac
+  mixture: mac
   source: binance_trades
 
 build:
-  block_size: 512
-  stride: 256
-  min_events_per_ticker: 4096
+  block_size: 128
+  stride: 64
+  min_events_per_ticker: 512
   max_tickers: null
   tokenizer_method: quantile
   tokenizer_clip_quantile: 0.01
@@ -20,27 +20,27 @@ build:
   tokenizer_price_bins: 8
   tokenizer_size_bins: 8
   tokenizer_time_bins: 4
-  numpy_partition_rows: 16384
-  validation_fraction: 0.02
+  numpy_partition_rows: 8192
+  validation_fraction: 0.05
   backtest_fraction: 0.10
   streaming_prepare: true
-  streaming_tokenizer_sample_events: 250000
-  streaming_baseline_sample_rows: 200000
+  streaming_tokenizer_sample_events: 100000
+  streaming_baseline_sample_rows: 100000
 
 model:
-  hidden_dim: 512
-  layers: 12
-  attention_heads: 8
+  hidden_dim: 192
+  layers: 6
+  attention_heads: 6
   kv_heads: 2
-  intermediate_dim: 1408
-  dropout: 0.05
+  intermediate_dim: 512
+  dropout: 0.1
   rope_theta: 500000.0
   norm_eps: 0.00001
 
 training:
-  max_steps: 1
+  max_steps: 300
   batch_size: 16
-  learning_rate: 0.0002
+  learning_rate: 0.0003
   optimizer: adamw
   weight_decay: 0.01
   adam_beta1: 0.9
@@ -51,20 +51,20 @@ training:
   lr_schedule: constant
   lr_warmup_steps: 0
   min_learning_rate: 0.0
-  validation_fraction: 0.02
-  eval_interval: 1
-  max_eval_batches: null
+  validation_fraction: 0.05
+  eval_interval: 50
+  max_eval_batches: 16
   seed: 7
-  device: cpu
+  device: mps
   precision: fp32
   distributed_strategy: ddp
   gradient_accumulation_steps: 1
   compile: false
   compile_mode: default
   attention_backend: auto
-  checkpoint_interval: null
+  checkpoint_interval: 100
   resume_from_checkpoint: null
-  mlflow_enabled: false
+  mlflow_enabled: true
   mlflow_experiment: mega-trading
   mlflow_tracking_uri: null
   progress_bar: true
@@ -72,4 +72,4 @@ training:
 eval:
   rollouts: 8
   generated_tokens: 128
-  device: cpu
+  device: mps

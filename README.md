@@ -12,36 +12,36 @@ make test
 make demo
 ```
 
-`make demo` is the no-network order-flow fixture path. The two real entrypoints are:
+`make demo` is the no-network order-flow fixture path. The three real environment entrypoints are:
 
 ```bash
-make local
-make remote
+make mac
+make rtx
+make modal
 ```
 
-`make local` prepares a multi-symbol Binance public-trades slice directly into partitioned NumPy shards if needed, then runs a local train long enough to show a loss curve. `make remote` prepares the larger local dataset if needed, uploads it to Modal Volume, launches Modal training, then downloads `runs/` and `manifests/` back to `.mega-trading/binance-modal/`. If the processed NumPy shards already exist, prepare is skipped.
+`make mac` prepares a small multi-symbol Binance public-trades slice directly into partitioned NumPy shards, trains, backtests, and renders a report under `.mega-trading/mac/`. `make rtx` runs the same end-to-end flow for the RTX CUDA profile under `.mega-trading/rtx/`. `make modal` prepares `.mega-trading/modal/`, uploads `datasets/` to Modal Volume, launches Modal training, downloads `runs/` and `manifests/`, then runs local backtest/report against the synced artifacts. All three environments share raw Binance ZIPs under `.mega-trading/raw/`; environment roots hold only derived artifacts. If the processed NumPy shards already exist, prepare is skipped.
 
 Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar, and MLflow for metric tracking. By default MLflow writes to a local SQLite backend under `<data_dir>/runs/mlflow/mlflow.db`; set `training.mlflow_tracking_uri` to point at a remote MLflow server when needed.
 
-`make local` also writes a local backtest JSON and dashboard:
+`make mac` writes a backtest JSON and dashboard:
 
 ```text
-.mega-trading/binance-local/evals/binance-local/backtest.json
-.mega-trading/binance-local/reports/binance-local/backtest.html
+.mega-trading/mac/evals/mac/backtest.json
+.mega-trading/mac/reports/mac/backtest.html
 ```
 
-After running a standalone server or Modal backtest, generate a self-contained dashboard:
+Each environment also has standalone report targets:
 
 ```bash
-make report-local
-make report-server-rtx6000
-# or, after make remote has synced Modal artifacts:
-make report-modal-binance
+make report-mac
+make report-rtx
+make report-modal
 ```
 
 The report is written to `reports/<run_id>/backtest.html` under the configured data directory and visualizes loss curves, split counts, held-out backtest metrics, real-vs-generated stylized facts, sampled ticker K-line charts, model-implied forecast paths, and artifact paths.
 
-`make server` uses the same prepared dataset as Modal under `.mega-trading/binance-modal/datasets`. If that NumPy dataset already exists, the prepare step is skipped and training starts directly.
+`make rtx` and `make modal` use separate prepared datasets under `.mega-trading/rtx/datasets` and `.mega-trading/modal/datasets` so each environment has a stable artifact root.
 
 ## Distributed Training
 
@@ -49,8 +49,8 @@ The same `mega-trading train` entry point supports local CPU smoke runs, single-
 
 ```bash
 uv run torchrun --nproc-per-node=8 -m mega_trading.cli train \
-  data.data_dir=.mega-trading/binance-modal \
-  run.run_id=ddp-h100 \
+  --config-name rtx \
+  run.run_id=rtx-ddp \
   training.device=cuda \
   training.precision=mixed \
   training.distributed_strategy=ddp \
@@ -61,10 +61,10 @@ uv run torchrun --nproc-per-node=8 -m mega_trading.cli train \
 FSDP uses the same command with `training.distributed_strategy=fsdp`. Modal launchers live in `modal_train.py`:
 
 ```bash
-make remote
+make modal
 ```
 
-Data processing happens locally. Modal only sees uploaded `datasets` artifacts and runs training against `/data/binance-trades`. Every training manifest records distributed strategy, world size, gradient accumulation, compile mode, attention backend, precision, and checkpoint/resume settings. `configs/modal-binance.yaml` is the public-data Modal path.
+Data processing happens before upload. Modal only sees uploaded `datasets` artifacts and runs training against `/data/modal`. Every training manifest records distributed strategy, world size, gradient accumulation, compile mode, attention backend, precision, and checkpoint/resume settings. `configs/modal.yaml` is the public-data Modal path.
 
 ## Paper Feature Contract
 
@@ -86,8 +86,8 @@ For direct experiments:
 import json
 import numpy as np
 
-root = ".mega-trading/binance-local"
-meta = json.load(open(f"{root}/datasets/mixture=binance_local/tokens-numpy.json"))
+root = ".mega-trading/mac"
+meta = json.load(open(f"{root}/datasets/mixture=mac/tokens-numpy.json"))
 part = meta["partitions"][0]
 tokens = np.load(f"{root}/{part['tokens_path']}", mmap_mode="r")
 offset = 0

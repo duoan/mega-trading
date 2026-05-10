@@ -1,55 +1,47 @@
 # Training Configs
 
-The active path is intentionally small:
+The active environment surface is intentionally small:
 
-- `configs/binance-local.yaml`: local Mac training on a modest multi-symbol Binance slice.
-- `configs/binance-modal-prep.yaml`: local preprocessing config for the larger Modal dataset.
-- `configs/server-rtx6000.yaml`: single-server RTX 6000 Pro CUDA training config.
-- `configs/modal-binance.yaml`: Modal GPU training config for uploaded Binance NumPy shards.
+- `configs/mac.yaml`: Mac/MPS training on a modest multi-symbol Binance slice.
+- `configs/rtx.yaml`: single-server RTX PRO 6000 CUDA training config.
+- `configs/modal.yaml`: Modal GPU training config for uploaded NumPy shards.
 - `configs/default.yaml`: CLI fallback and fixture/demo defaults.
 
 The matching source TOML files are:
 
-- `configs/ingest-binance-local.toml`
-- `configs/ingest-binance-modal-prep.toml`
+- `configs/ingest-mac.toml`
+- `configs/ingest-rtx.toml`
+- `configs/ingest-modal.toml`
 - `configs/ingest-demo.toml`
 
-The remote/server Binance ingest uses `configs/binance-usdt-liquid-universe.txt`, a 100+ symbol liquid USDT spot universe over a recent complete 36-month monthly archive window. Local ingest stays intentionally small for fast smoke tests.
+The RTX and Modal Binance ingest configs use `configs/binance-usdt-liquid-universe.txt`, a 100+ symbol liquid USDT spot universe over a recent complete 36-month monthly archive window. Mac ingest stays intentionally small for fast smoke tests.
 
-## Local
+All three environment ingest configs share the same raw Binance ZIP cache at `.mega-trading/raw`. Environment-specific `data_dir` roots only hold derived NumPy shards, checkpoints, eval JSON, and reports.
 
-```bash
-make local
-```
-
-This downloads two days of public trades for BTC, ETH, BNB, and SOL, converts events in memory, writes partitioned NumPy shards, pre-splits each ticker by time into train/validation/backtest, and runs a 300-step local train by default. Use `uv run python scripts/run_pipeline.py local --local-steps 50` when you only need a quick wiring check.
-
-## Remote
+## Mac
 
 ```bash
-make remote
+make mac
 ```
 
-This prepares `.mega-trading/binance-modal` locally with mixture `binance_public`, uploads only the prepared `datasets` directory to the `mega-trading-artifacts` Modal Volume, syncs W&B credentials, and launches `modal-binance` training on Modal. Binance raw ZIPs are cached locally under `stage=01_raw` but are not uploaded to Modal. The Modal image uses a CUDA devel base and installs `flash-attn` during image build. The prepared metadata keeps the last 10% of each ticker as a held-out backtest split and uses a small validation split before it. As of the checked-in config, the remote/server ingest window is 2023-05-01 through 2026-04-30, avoiding the incomplete current month.
+This downloads two days of public trades for BTC, ETH, BNB, and SOL, converts events in memory, writes partitioned NumPy shards under `.mega-trading/mac`, pre-splits each ticker by time into train/validation/backtest, trains, backtests, and renders the dashboard. Use `uv run python scripts/run_pipeline.py mac --mac-steps 50` when you only need a quick wiring check.
 
-Modal training mounts the uploaded data at `/data/binance-trades`. The checked-in Modal Binance model is about 1.1B parameters; under the `tokens ~= 20 * params` rule of thumb, it wants roughly 22B training tokens. The 36-month public Binance window is intended to make that scale plausible while staying reproducible from public archives.
-
-## RTX 6000 Server
+## RTX
 
 ```bash
-make server
+make rtx
 ```
 
-This prepares `.mega-trading/binance-modal` locally on the server, including the train/validation/backtest split metadata, then trains with `configs/server-rtx6000.yaml`. The prepare path uses `binance-datatool` plus `aria2c` to download only the configured Binance ZIP date window into `stage=01_raw`, then runs a bounded-memory streaming build: sampled tokenizer fitting, parallel per-ticker ZIP scans, and incremental NumPy partition writes. The config targets a single large CUDA GPU with bf16 mixed precision, the local Triton attention backend, `torch.compile`, batch size 8, and gradient accumulation 8. If the prepared shards already exist, use:
+This prepares `.mega-trading/rtx` locally, including the train/validation/backtest split metadata, trains with `configs/rtx.yaml`, backtests, and renders the report. The prepare path uses `binance-datatool` plus `aria2c` to download only the configured Binance ZIP date window into the shared `.mega-trading/raw` cache, then runs a bounded-memory streaming build: sampled tokenizer fitting, parallel per-ticker ZIP scans, and incremental NumPy partition writes. The config targets a single large CUDA GPU with bf16 mixed precision, the local Triton attention backend, `torch.compile`, batch size 8, and gradient accumulation 8.
+
+The checked-in RTX config is a convergence/backtest run around 234M parameters (`hidden_dim=1024`, `layers=20`) with batch size 8 and gradient accumulation 8.
+
+## Modal
 
 ```bash
-make train-server-rtx6000
+make modal
 ```
 
-The checked-in RTX 6000 config is a convergence/backtest run around 234M parameters (`hidden_dim=1024`, `layers=20`) with batch size 8 and gradient accumulation 8. After training, run:
+This prepares `.mega-trading/modal` locally with mixture `modal`, uploads only the prepared `datasets` directory to the `mega-trading-artifacts` Modal Volume at `/modal/datasets`, and launches `modal` training on Modal against `/data/modal`. Binance raw ZIPs are cached locally under `.mega-trading/raw` but are not uploaded to Modal. The Modal image uses a CUDA devel base and installs `flash-attn` during image build. The prepared metadata keeps the last 10% of each ticker as a held-out backtest split and uses a small validation split before it. As of the checked-in config, the RTX/Modal ingest window is 2023-05-01 through 2026-04-30, avoiding the incomplete current month.
 
-```bash
-make backtest-server-rtx6000
-```
-
-This scores the checkpoint on the chronological backtest split and compares generated rollout stylized facts against held-out real token streams. This is the public-data MVP analogue of the TradeFM paper's simulator-based closed-loop evaluation; a full LOB simulator would be needed for market-impact and optimal-execution backtests.
+Modal artifacts are synced back into `.mega-trading/modal/runs` and `.mega-trading/modal/manifests`, then the local backtest/report steps score the checkpoint on the chronological backtest split and compare generated rollout stylized facts against held-out real token streams. This is the public-data MVP analogue of the TradeFM paper's simulator-based closed-loop evaluation; a full LOB simulator would be needed for market-impact and optimal-execution backtests.

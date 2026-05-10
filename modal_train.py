@@ -11,8 +11,8 @@ import modal.experimental
 APP_NAME = "mega-trading-training"
 REPO_DIR = "/workspace/mega-finance"
 DATA_VOLUME_PATH = "/data"
-DEFAULT_CONFIG_NAME = "modal-binance"
-DEFAULT_DATA_DIR = f"{DATA_VOLUME_PATH}/binance-trades"
+DEFAULT_CONFIG_NAME = "modal"
+DEFAULT_DATA_DIR = f"{DATA_VOLUME_PATH}/modal"
 DEFAULT_GPU = "H100:8"
 
 volume = modal.Volume.from_name("mega-trading-artifacts", create_if_missing=True)
@@ -59,7 +59,7 @@ def _run(command: list[str]) -> None:
 
 @app.function(gpu=DEFAULT_GPU, volumes={DATA_VOLUME_PATH: volume}, timeout=60 * 60 * 24)
 def train_single_node(
-    run_id: str = "modal-single",
+    run_id: str = "modal",
     config_name: str = DEFAULT_CONFIG_NAME,
     data_dir: str = DEFAULT_DATA_DIR,
     strategy: Literal["ddp", "fsdp"] = "ddp",
@@ -83,7 +83,7 @@ def train_single_node(
 @app.function(gpu=DEFAULT_GPU, volumes={DATA_VOLUME_PATH: volume}, timeout=60 * 60 * 24)
 @modal.experimental.clustered(size=2, rdma=True)
 def train_clustered(
-    run_id: str = "modal-cluster",
+    run_id: str = "modal",
     config_name: str = DEFAULT_CONFIG_NAME,
     data_dir: str = DEFAULT_DATA_DIR,
     strategy: Literal["ddp", "fsdp"] = "fsdp",

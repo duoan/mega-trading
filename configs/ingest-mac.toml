@@ -1,5 +1,6 @@
 [ingest]
-output_dir = ".mega-trading/binance-local"
+output_dir = ".mega-trading/mac"
+raw_dir = ".mega-trading/raw"
 
 [[ingest.sources]]
 name = "binance_trades"

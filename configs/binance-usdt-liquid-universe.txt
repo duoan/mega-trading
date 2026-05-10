@@ -1,4 +1,4 @@
-# Liquid Binance spot USDT universe for remote/server data preparation.
+# Liquid Binance spot USDT universe for RTX and Modal data preparation.
 # The downloader lists archive availability first and skips missing symbol/month files.
 AAVEUSDT
 ACHUSDT

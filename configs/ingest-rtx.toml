@@ -1,0 +1,12 @@
+[ingest]
+output_dir = ".mega-trading/rtx"
+raw_dir = ".mega-trading/raw"
+
+[[ingest.sources]]
+name = "binance_trades"
+ticker_file = "binance-usdt-liquid-universe.txt"
+start = "2023-05-01T00:00:00Z"
+end = "2026-04-30T23:59:59.999999Z"
+frequency = "monthly"
+download_workers = 16
+process_workers = 0

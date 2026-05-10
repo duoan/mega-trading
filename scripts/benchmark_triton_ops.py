@@ -1,6 +1,6 @@
 """Benchmark local Triton transformer operator kernels.
 
-Defaults match configs/server-rtx6000.yaml for the non-attention operators:
+Defaults match configs/rtx.yaml for the non-attention operators:
 RMSNorm [8, 512, 1024], RoPE q=[8, 16, 512, 64] k=[8, 4, 512, 64],
 and SwiGLU gate [8, 512, 2816], all in bf16.
 """

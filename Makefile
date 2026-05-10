@@ -1,4 +1,4 @@
-.PHONY: test demo local remote server platform-demo install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance pull-modal-artifacts backtest-local report-local train-server-rtx6000 backtest-server-rtx6000 report-server-rtx6000 report-modal-binance
+.PHONY: test demo mac rtx modal platform-demo install-flash-attn download-mac download-rtx download-modal prep-mac prep-rtx prep-modal upload-modal train-mac train-rtx train-modal pull-modal-artifacts backtest-mac backtest-rtx backtest-modal report-mac report-rtx report-modal
 
 test:
 	uv run python -m unittest discover -s tests
@@ -7,14 +7,14 @@ demo:
 	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-demo.toml --config-name default build.block_size=4 build.stride=2 build.min_events_per_ticker=2
 	uv run mega-trading train data.data_dir=.mega-trading/demo run.run_id=demo training.max_steps=1 training.batch_size=2 training.eval_interval=1 training.device=cpu model.hidden_dim=8 model.layers=1 model.attention_heads=1 training.mlflow_enabled=false
 
-local:
-	uv run python scripts/run_pipeline.py local
+mac:
+	uv run python scripts/run_pipeline.py mac
 
-remote:
-	uv run python scripts/run_pipeline.py remote
+rtx:
+	uv run python scripts/run_pipeline.py rtx
 
-server:
-	uv run python scripts/run_pipeline.py server
+modal:
+	uv run python scripts/run_pipeline.py modal
 
 platform-demo:
 	uv run mega-trading --help
@@ -27,42 +27,55 @@ platform-demo:
 install-flash-attn:
 	uv run python scripts/install_flash_attn.py --require-cuda
 
-download-binance-local:
-	uv run python scripts/download_binance_archives.py --ingest-config configs/ingest-binance-local.toml
+download-mac:
+	uv run python scripts/download_binance_archives.py --ingest-config configs/ingest-mac.toml
 
-download-binance-modal:
-	uv run python scripts/download_binance_archives.py --ingest-config configs/ingest-binance-modal-prep.toml
+download-rtx:
+	uv run python scripts/download_binance_archives.py --ingest-config configs/ingest-rtx.toml
 
-prep-binance-modal: download-binance-modal
-	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-binance-modal-prep.toml --config-name binance-modal-prep
+download-modal:
+	uv run python scripts/download_binance_archives.py --ingest-config configs/ingest-modal.toml
 
-prep-server: prep-binance-modal
+prep-mac:
+	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-mac.toml --config-name mac
 
-upload-binance-modal:
-	uv run modal volume put mega-trading-artifacts .mega-trading/binance-modal/datasets /binance-trades/datasets
+prep-rtx: download-rtx
+	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-rtx.toml --config-name rtx
 
-train-modal-binance:
-	uv run modal run modal_train.py --mode cluster --run-id modal-binance --data-dir /data/binance-trades --strategy fsdp --max-steps 50000
+prep-modal: download-modal
+	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-modal.toml --config-name modal data.data_dir=.mega-trading/modal
+
+upload-modal:
+	uv run modal volume put mega-trading-artifacts .mega-trading/modal/datasets /modal/datasets
+
+train-mac:
+	uv run mega-trading train --config-name mac
+
+train-rtx:
+	uv run mega-trading train --config-name rtx
+
+train-modal:
+	uv run modal run modal_train.py --mode cluster --run-id modal --config-name modal --data-dir /data/modal --strategy fsdp --max-steps 50000
 
 pull-modal-artifacts:
-	mkdir -p .mega-trading/binance-modal/runs .mega-trading/binance-modal/manifests
-	uv run modal volume get --force mega-trading-artifacts /binance-trades/runs .mega-trading/binance-modal/runs
-	uv run modal volume get --force mega-trading-artifacts /binance-trades/manifests .mega-trading/binance-modal/manifests
+	mkdir -p .mega-trading/modal/runs .mega-trading/modal/manifests
+	uv run modal volume get --force mega-trading-artifacts /modal/runs .mega-trading/modal/runs
+	uv run modal volume get --force mega-trading-artifacts /modal/manifests .mega-trading/modal/manifests
 
-backtest-local:
-	uv run mega-trading backtest --config-name binance-local --max-batches 32
+backtest-mac:
+	uv run mega-trading backtest --config-name mac --max-batches 32
 
-report-local:
-	uv run mega-trading report --config-name binance-local
+backtest-rtx:
+	uv run mega-trading backtest --config-name rtx --max-batches 128
 
-train-server-rtx6000: install-flash-attn
-	uv run mega-trading train --config-name server-rtx6000
+backtest-modal:
+	uv run mega-trading backtest --config-name modal --max-batches 128 data.data_dir=.mega-trading/modal eval.device=auto
 
-backtest-server-rtx6000:
-	uv run mega-trading backtest --config-name server-rtx6000 --max-batches 128
+report-mac:
+	uv run mega-trading report --config-name mac
 
-report-server-rtx6000:
-	uv run mega-trading report --config-name server-rtx6000
+report-rtx:
+	uv run mega-trading report --config-name rtx
 
-report-modal-binance:
-	uv run mega-trading report --config-name modal-binance data.data_dir=.mega-trading/binance-modal run.run_id=modal-binance
+report-modal:
+	uv run mega-trading report --config-name modal data.data_dir=.mega-trading/modal

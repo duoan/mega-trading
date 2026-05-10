@@ -1,6 +1,6 @@
 """Benchmark the local Triton causal GQA attention kernel.
 
-Defaults match configs/server-rtx6000.yaml:
+Defaults match configs/rtx.yaml:
 batch=8, sequence=512, query heads=16, kv heads=4, head dim=64, dtype=bf16.
 """
 

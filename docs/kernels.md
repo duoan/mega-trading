@@ -10,20 +10,20 @@ Implementation:
 - Called from `LlamaAttention` when `attention_backend: triton`
 - Benchmarked by `scripts/benchmark_triton_attention.py`
 
-The kernel is a causal grouped-query attention implementation for the RTX PRO 6000 Blackwell server path. The forward path and a server-only backward path are optimized for the shape produced by `make server` and `configs/server-rtx6000.yaml`.
+The kernel is a causal grouped-query attention implementation for the RTX PRO 6000 Blackwell path. The forward path and RTX backward path are optimized for the shape produced by `make rtx` and `configs/rtx.yaml`.
 
 ## Target Shape
 
-`make server` runs:
+`make rtx` runs:
 
 ```bash
 uv run python scripts/run_pipeline.py server
 ```
 
-That prepares `.mega-trading/binance-modal` if needed, then trains with:
+That prepares `.mega-trading/rtx` if needed, then trains with:
 
 ```bash
-uv run mega-trading train --config-name server-rtx6000
+uv run mega-trading train --config-name rtx
 ```
 
 The attention shape entering the kernel is:
@@ -79,7 +79,7 @@ triton_descriptor  0.02754      156.23
 torch_sdpa         0.02898      148.49
 ```
 
-The server-shape Triton forward kernel is currently faster than PyTorch SDPA for bf16 on this machine.
+The RTX-shape Triton forward kernel is currently faster than PyTorch SDPA for bf16 on this machine.
 
 Forward + backward command:
 
@@ -95,7 +95,7 @@ triton_descriptor  0.17826       24.14
 torch_sdpa         0.14054       30.62
 ```
 
-The server-shape Triton backward is correct and avoids the previous torch tensor-materialized backward path, but it is not yet faster than PyTorch SDPA backward. The current bottleneck is the `dK/dV` kernel.
+The RTX-shape Triton backward is correct and avoids the previous torch tensor-materialized backward path, but it is not yet faster than PyTorch SDPA backward. The current bottleneck is the `dK/dV` kernel.
 
 NCU profiling note:
 
@@ -125,7 +125,7 @@ Useful changes:
 - Historical blocks skip causal masking entirely.
 - The diagonal block applies only the causal boundary mask.
 - Keep q loaded through `tl.make_tensor_descriptor`.
-- Use direct pointer loads/stores for K/V and output in the server-shape path to reduce descriptor overhead on this small fixed shape.
+- Use direct pointer loads/stores for K/V and output in the RTX-shape path to reduce descriptor overhead on this small fixed shape.
 - Remove unnecessary final zero-denominator guards because causal attention always has at least one valid key per row.
 - Store per-row log-sum-exp from the forward pass so backward can reconstruct probabilities without recomputing softmax denominators.
 - Split backward into a `dQ` kernel and a `dK/dV` kernel. The `dK/dV` kernel owns one key/value tile and accumulates across the 4 grouped query heads to avoid atomics.
@@ -138,8 +138,8 @@ descriptor 16x32                         bf16   ~0.0739     initial descriptor v
 descriptor 32x64                         bf16   ~0.0561     fewer programs, better tile
 descriptor 64x64                         bf16   ~0.0379     best simple descriptor tile
 split historical/diagonal causal blocks  bf16   ~0.0323     avoids masking historical blocks
-current server-shape path                bf16   ~0.0313     faster than SDPA for target shape
-current server-shape path + lse          bf16   ~0.0275     faster forward and enables Triton backward
+current RTX-shape path                   bf16   ~0.0313     faster than SDPA for target shape
+current RTX-shape path + lse             bf16   ~0.0275     faster forward and enables Triton backward
 ```
 
 Rejected experiments:

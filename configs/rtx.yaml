@@ -2,11 +2,11 @@ defaults:
   - _self_
 
 run:
-  run_id: modal-binance
+  run_id: rtx
 
 data:
-  data_dir: /data/binance-trades
-  mixture: binance_public
+  data_dir: .mega-trading/rtx
+  mixture: rtx
   source: binance_trades
 
 build:
@@ -28,41 +28,43 @@ build:
   streaming_baseline_sample_rows: 200000
 
 model:
-  hidden_dim: 1792
-  layers: 32
-  attention_heads: 28
+  hidden_dim: 1024
+  layers: 20
+  attention_heads: 16
   kv_heads: 4
-  intermediate_dim: 4864
-  dropout: 0.05
+  intermediate_dim: 2816
+  # The local Triton attention path currently fuses causal GQA without dropout.
+  dropout: 0.0
   rope_theta: 500000.0
   norm_eps: 0.00001
 
 training:
-  max_steps: 50000
-  batch_size: 4
+  max_steps: 20000
+  batch_size: 8
   learning_rate: 0.0002
-  optimizer: adamw
+  optimizer: muon
   weight_decay: 0.01
   adam_beta1: 0.9
   adam_beta2: 0.999
   adam_eps: 0.00000001
   muon_momentum: 0.95
   muon_ns_steps: 5
-  lr_schedule: constant
-  lr_warmup_steps: 0
-  min_learning_rate: 0.0
+  lr_schedule: cosine
+  lr_warmup_steps: 1000
+  min_learning_rate: 0.00002
   validation_fraction: 0.02
-  eval_interval: 1000
-  max_eval_batches: 128
+  eval_interval: 500
+  max_eval_batches: 64
   seed: 7
   device: cuda
   precision: mixed
-  distributed_strategy: fsdp
-  gradient_accumulation_steps: 16
+  distributed_strategy: ddp
+  gradient_accumulation_steps: 8
   compile: true
-  compile_mode: reduce-overhead
-  attention_backend: flash
-  checkpoint_interval: 2000
+  # default avoids torch.compile CUDA-graph capture that conflicts with Accelerate backward on single-GPU DDP.
+  compile_mode: default
+  attention_backend: triton
+  checkpoint_interval: 1000
   resume_from_checkpoint: null
   mlflow_enabled: true
   mlflow_experiment: mega-trading
