@@ -39,7 +39,7 @@ make report-server-rtx6000
 make report-modal-binance
 ```
 
-The report is written to `reports/<run_id>/backtest.html` under the configured data directory and visualizes loss curves, split counts, held-out backtest metrics, real-vs-generated stylized facts, and artifact paths.
+The report is written to `reports/<run_id>/backtest.html` under the configured data directory and visualizes loss curves, split counts, held-out backtest metrics, real-vs-generated stylized facts, sampled ticker K-line charts, model-implied forecast paths, and artifact paths.
 
 `make server` uses the same prepared dataset as Modal under `.mega-trading/binance-modal/datasets`. If that NumPy dataset already exists, the prepare step is skipped and training starts directly.
 

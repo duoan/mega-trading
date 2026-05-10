@@ -8,12 +8,25 @@ import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import torch
+
+from mega_trading.backtest import _model_from_checkpoint
 from mega_trading.core.store import ArtifactNotFoundError, LocalObjectStore
+from mega_trading.data.public.binance import iter_trade_fields_from_archive
+from mega_trading.tokenizer import MarketEventTokenizer
 
 
 @dataclass(frozen=True)
 class ReportResult:
     report_path: str
+
+
+MAX_CHART_TICKERS = 3
+MAX_CANDLE_TRADES = 30_000
+MAX_CANDLES = 48
+FORECAST_TOKENS = 48
+FORECAST_CONTEXT_TOKENS = 128
 
 
 def run_report(
@@ -94,6 +107,7 @@ def _render_html(
         _artifact_status(store, run_id, checkpoint_path, mlflow_path, backtest),
         _split_chart(split_totals),
         _training_chart(metrics),
+        _ticker_forecast_section(store, profile, run_id),
         _backtest_section(backtest),
         _stylized_fact_section(backtest, eval_report),
         _config_section(profile, manifest),
@@ -236,6 +250,199 @@ def _training_chart(metrics: list[dict[str, Any]]) -> str:
         title="loss curves",
     )
     return f"<section><h2>Training Curves</h2>{svg}<div class=\"legend\">Green: train loss. Blue: validation loss when evaluated.</div></section>"
+
+
+def _ticker_forecast_section(store: LocalObjectStore, profile: dict[str, Any], run_id: str) -> str:
+    numpy_dataset = profile.get("numpy_dataset", {})
+    if not isinstance(numpy_dataset, dict) or numpy_dataset.get("storage") != "token_stream":
+        return "<section><h2>Ticker Candles + Forecast</h2><p class=\"warn\">Ticker forecast charts require token-stream Binance data.</p></section>"
+    checkpoint_path = store.root / "runs" / run_id / "checkpoint.pt"
+    if not checkpoint_path.exists():
+        return "<section><h2>Ticker Candles + Forecast</h2><p class=\"warn\">No checkpoint found, so model-implied forecasts cannot be drawn.</p></section>"
+    charts = _ticker_forecast_charts(store, profile, run_id)
+    if not charts:
+        return "<section><h2>Ticker Candles + Forecast</h2><p class=\"warn\">No raw Binance archives matched the prepared token streams.</p></section>"
+    return (
+        "<section><h2>Ticker Candles + Forecast</h2>"
+        "<p>Green/red candles show sampled real Binance trades from a held-out archive. Blue line is the model-implied price path from generated relative-price tokens seeded on the same ticker stream.</p>"
+        + "".join(charts)
+        + "</section>"
+    )
+
+
+def _ticker_forecast_charts(store: LocalObjectStore, profile: dict[str, Any], run_id: str) -> list[str]:
+    try:
+        tokenizer = MarketEventTokenizer.from_dict(store.read_json(str(profile["tokenizer_path"])))
+        checkpoint = torch.load(store.root / "runs" / run_id / "checkpoint.pt", map_location="cpu", weights_only=False)
+        model = _model_from_checkpoint(profile, checkpoint)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.eval()
+    except Exception as exc:  # pragma: no cover - defensive for very large or partial checkpoints
+        return [f"<p class=\"warn\">Could not load model forecast path: {escape(str(exc))}</p>"]
+
+    charts: list[str] = []
+    for ticker in _selected_tickers(profile, MAX_CHART_TICKERS):
+        try:
+            chart = _ticker_forecast_chart(store, profile, ticker, tokenizer, model)
+        except Exception as exc:  # pragma: no cover - report should degrade instead of failing
+            chart = f"<div class=\"card\"><h3>{escape(ticker)}</h3><p class=\"warn\">Could not render ticker chart: {escape(str(exc))}</p></div>"
+        if chart:
+            charts.append(chart)
+    return charts
+
+
+def _selected_tickers(profile: dict[str, Any], limit: int) -> list[str]:
+    ticker_to_id = dict(dict(profile.get("numpy_dataset", {})).get("ticker_to_id", {}))
+    preferred = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"]
+    selected = [ticker for ticker in preferred if ticker in ticker_to_id]
+    selected.extend(ticker for ticker in sorted(ticker_to_id) if ticker not in selected)
+    return selected[:limit]
+
+
+def _ticker_forecast_chart(
+    store: LocalObjectStore,
+    profile: dict[str, Any],
+    ticker: str,
+    tokenizer: MarketEventTokenizer,
+    model: torch.nn.Module,
+) -> str:
+    partition = _latest_partition_for_ticker(profile, ticker)
+    if partition is None:
+        return ""
+    archive_path = _raw_archive_path(store, ticker, str(partition["partition"]))
+    if archive_path is None:
+        return ""
+    candles = _candles_from_archive(archive_path)
+    if not candles:
+        return ""
+    prediction = _forecast_path_from_partition(store, partition, tokenizer, model, candles[-1]["close"])
+    return _candlestick_svg(ticker, str(partition["partition"]), candles, prediction)
+
+
+def _latest_partition_for_ticker(profile: dict[str, Any], ticker: str) -> dict[str, Any] | None:
+    partitions = [
+        dict(partition)
+        for partition in dict(profile.get("numpy_dataset", {})).get("partitions", [])
+        if str(partition.get("ticker")) == ticker and int(partition.get("sequence_count", 0)) > 0
+    ]
+    if not partitions:
+        return None
+    return sorted(partitions, key=lambda item: str(item.get("partition", "")))[-1]
+
+
+def _raw_archive_path(store: LocalObjectStore, ticker: str, partition: str) -> Path | None:
+    raw_root = store.root / "stage=01_raw" / "source=binance_trades" / "data" / "spot"
+    matches = sorted(raw_root.glob(f"*/trades/{ticker}/{ticker}-trades-{partition}.zip"))
+    if matches:
+        return matches[-1]
+    symbol_roots = sorted(raw_root.glob(f"*/trades/{ticker}"))
+    archives = sorted(path for root in symbol_roots for path in root.glob(f"{ticker}-trades-*.zip"))
+    return archives[-1] if archives else None
+
+
+def _candles_from_archive(path: Path) -> list[dict[str, float]]:
+    trades: list[tuple[float, float]] = []
+    for _trade_id, price, _qty, raw_time, _is_buyer_maker in iter_trade_fields_from_archive(path):
+        if price <= 0.0:
+            continue
+        trades.append((_timestamp_seconds(raw_time), price))
+        if len(trades) >= MAX_CANDLE_TRADES:
+            break
+    if len(trades) < 2:
+        return []
+    start = trades[0][0]
+    end = trades[-1][0]
+    interval = max(1.0, (end - start) / MAX_CANDLES)
+    buckets: list[dict[str, float]] = []
+    current_bucket = -1
+    current: dict[str, float] | None = None
+    for timestamp, price in trades:
+        bucket = int((timestamp - start) // interval)
+        if current is None or bucket != current_bucket:
+            if current is not None:
+                buckets.append(current)
+            current_bucket = bucket
+            current = {"open": price, "high": price, "low": price, "close": price}
+        else:
+            current["high"] = max(current["high"], price)
+            current["low"] = min(current["low"], price)
+            current["close"] = price
+    if current is not None:
+        buckets.append(current)
+    return buckets[:MAX_CANDLES]
+
+
+def _timestamp_seconds(value: int) -> float:
+    divisor = 1_000_000 if value >= 10**15 else 1_000
+    return value / divisor
+
+
+def _forecast_path_from_partition(
+    store: LocalObjectStore,
+    partition: dict[str, Any],
+    tokenizer: MarketEventTokenizer,
+    model: torch.nn.Module,
+    start_price: float,
+) -> list[float]:
+    tokens = np.load(store.root / str(partition["tokens_path"]), mmap_mode="r")
+    if int(tokens.shape[0]) < 2:
+        return []
+    context_length = min(int(tokens.shape[0]), int(getattr(model, "block_size", FORECAST_CONTEXT_TOKENS)), FORECAST_CONTEXT_TOKENS)
+    context = torch.from_numpy(np.asarray(tokens[:context_length], dtype=np.int64)).unsqueeze(0)
+    with torch.no_grad():
+        generated = model.generate(context, max_new_tokens=FORECAST_TOKENS, top_k=16)[0].detach().cpu().tolist()
+    prices = [float(start_price)]
+    price = float(start_price)
+    for token in generated[context_length:]:
+        relative_bps = tokenizer.relative_price_value(int(token))
+        if relative_bps is None:
+            continue
+        price *= math.exp(float(relative_bps) / 10_000.0)
+        prices.append(price)
+    return prices
+
+
+def _candlestick_svg(ticker: str, partition: str, candles: list[dict[str, float]], prediction: list[float]) -> str:
+    width, height = 860, 300
+    padding = 42
+    candle_width = max(4.0, (width - 2 * padding) / max(len(candles) + max(len(prediction) - 1, 0), 1) * 0.55)
+    values = [value for candle in candles for value in (candle["high"], candle["low"])] + prediction
+    low = min(values)
+    high = max(values)
+    if math.isclose(low, high):
+        low *= 0.999
+        high *= 1.001
+
+    def y(value: float) -> float:
+        return height - padding - (height - 2 * padding) * (value - low) / (high - low)
+
+    elements: list[str] = []
+    for index, candle in enumerate(candles):
+        x = padding + index * (width - 2 * padding) / max(len(candles) + max(len(prediction) - 1, 0), 1)
+        color = "#74d680" if candle["close"] >= candle["open"] else "#ff7b86"
+        y_open = y(candle["open"])
+        y_close = y(candle["close"])
+        y_high = y(candle["high"])
+        y_low = y(candle["low"])
+        elements.append(f'<line x1="{x:.2f}" y1="{y_high:.2f}" x2="{x:.2f}" y2="{y_low:.2f}" stroke="{color}" stroke-width="1.5"/>')
+        body_y = min(y_open, y_close)
+        body_h = max(abs(y_close - y_open), 1.0)
+        elements.append(f'<rect x="{x - candle_width / 2:.2f}" y="{body_y:.2f}" width="{candle_width:.2f}" height="{body_h:.2f}" rx="1.5" fill="{color}"/>')
+    if len(prediction) >= 2:
+        start_x = padding + (len(candles) - 1) * (width - 2 * padding) / max(len(candles) + len(prediction) - 2, 1)
+        step = (width - 2 * padding) / max(len(candles) + len(prediction) - 2, 1)
+        points = " ".join(f"{start_x + index * step:.2f},{y(price):.2f}" for index, price in enumerate(prediction))
+        elements.append(f'<polyline fill="none" stroke="#73a7ff" stroke-width="3" points="{points}"/>')
+    axis = (
+        f'<line x1="{padding}" y1="{height - padding}" x2="{width - padding}" y2="{height - padding}" stroke="#263451"/>'
+        f'<line x1="{padding}" y1="{padding}" x2="{padding}" y2="{height - padding}" stroke="#263451"/>'
+        f'<text x="{padding}" y="{padding - 10}" fill="#a7b0c3">{low:.4f} - {high:.4f}</text>'
+    )
+    return (
+        f'<div class="card"><h3>{escape(ticker)} <span class="label">{escape(partition)}</span></h3>'
+        f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{escape(ticker)} candles and forecast">{axis}{"".join(elements)}</svg>'
+        '<div class="legend">Green/red: real OHLC candles. Blue: generated model-implied price path.</div></div>'
+    )
 
 
 def _backtest_section(backtest: dict[str, Any] | None) -> str:

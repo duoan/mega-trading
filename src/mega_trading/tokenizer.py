@@ -166,6 +166,12 @@ class MarketEventTokenizer:
         _action_id, _side_id, _relative_price_id, depth_id, _size_id, _time_id = self.decode_token(token_id)
         return _bucket_center(depth_id, self.price_depth_edges)
 
+    def relative_price_value(self, token_id: int) -> float | None:
+        if token_id < _SPECIAL_TOKENS:
+            return None
+        _action_id, _side_id, relative_price_id, _depth_id, _size_id, _time_id = self.decode_token(token_id)
+        return _bucket_center(relative_price_id, self.relative_price_edges)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "type": "paper-order-flow-composite",

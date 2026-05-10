@@ -136,6 +136,7 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(tokens, tokenizer.encode_event(event))
         self.assertEqual(len(tokens), 1)
         self.assertIsNotNone(tokenizer.price_depth_value(tokens[0]))
+        self.assertIsNotNone(tokenizer.relative_price_value(tokens[0]))
         self.assertEqual(logits.shape, (1, len(tokens[:8]), tokenizer.vocab_size))
 
     def test_model_uses_llama_style_decoder_blocks(self) -> None:
@@ -309,7 +310,9 @@ class TrainingTests(unittest.TestCase):
             self.assertIn("generated", report)
             self.assertEqual(backtest_report["stage"], "backtest")
             self.assertGreater(backtest_report["backtest_tokens"], 0)
-            self.assertIn("Backtest Dashboard", root.joinpath(report_result.report_path).read_text(encoding="utf-8"))
+            report_html = root.joinpath(report_result.report_path).read_text(encoding="utf-8")
+            self.assertIn("Backtest Dashboard", report_html)
+            self.assertIn("Ticker Candles + Forecast", report_html)
 
     def test_trainer_resumes_from_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
