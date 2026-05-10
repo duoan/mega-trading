@@ -39,6 +39,10 @@ Periodic checkpoints can also be written under `runs/<run_id>/checkpoints/step-*
 
 Training metrics include next-token loss, perplexity, top-1/top-5 token accuracy, validation loss/perplexity, split sequence counts, tokens/sec, checkpoint path, and manifest path.
 
+## Backtesting
+
+`mega-trading backtest` evaluates a trained checkpoint on the prepared chronological backtest split. It reports held-out next-token loss/perplexity/top-k accuracy, then compares generated rollout price-depth stylized facts against real backtest token streams. This is the public-data analogue of TradeFM's simulator-based closed-loop evaluation; the full paper setup additionally routes generated events through a deterministic market simulator for fill validation, market impact, stress testing, and downstream optimal-execution agents.
+
 ## Distributed Execution
 
 The training loop is built around Hugging Face Accelerate. A normal Python or console-script launch runs single process. `torchrun` or `accelerate launch` turns the same CLI into DDP. Setting `training.distributed_strategy=fsdp` passes an FSDP plugin to Accelerate for sharded training.

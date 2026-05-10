@@ -37,7 +37,11 @@ def run_eval(
         hidden_dim=int(checkpoint["config"]["hidden_dim"]),
         layers=int(checkpoint["config"]["layers"]),
         attention_heads=int(checkpoint["config"]["attention_heads"]),
+        kv_heads=_optional_int(checkpoint["config"].get("kv_heads")),
+        intermediate_dim=_optional_int(checkpoint["config"].get("intermediate_dim")),
         dropout=float(checkpoint["config"]["dropout"]),
+        rope_theta=float(checkpoint["config"].get("rope_theta", 500_000.0)),
+        norm_eps=float(checkpoint["config"].get("norm_eps", 1e-5)),
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     resolved_device = _resolve_device(device)
@@ -187,3 +191,9 @@ def _resolve_device(requested_device: str) -> torch.device:
             return torch.device("mps")
         return torch.device("cpu")
     return torch.device(requested_device)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    return int(value)

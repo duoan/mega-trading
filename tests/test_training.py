@@ -9,6 +9,7 @@ import torch
 
 from mega_trading.cli import load_config, main
 from mega_trading.config import BuildConfig, TrainConfig
+from mega_trading.backtest import run_backtest
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.dataset import NumpyTickerTimeDataset, tokens_to_example
 from mega_trading.eval import run_eval
@@ -36,8 +37,10 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(str(server.data.data_dir), ".mega-trading/binance-modal")
         self.assertEqual(str(server.training.device), "cuda")
         self.assertEqual(str(server.training.distributed_strategy), "ddp")
-        self.assertEqual(int(server.training.batch_size), 32)
-        self.assertEqual(int(server.training.gradient_accumulation_steps), 2)
+        self.assertEqual(int(server.model.hidden_dim), 1024)
+        self.assertEqual(int(server.model.layers), 20)
+        self.assertEqual(int(server.training.batch_size), 8)
+        self.assertEqual(int(server.training.gradient_accumulation_steps), 8)
         self.assertEqual(int(server.training.max_eval_batches), 64)
         self.assertEqual(str(binance_modal.data.data_dir), "/data/binance-trades")
         self.assertEqual(str(binance_modal.data.mixture), "binance_public")
@@ -256,11 +259,13 @@ class TrainingTests(unittest.TestCase):
                 ),
             ).train("stage=05_shards/mixture=public/tokens.npy")
             eval_result = run_eval(store, "train-test", rollouts=2, generated_tokens=8, device="cpu")
+            backtest_result = run_backtest(store, "train-test", rollouts=2, generated_tokens=8, max_batches=1, device="cpu")
 
             metrics = json.loads(root.joinpath(train_result.metrics_path).read_text(encoding="utf-8"))["metrics"]
             manifest = store.read_manifest(train_result.manifest_path)
             checkpoint = torch.load(root / train_result.checkpoint_path, map_location="cpu", weights_only=False)
             report = json.loads(root.joinpath(eval_result.report_path).read_text(encoding="utf-8"))
+            backtest_report = json.loads(root.joinpath(backtest_result.report_path).read_text(encoding="utf-8"))
             self.assertTrue(root.joinpath(train_result.checkpoint_path).exists())
             self.assertTrue(root.joinpath("runs/train-test/checkpoints/step-000001.pt").exists())
             self.assertIn("validation_loss", metrics[-1])
@@ -280,6 +285,8 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(checkpoint["step"], 2)
             self.assertEqual(report["stage"], "eval")
             self.assertIn("generated", report)
+            self.assertEqual(backtest_report["stage"], "backtest")
+            self.assertGreater(backtest_report["backtest_tokens"], 0)
 
     def test_trainer_resumes_from_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

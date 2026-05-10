@@ -1,4 +1,4 @@
-.PHONY: test demo local remote server platform-demo sync-wandb-secret install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance train-server-rtx6000
+.PHONY: test demo local remote server platform-demo sync-wandb-secret install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance train-server-rtx6000 backtest-server-rtx6000
 
 test:
 	uv run python -m unittest discover -s tests
@@ -46,3 +46,6 @@ train-modal-binance:
 
 train-server-rtx6000: install-flash-attn
 	uv run mega-trading train --config-name server-rtx6000
+
+backtest-server-rtx6000:
+	uv run mega-trading backtest --config-name server-rtx6000 --max-batches 128

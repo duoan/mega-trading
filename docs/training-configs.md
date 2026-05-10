@@ -40,8 +40,16 @@ Modal training mounts the uploaded data at `/data/binance-trades`. The checked-i
 make server
 ```
 
-This prepares `.mega-trading/binance-modal` locally on the server, including the train/validation/backtest split metadata, then trains with `configs/server-rtx6000.yaml`. The prepare path uses `binance-datatool` plus `aria2c` to download only the configured Binance ZIP date window into `stage=01_raw`, then runs a bounded-memory streaming build: sampled tokenizer fitting, parallel per-ticker ZIP scans, and incremental NumPy partition writes. The config targets a single large CUDA GPU with mixed precision, FlashAttention, `torch.compile`, batch size 32, and gradient accumulation 2. `make train-server-rtx6000` runs `scripts/install_flash_attn.py --require-cuda` first, so CUDA servers install `flash-attn` automatically and CPU/Mac paths stay clean. If the prepared shards already exist, use:
+This prepares `.mega-trading/binance-modal` locally on the server, including the train/validation/backtest split metadata, then trains with `configs/server-rtx6000.yaml`. The prepare path uses `binance-datatool` plus `aria2c` to download only the configured Binance ZIP date window into `stage=01_raw`, then runs a bounded-memory streaming build: sampled tokenizer fitting, parallel per-ticker ZIP scans, and incremental NumPy partition writes. The config targets a single large CUDA GPU with mixed precision, FlashAttention, `torch.compile`, batch size 8, and gradient accumulation 8. `make train-server-rtx6000` runs `scripts/install_flash_attn.py --require-cuda` first, so CUDA servers install `flash-attn` automatically and CPU/Mac paths stay clean. If the prepared shards already exist, use:
 
 ```bash
 make train-server-rtx6000
 ```
+
+The checked-in RTX 6000 config is a convergence/backtest run around 234M parameters (`hidden_dim=1024`, `layers=20`) with batch size 8 and gradient accumulation 8. After training, run:
+
+```bash
+make backtest-server-rtx6000
+```
+
+This scores the checkpoint on the chronological backtest split and compares generated rollout stylized facts against held-out real token streams. This is the public-data MVP analogue of the TradeFM paper's simulator-based closed-loop evaluation; a full LOB simulator would be needed for market-impact and optimal-execution backtests.

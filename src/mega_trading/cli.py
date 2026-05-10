@@ -11,6 +11,7 @@ from omegaconf import DictConfig, OmegaConf
 from mega_trading.config import BuildConfig, TrainConfig
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.ingest_config import load_ingest_config
+from mega_trading.backtest import run_backtest
 from mega_trading.eval import run_eval
 from mega_trading.prepare import prepare_numpy_dataset
 from mega_trading.trainer import Trainer
@@ -34,6 +35,12 @@ def build_parser() -> argparse.ArgumentParser:
     eval_command.add_argument("--config-name", default="default", help="Hydra config name")
     eval_command.add_argument("--run-id", default=None, help="run id to evaluate")
     eval_command.add_argument("overrides", nargs="*", help="Hydra overrides for data/eval settings")
+    backtest = subparsers.add_parser("backtest", help="evaluate a checkpoint on the prepared backtest split")
+    backtest.add_argument("--config-dir", default="configs", help="Hydra config directory")
+    backtest.add_argument("--config-name", default="default", help="Hydra config name")
+    backtest.add_argument("--run-id", default=None, help="run id to backtest")
+    backtest.add_argument("--max-batches", type=int, default=128, help="maximum backtest batches to score")
+    backtest.add_argument("overrides", nargs="*", help="Hydra overrides for data/eval settings")
     return parser
 
 
@@ -57,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
         result = _run_eval_config(config, args.run_id)
         print(f"wrote eval report to {config.data.data_dir}/{result.report_path}")
+    elif args.command == "backtest":
+        config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
+        result = _run_backtest_config(config, args.run_id, int(args.max_batches))
+        print(f"wrote backtest report to {config.data.data_dir}/{result.report_path}")
     return 0
 
 
@@ -137,6 +148,19 @@ def _run_eval_config(config: DictConfig, run_id: str | None):
         store,
         run_id=run_id or str(config.run.run_id),
         mixture_name=str(config.data.mixture),
+        rollouts=int(config.eval.rollouts),
+        generated_tokens=int(config.eval.generated_tokens),
+        device=str(config.eval.device),
+    )
+
+
+def _run_backtest_config(config: DictConfig, run_id: str | None, max_batches: int):
+    store = LocalObjectStore(Path(str(config.data.data_dir)))
+    return run_backtest(
+        store,
+        run_id=run_id or str(config.run.run_id),
+        mixture_name=str(config.data.mixture),
+        max_batches=max_batches,
         rollouts=int(config.eval.rollouts),
         generated_tokens=int(config.eval.generated_tokens),
         device=str(config.eval.device),
