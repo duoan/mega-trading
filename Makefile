@@ -1,4 +1,4 @@
-.PHONY: test demo local remote server platform-demo install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance pull-modal-artifacts train-server-rtx6000 backtest-server-rtx6000 report-server-rtx6000 report-modal-binance
+.PHONY: test demo local remote server platform-demo install-flash-attn download-binance-local download-binance-modal prep-binance-modal prep-server upload-binance-modal train-modal-binance pull-modal-artifacts backtest-local report-local train-server-rtx6000 backtest-server-rtx6000 report-server-rtx6000 report-modal-binance
 
 test:
 	uv run python -m unittest discover -s tests
@@ -47,6 +47,12 @@ pull-modal-artifacts:
 	mkdir -p .mega-trading/binance-modal/runs .mega-trading/binance-modal/manifests
 	uv run modal volume get --force mega-trading-artifacts /binance-trades/runs .mega-trading/binance-modal/runs
 	uv run modal volume get --force mega-trading-artifacts /binance-trades/manifests .mega-trading/binance-modal/manifests
+
+backtest-local:
+	uv run mega-trading backtest --config-name binance-local --max-batches 32
+
+report-local:
+	uv run mega-trading report --config-name binance-local
 
 train-server-rtx6000: install-flash-attn
 	uv run mega-trading train --config-name server-rtx6000

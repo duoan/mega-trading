@@ -22,6 +22,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run the simple Mega-Trading local or remote pipeline.")
     parser.add_argument("target", choices=["local", "remote"], help="local trains on this machine; remote uploads data and trains on Modal")
     parser.add_argument("--local-steps", type=int, default=300, help="training steps for local training")
+    parser.add_argument("--local-backtest-batches", type=int, default=32, help="maximum local backtest batches to score")
     parser.add_argument("--remote-steps", type=int, default=50_000, help="training steps for Modal training")
     parser.add_argument("--force-data", action="store_true", help="rebuild data even when numpy shards already exist")
     parser.add_argument("--skip-artifact-sync", action="store_true", help="do not download Modal training outputs")
@@ -55,6 +56,28 @@ def main() -> int:
                 f"training.max_steps={args.local_steps}",
                 "training.eval_interval=50",
                 "training.mlflow_enabled=false",
+            ]
+        )
+        _run(
+            [
+                "uv",
+                "run",
+                "mega-trading",
+                "backtest",
+                "--config-name",
+                "binance-local",
+                "--max-batches",
+                str(args.local_backtest_batches),
+            ]
+        )
+        _run(
+            [
+                "uv",
+                "run",
+                "mega-trading",
+                "report",
+                "--config-name",
+                "binance-local",
             ]
         )
         return 0

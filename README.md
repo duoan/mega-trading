@@ -23,9 +23,17 @@ make remote
 
 Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar, and MLflow for metric tracking. By default MLflow writes to a local SQLite backend under `<data_dir>/runs/mlflow/mlflow.db`; set `training.mlflow_tracking_uri` to point at a remote MLflow server when needed.
 
-After running a backtest, generate a self-contained dashboard:
+`make local` also writes a local backtest JSON and dashboard:
+
+```text
+.mega-trading/binance-local/evals/binance-local/backtest.json
+.mega-trading/binance-local/reports/binance-local/backtest.html
+```
+
+After running a standalone server or Modal backtest, generate a self-contained dashboard:
 
 ```bash
+make report-local
 make report-server-rtx6000
 # or, after make remote has synced Modal artifacts:
 make report-modal-binance
