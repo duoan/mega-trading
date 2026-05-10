@@ -16,17 +16,18 @@ from mega_trading.data.public.binance import (
     download_binance_trade_archives,
     load_order_flow_from_archives,
 )
-from mega_trading.events import BuildResult, EventBuilder, events_by_ticker_from_rows
+from mega_trading.events import BuildResult, EventBuilder, events_by_ticker_from_records, events_by_ticker_from_rows
 
 
 def prepare_numpy_dataset(ingest_config: IngestPipelineConfig, build_config: BuildConfig) -> BuildResult:
     """Prepare training shards from fixture rows or cached Binance raw archives."""
     started_at = perf_counter()
-    event_rows: list[dict[str, object]] = []
+    events_by_ticker: dict[str, list[dict[str, object]]] = {}
     for source in ingest_config.enabled_sources():
         source_started_at = perf_counter()
         if source.name == "fixture":
             rows = [asdict(row) for row in load_fixture_bundle().order_flow]
+            source_events_by_ticker = events_by_ticker_from_rows(rows)
         elif source.name == "binance_trades":
             store = LocalObjectStore(Path(ingest_config.output_dir))
             request = BinanceTradesIngestRequest(
@@ -40,22 +41,23 @@ def prepare_numpy_dataset(ingest_config: IngestPipelineConfig, build_config: Bui
             archives = download_binance_trade_archives(request, store.root, BINANCE_TRADES_BASE_URL)
             loaded_at = perf_counter()
             events = load_order_flow_from_archives(request, archives)
-            rows = [asdict(event) for event in events]
+            source_events_by_ticker = events_by_ticker_from_records(events, assume_sorted=True)
             print(
                 "direct prepare: "
                 f"cached {len(archives)} {source.name} archives in {loaded_at - source_started_at:.1f}s; "
-                f"converted {len(rows)} events in {perf_counter() - loaded_at:.1f}s"
+                f"converted {len(events)} events in {perf_counter() - loaded_at:.1f}s"
             )
         else:
             raise ValueError(f"unsupported direct prepare source: {source.name}")
-        event_rows.extend(rows)
+        _merge_events(events_by_ticker, source_events_by_ticker)
 
     store = LocalObjectStore(Path(ingest_config.output_dir))
     _clean_intermediates(store, build_config)
-    result = EventBuilder(store, build_config).build_events(events_by_ticker_from_rows(event_rows))
+    event_count = sum(len(events) for events in events_by_ticker.values())
+    result = EventBuilder(store, build_config).build_events(events_by_ticker)
     print(
         "direct prepare: "
-        f"wrote {len(event_rows)} events as NumPy shards in {perf_counter() - started_at:.1f}s; "
+        f"wrote {event_count} events as NumPy shards in {perf_counter() - started_at:.1f}s; "
         f"metadata={result.numpy_metadata_path}"
     )
     return result
@@ -64,3 +66,11 @@ def prepare_numpy_dataset(ingest_config: IngestPipelineConfig, build_config: Bui
 def _clean_intermediates(store: LocalObjectStore, build_config: BuildConfig) -> None:
     store.delete_tree_if_exists("stage=02_normalized")
     store.delete_tree_if_exists(f"stage=04_corpus/mixture={build_config.mixture_name}")
+
+
+def _merge_events(
+    target: dict[str, list[dict[str, object]]],
+    source: dict[str, list[dict[str, object]]],
+) -> None:
+    for ticker, events in source.items():
+        target.setdefault(ticker, []).extend(events)

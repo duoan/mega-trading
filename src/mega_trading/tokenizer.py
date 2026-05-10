@@ -6,6 +6,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+import numpy as np
+
 
 PAD_TOKEN = 0
 BOS_TOKEN = 1
@@ -43,8 +45,16 @@ class MarketEventTokenizer:
         method: str = "quantile",
         clip_quantile: float = 0.01,
     ) -> "MarketEventTokenizer":
-        event_list = list(events)
-        if not event_list:
+        relative_price_values: list[float] = []
+        price_depth_values: list[float] = []
+        log_size_values: list[float] = []
+        dt_values: list[float] = []
+        for event in events:
+            relative_price_values.append(float(event["relative_price_bps"]))
+            price_depth_values.append(float(event["price_depth_bps"]))
+            log_size_values.append(_log_size(event))
+            dt_values.append(float(event["interarrival_seconds"]))
+        if not relative_price_values:
             raise ValueError("cannot fit tokenizer without events")
         if method not in {"quantile", "histogram"}:
             raise ValueError("tokenizer method must be one of: quantile, histogram")
@@ -60,16 +70,16 @@ class MarketEventTokenizer:
             raise ValueError("clip_quantile must be in [0.0, 0.5)")
         return cls(
             relative_price_edges=_fit_edges(
-                [float(event["relative_price_bps"]) for event in event_list],
+                relative_price_values,
                 relative_price_bins,
                 method,
                 clip_quantile,
             ),
             price_depth_edges=_fit_edges(
-                [float(event["price_depth_bps"]) for event in event_list], price_bins, method, clip_quantile
+                price_depth_values, price_bins, method, clip_quantile
             ),
-            log_size_edges=_fit_edges([_log_size(event) for event in event_list], size_bins, method, clip_quantile),
-            dt_edges=_fit_edges([float(event["interarrival_seconds"]) for event in event_list], time_bins, method, clip_quantile),
+            log_size_edges=_fit_edges(log_size_values, size_bins, method, clip_quantile),
+            dt_edges=_fit_edges(dt_values, time_bins, method, clip_quantile),
             binning_method=method,
             clip_quantile=clip_quantile,
         )
@@ -179,15 +189,26 @@ def _bucket(value: float, bins: tuple[float, ...]) -> int:
 def _fit_edges(values: list[float], bucket_count: int, method: str, clip_quantile: float) -> tuple[float, ...]:
     if len(values) < bucket_count:
         bucket_count = max(2, len(values))
-    clipped = _clip(values, clip_quantile)
+    clipped = _clip_array(values, clip_quantile)
     if method == "histogram":
-        low = min(clipped)
-        high = max(clipped)
+        low = float(np.min(clipped))
+        high = float(np.max(clipped))
         if low == high:
             return tuple(low + index for index in range(1, bucket_count))
         step = (high - low) / bucket_count
         return tuple(low + step * index for index in range(1, bucket_count))
-    return _unique_edges(_quantile(clipped, index / bucket_count) for index in range(1, bucket_count))
+    quantiles = np.linspace(1.0 / bucket_count, (bucket_count - 1) / bucket_count, bucket_count - 1)
+    return _unique_edges(float(value) for value in np.quantile(clipped, quantiles))
+
+
+def _clip_array(values: list[float], clip_quantile: float) -> np.ndarray:
+    if not values:
+        raise ValueError("cannot fit tokenizer bins without values")
+    array = np.asarray(values, dtype=np.float64)
+    if clip_quantile == 0.0:
+        return array
+    low, high = np.quantile(array, [clip_quantile, 1.0 - clip_quantile])
+    return np.clip(array, low, high)
 
 
 def _clip(values: list[float], clip_quantile: float) -> list[float]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Iterable
 
 import numpy as np
@@ -39,6 +40,7 @@ class EventBuilder:
         self.config = config or BuildConfig()
 
     def build_events(self, events_by_ticker: dict[str, list[dict[str, Any]]]) -> BuildResult:
+        started_at = perf_counter()
         if self.config.max_tickers is not None:
             selected = sorted(events_by_ticker)[: self.config.max_tickers]
             events_by_ticker = {ticker: events_by_ticker[ticker] for ticker in selected}
@@ -54,9 +56,14 @@ class EventBuilder:
         tokenizer_path = f"stage=05_shards/mixture={self.config.mixture_name}/tokenizer.json"
         manifest_path = f"manifests/build/{self.config.mixture_name}.json"
 
-        event_rows = [event for ticker in sorted(events_by_ticker) for event in events_by_ticker[ticker]]
+        event_count = sum(len(events) for events in events_by_ticker.values())
+        print(
+            "event build: "
+            f"fitting tokenizer on {event_count} events across {len(events_by_ticker)} tickers"
+        )
+        fit_started_at = perf_counter()
         tokenizer = MarketEventTokenizer.fit(
-            event_rows,
+            _iter_events(events_by_ticker),
             relative_price_bins=self.config.tokenizer_relative_price_bins,
             price_bins=self.config.tokenizer_price_bins,
             size_bins=self.config.tokenizer_size_bins,
@@ -65,10 +72,17 @@ class EventBuilder:
             clip_quantile=self.config.tokenizer_clip_quantile,
         )
         self.store.write_json(tokenizer_path, tokenizer.to_dict())
+        print(f"event build: fitted tokenizer in {perf_counter() - fit_started_at:.1f}s")
 
+        sequence_started_at = perf_counter()
         sequence_rows = list(_sequence_rows(events_by_ticker, tokenizer, self.config.block_size, self.config.stride))
         if not sequence_rows:
             raise ValueError("not enough events to build token sequences")
+        print(
+            "event build: "
+            f"built {len(sequence_rows)} token sequences in {perf_counter() - sequence_started_at:.1f}s"
+        )
+        write_started_at = perf_counter()
         split_metadata = _split_metadata(sequence_rows, self.config.validation_fraction, self.config.backtest_fraction)
         numpy_metadata = _write_numpy_dataset(
             self.store,
@@ -77,8 +91,13 @@ class EventBuilder:
             partition_rows=self.config.numpy_partition_rows,
             split_metadata=split_metadata,
         )
+        print(
+            "event build: "
+            f"wrote NumPy shards in {perf_counter() - write_started_at:.1f}s; "
+            f"total build time={perf_counter() - started_at:.1f}s"
+        )
 
-        profile = _profile(event_rows, sequence_rows, tokenizer, self.config, tokenizer_path, numpy_metadata)
+        profile = _profile(events_by_ticker, sequence_rows, tokenizer, self.config, tokenizer_path, numpy_metadata)
         self.store.write_json(profile_path, profile)
         manifest_paths = [
             profile_path,
@@ -129,6 +148,31 @@ def events_by_ticker_from_rows(rows: Iterable[dict[str, Any]]) -> dict[str, list
     return {ticker: sorted(values, key=lambda event: str(event["timestamp"])) for ticker, values in events.items()}
 
 
+def events_by_ticker_from_records(records: Iterable[Any], *, assume_sorted: bool = False) -> dict[str, list[dict[str, Any]]]:
+    events: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        event = {
+            "event_id": str(record.event_id),
+            "ticker": str(record.ticker).upper(),
+            "timestamp": str(record.timestamp),
+            "date": str(record.date),
+            "action": str(record.action),
+            "side": str(record.side),
+            "midprice": float(record.midprice),
+            "relative_price_bps": float(record.relative_price_bps),
+            "price_depth_bps": float(record.price_depth_bps),
+            "size": float(record.size),
+            "interarrival_seconds": float(record.interarrival_seconds),
+            "source_ids": list(record.source_ids),
+        }
+        if getattr(record, "midprice_return_bps", None) is not None:
+            event["midprice_return_bps"] = float(record.midprice_return_bps)
+        events[event["ticker"]].append(event)
+    if assume_sorted:
+        return dict(sorted(events.items()))
+    return {ticker: sorted(values, key=lambda event: str(event["timestamp"])) for ticker, values in events.items()}
+
+
 def _sequence_rows(
     events_by_ticker: dict[str, list[dict[str, Any]]],
     tokenizer: MarketEventTokenizer,
@@ -168,14 +212,14 @@ def _sequence_rows(
 
 
 def _profile(
-    events: list[dict[str, Any]],
+    events_by_ticker: dict[str, list[dict[str, Any]]],
     sequences: list[dict[str, Any]],
     tokenizer: MarketEventTokenizer,
     config: BuildConfig,
     tokenizer_path: str,
     numpy_metadata: dict[str, Any],
 ) -> dict[str, Any]:
-    ticker_counts = Counter(str(event["ticker"]) for event in events)
+    ticker_counts = Counter({ticker: len(events) for ticker, events in events_by_ticker.items()})
     sequence_counts = Counter(str(row["ticker"]) for row in sequences)
     return {
         "stream_contract": STREAM_CONTRACT,
@@ -183,7 +227,7 @@ def _profile(
         "feature_order": ["action", "side", "relative_price", "price_depth", "size", "time"],
         "mixture": config.mixture_name,
         "source": config.source,
-        "event_count": len(events),
+        "event_count": sum(ticker_counts.values()),
         "sequence_count": len(sequences),
         "ticker_counts": dict(sorted(ticker_counts.items())),
         "sequence_counts": dict(sorted(sequence_counts.items())),
@@ -199,6 +243,11 @@ def _profile(
         "tokenizer_bucket_counts": tokenizer.bucket_counts,
         "numpy_dataset": numpy_metadata,
     }
+
+
+def _iter_events(events_by_ticker: dict[str, list[dict[str, Any]]]) -> Iterable[dict[str, Any]]:
+    for ticker in sorted(events_by_ticker):
+        yield from events_by_ticker[ticker]
 
 
 def _write_numpy_dataset(
