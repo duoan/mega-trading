@@ -16,29 +16,19 @@ The primary workload is `TradingModel`:
 
 ## Inputs
 
-Each token shard row includes:
+Training reads partitioned NumPy token shards:
 
-- `sequence_id`
-- `ticker`
-- `start_time`
-- `end_time`
-- `tokens`
+- `numpy/part-*/tokens.npy`: `int64` arrays with shape `[partition_rows, block_size + 1]`.
+- `numpy/part-*/ticker_ids.npy`: `int32` arrays mapping each row to a ticker id.
+- `tokens-numpy.json`: dtype, shape, ticker map, and partition paths.
 
 The profile artifact records the stream contract, feature order, sequence counts, block size, event size, vocabulary size, binning method, and tokenizer path.
-
-The build stage also materializes a numpy dataset next to the JSONL shard:
-
-- `tokens.npy`: contiguous `int64` array with shape `[sequence_count, block_size + 1]`.
-- `ticker_ids.npy`: `int32` array mapping each row to a ticker id.
-- `tokens-numpy.json`: dtype, shape, ticker map, and artifact paths.
-
-Training memory-maps these arrays by default when they exist. This removes JSON parsing from the hot path and lets external experiments consume `input_ids = tokens[:, :-1]` and `labels = tokens[:, 1:]` directly.
 
 ## Outputs
 
 Each training run writes:
 
-- `runs/<run_id>/metrics.jsonl`
+- `runs/<run_id>/metrics.json`
 - `runs/<run_id>/checkpoint.pt`
 - `manifests/training/<run_id>.json`
 

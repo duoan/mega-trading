@@ -6,11 +6,11 @@ The model is a generative order-flow model. It learns the conditional distributi
 
 ## Inputs
 
-`EventBuilder` consumes normalized `order_flow` rows and writes:
+`EventBuilder` consumes in-memory `order_flow` events and writes:
 
-- `events.jsonl`: event rows containing action, side, relative price, price depth, relative size, and interarrival time.
 - `tokenizer.json`: fitted composite-token vocabulary metadata.
-- `tokens.jsonl`: fixed-length autoregressive token blocks.
+- `tokens-numpy.json`: partition metadata for fixed-length autoregressive token blocks.
+- `numpy/part-*/tokens.npy`: token arrays consumed by training.
 
 The tokenizer emits one joint token per event over:
 

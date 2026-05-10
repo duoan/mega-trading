@@ -16,13 +16,12 @@ raw source rows
 
 - `fixture`: deterministic local order-flow events for smoke tests.
 - `binance_trades`: Binance public spot trades downloaded from `data.binance.vision`, mapped into event-level execution proxies.
-- `hf_ohlcv_1m`: Hugging Face `mito0o852/OHLCV-1m` loaded through `datasets.load_dataset`, then mapped into the same order-flow feature contract for public no-credential runs.
 
 No non-order-flow data family is part of the active data plane.
 
 ## Event Contract
 
-`stage=02_normalized/family=order_flow/source=<source>.jsonl` contains:
+In-memory order-flow events contain:
 
 - `event_id`
 - `ticker`
@@ -53,13 +52,7 @@ The paper defines mid-price as the midpoint of the best bid and ask. For real L3
 midprice = (best_bid + best_ask) / 2
 ```
 
-The public `binance_trades` adapter has no best bid/ask stream in the monthly trade files, so it uses the previous trade price as a causal midpoint proxy. The public `hf_ohlcv_1m` adapter has no order book either, so it uses a conservative bar proxy:
-
-```text
-estimated_midprice = (minute_high + minute_low) / 2
-```
-
-and falls back to close only when high/low are unavailable.
+The public `binance_trades` adapter has no best bid/ask stream in the monthly trade files, so it uses the previous trade price as a causal midpoint proxy.
 
 ## Scale-Invariant Features
 
@@ -70,15 +63,16 @@ The normalized event contract stores features in scale-stable units:
 - `size = current_volume / causal_median(previous_volume)`.
 - `interarrival_seconds = timestamp - previous_ticker_timestamp`.
 
-For the Binance trades proxy, `order_price` is the execution price, side is inferred from `isBuyerMaker`, and action is `delete` because an execution removes resting maker liquidity. For the OHLCV proxy, `order_price` is the minute close and the volume baseline is computed only from previous rows for that ticker to avoid future leakage.
+For the Binance trades proxy, `order_price` is the execution price, side is inferred from `isBuyerMaker`, and action is `delete` because an execution removes resting maker liquidity.
 
 ## Build Artifacts
 
 ```text
-stage=04_corpus/mixture=<name>/events.jsonl
 stage=05_shards/mixture=<name>/tokenizer.json
-stage=05_shards/mixture=<name>/tokens.jsonl
 stage=05_shards/mixture=<name>/tokens-profile.json
+stage=05_shards/mixture=<name>/tokens-numpy.json
+stage=05_shards/mixture=<name>/numpy/part-*/tokens.npy
+stage=05_shards/mixture=<name>/numpy/part-*/ticker_ids.npy
 ```
 
 `tokenizer.json` stores fitted bin edges for relative price, price depth, log relative size, and interarrival time.
@@ -86,6 +80,5 @@ stage=05_shards/mixture=<name>/tokens-profile.json
 ## Run
 
 ```bash
-uv run mega-trading ingest --config configs/ingest-hf-ohlcv-1m.toml
-uv run mega-trading build data.data_dir=.mega-trading/hf-1m data.source=hf_ohlcv_1m
+make local
 ```

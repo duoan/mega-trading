@@ -1,0 +1,11 @@
+---
+description: Commit and push completed code changes
+alwaysApply: true
+---
+
+# Git Hygiene
+
+- After completing a code change and running the relevant tests or checks, split the work into small logical commits.
+- Push committed work to the tracked remote branch after the commits succeed.
+- Do not commit unverified code unless explicitly requested.
+- Keep unrelated user changes out of commits.

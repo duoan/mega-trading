@@ -6,7 +6,7 @@ Mega-Trading is a narrow reproduction-oriented market microstructure foundation 
 
 ## Current MVP
 
-- Config-driven ingestion for deterministic fixtures and `hf_ohlcv_1m` public smoke data.
+- Config-driven ingestion for deterministic fixtures and Binance public trades.
 - Normalized `order_flow` records with a single paper feature contract.
 - Data readiness checks over order-flow records.
 - `EventBuilder` for event corpora and token shards.
@@ -29,12 +29,12 @@ order-flow source rows
 
 ## Artifact Contracts
 
-- `stage=02_normalized/family=order_flow/source=<source>.jsonl`
-- `stage=04_corpus/mixture=<name>/events.jsonl`
 - `stage=05_shards/mixture=<name>/tokenizer.json`
-- `stage=05_shards/mixture=<name>/tokens.jsonl`
 - `stage=05_shards/mixture=<name>/tokens-profile.json`
-- `runs/<run_id>/metrics.jsonl`
+- `stage=05_shards/mixture=<name>/tokens-numpy.json`
+- `stage=05_shards/mixture=<name>/numpy/part-*/tokens.npy`
+- `stage=05_shards/mixture=<name>/numpy/part-*/ticker_ids.npy`
+- `runs/<run_id>/metrics.json`
 - `runs/<run_id>/checkpoint.pt`
 - `evals/<run_id>/report.json`
 
