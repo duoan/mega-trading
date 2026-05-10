@@ -1,5 +1,5 @@
 [ingest]
-output_dir = ".mega-trading/mac"
+output_dir = ".mega-trading/data"
 raw_dir = ".mega-trading/raw"
 
 [[ingest.sources]]

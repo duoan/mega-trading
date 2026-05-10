@@ -20,7 +20,7 @@ The kernel is a causal grouped-query attention implementation for the RTX PRO 60
 uv run python scripts/run_pipeline.py server
 ```
 
-That prepares `.mega-trading/rtx` if needed, then trains with:
+That prepares `.mega-trading/data/datasets/mixture=rtx` if needed, then trains with:
 
 ```bash
 uv run mega-trading train --config-name rtx

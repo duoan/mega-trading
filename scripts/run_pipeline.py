@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 MODAL_VOLUME_NAME = "mega-trading-artifacts"
-MODAL_VOLUME_DATA_PREFIX = "/modal"
-MODAL_RUNTIME_DATA_DIR = "/data/modal"
+MODAL_VOLUME_DATA_PREFIX = "/shared"
+MODAL_RUNTIME_DATA_DIR = "/data/shared"
 
 
 @dataclass(frozen=True)
@@ -30,9 +30,10 @@ class Environment:
         return self.name
 
 
-MAC = Environment("mac", Path(".mega-trading/mac"), "configs/ingest-mac.toml", min_sequences=50_000)
-RTX = Environment("rtx", Path(".mega-trading/rtx"), "configs/ingest-rtx.toml")
-MODAL = Environment("modal", Path(".mega-trading/modal"), "configs/ingest-modal.toml")
+SHARED_DATA_DIR = Path(".mega-trading/data")
+MAC = Environment("mac", SHARED_DATA_DIR, "configs/ingest-mac.toml", min_sequences=50_000)
+RTX = Environment("rtx", SHARED_DATA_DIR, "configs/ingest-rtx.toml")
+MODAL = Environment("modal", SHARED_DATA_DIR, "configs/ingest-modal.toml")
 
 
 def main() -> int:

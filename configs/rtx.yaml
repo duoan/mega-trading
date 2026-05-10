@@ -5,7 +5,7 @@ run:
   run_id: rtx
 
 data:
-  data_dir: .mega-trading/rtx
+  data_dir: .mega-trading/data
   mixture: rtx
   source: binance_trades
 

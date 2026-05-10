@@ -5,7 +5,7 @@ run:
   run_id: modal
 
 data:
-  data_dir: /data/modal
+  data_dir: /data/shared
   mixture: modal
   source: binance_trades
 

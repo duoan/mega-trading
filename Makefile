@@ -43,10 +43,10 @@ prep-rtx: download-rtx
 	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-rtx.toml --config-name rtx
 
 prep-modal: download-modal
-	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-modal.toml --config-name modal data.data_dir=.mega-trading/modal
+	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-modal.toml --config-name modal data.data_dir=.mega-trading/data
 
 upload-modal:
-	uv run modal volume put mega-trading-artifacts .mega-trading/modal/datasets /modal/datasets
+	uv run modal volume put mega-trading-artifacts .mega-trading/data/datasets /shared/datasets
 
 train-mac:
 	uv run mega-trading train --config-name mac
@@ -55,12 +55,12 @@ train-rtx:
 	uv run mega-trading train --config-name rtx
 
 train-modal:
-	uv run modal run modal_train.py --mode cluster --run-id modal --config-name modal --data-dir /data/modal --strategy fsdp --max-steps 50000
+	uv run modal run modal_train.py --mode cluster --run-id modal --config-name modal --data-dir /data/shared --strategy fsdp --max-steps 50000
 
 pull-modal-artifacts:
-	mkdir -p .mega-trading/modal/runs .mega-trading/modal/manifests
-	uv run modal volume get --force mega-trading-artifacts /modal/runs .mega-trading/modal/runs
-	uv run modal volume get --force mega-trading-artifacts /modal/manifests .mega-trading/modal/manifests
+	mkdir -p .mega-trading/data/runs .mega-trading/data/manifests
+	uv run modal volume get --force mega-trading-artifacts /shared/runs .mega-trading/data/runs
+	uv run modal volume get --force mega-trading-artifacts /shared/manifests .mega-trading/data/manifests
 
 backtest-mac:
 	uv run mega-trading backtest --config-name mac --max-batches 32
@@ -69,7 +69,7 @@ backtest-rtx:
 	uv run mega-trading backtest --config-name rtx --max-batches 128
 
 backtest-modal:
-	uv run mega-trading backtest --config-name modal --max-batches 128 data.data_dir=.mega-trading/modal eval.device=auto
+	uv run mega-trading backtest --config-name modal --max-batches 128 data.data_dir=.mega-trading/data eval.device=auto
 
 report-mac:
 	uv run mega-trading report --config-name mac
@@ -78,4 +78,4 @@ report-rtx:
 	uv run mega-trading report --config-name rtx
 
 report-modal:
-	uv run mega-trading report --config-name modal data.data_dir=.mega-trading/modal
+	uv run mega-trading report --config-name modal data.data_dir=.mega-trading/data

@@ -20,15 +20,15 @@ make rtx
 make modal
 ```
 
-`make mac` prepares a small multi-symbol Binance public-trades slice directly into partitioned NumPy shards, trains, backtests, and renders a report under `.mega-trading/mac/`. `make rtx` runs the same end-to-end flow for the RTX CUDA profile under `.mega-trading/rtx/`. `make modal` prepares `.mega-trading/modal/`, uploads `datasets/` to Modal Volume, launches Modal training, downloads `runs/` and `manifests/`, then runs local backtest/report against the synced artifacts. All three environments share raw Binance ZIPs under `.mega-trading/raw/`; environment roots hold only derived artifacts. If the processed NumPy shards already exist, prepare is skipped.
+`make mac`, `make rtx`, and `make modal` prepare environment-specific mixtures under the shared `.mega-trading/data/` root, then train, backtest, and render reports keyed by `run_id`. All three environments share raw Binance ZIPs under `.mega-trading/raw/` and processed NumPy shards under `.mega-trading/data/datasets/`; `mixture=mac|rtx|modal` keeps the data budgets distinct. If the processed NumPy shards already exist, prepare is skipped.
 
 Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar, and MLflow for metric tracking. By default MLflow writes to a local SQLite backend under `<data_dir>/runs/mlflow/mlflow.db`; set `training.mlflow_tracking_uri` to point at a remote MLflow server when needed.
 
 `make mac` writes a backtest JSON and dashboard:
 
 ```text
-.mega-trading/mac/evals/mac/backtest.json
-.mega-trading/mac/reports/mac/backtest.html
+.mega-trading/data/evals/mac/backtest.json
+.mega-trading/data/reports/mac/backtest.html
 ```
 
 Each environment also has standalone report targets:
@@ -41,7 +41,7 @@ make report-modal
 
 The report is written to `reports/<run_id>/backtest.html` under the configured data directory and visualizes loss curves, split counts, held-out backtest metrics, real-vs-generated stylized facts, sampled ticker K-line charts, model-implied forecast paths, and artifact paths.
 
-`make rtx` and `make modal` use separate prepared datasets under `.mega-trading/rtx/datasets` and `.mega-trading/modal/datasets` so each environment has a stable artifact root.
+`make rtx` and `make modal` use separate mixtures under `.mega-trading/data/datasets`, so the processed data root is shared while each environment keeps a stable dataset contract.
 
 ## Distributed Training
 
@@ -64,7 +64,7 @@ FSDP uses the same command with `training.distributed_strategy=fsdp`. Modal laun
 make modal
 ```
 
-Data processing happens before upload. Modal only sees uploaded `datasets` artifacts and runs training against `/data/modal`. Every training manifest records distributed strategy, world size, gradient accumulation, compile mode, attention backend, precision, and checkpoint/resume settings. `configs/modal.yaml` is the public-data Modal path.
+Data processing happens before upload. Modal only sees uploaded `datasets` artifacts and runs training against `/data/shared`. Every training manifest records distributed strategy, world size, gradient accumulation, compile mode, attention backend, precision, and checkpoint/resume settings. `configs/modal.yaml` is the public-data Modal path.
 
 ## Paper Feature Contract
 
@@ -86,7 +86,7 @@ For direct experiments:
 import json
 import numpy as np
 
-root = ".mega-trading/mac"
+root = ".mega-trading/data"
 meta = json.load(open(f"{root}/datasets/mixture=mac/tokens-numpy.json"))
 part = meta["partitions"][0]
 tokens = np.load(f"{root}/{part['tokens_path']}", mmap_mode="r")

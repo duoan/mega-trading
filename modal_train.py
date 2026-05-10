@@ -12,7 +12,7 @@ APP_NAME = "mega-trading-training"
 REPO_DIR = "/workspace/mega-finance"
 DATA_VOLUME_PATH = "/data"
 DEFAULT_CONFIG_NAME = "modal"
-DEFAULT_DATA_DIR = f"{DATA_VOLUME_PATH}/modal"
+DEFAULT_DATA_DIR = f"{DATA_VOLUME_PATH}/shared"
 DEFAULT_GPU = "H100:8"
 
 volume = modal.Volume.from_name("mega-trading-artifacts", create_if_missing=True)

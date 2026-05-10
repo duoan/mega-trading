@@ -5,7 +5,7 @@ run:
   run_id: mac
 
 data:
-  data_dir: .mega-trading/mac
+  data_dir: .mega-trading/data
   mixture: mac
   source: binance_trades
 
