@@ -20,9 +20,12 @@ build:
   tokenizer_price_bins: 8
   tokenizer_size_bins: 8
   tokenizer_time_bins: 4
-  numpy_partition_rows: 65536
+  numpy_partition_rows: 16384
   validation_fraction: 0.02
   backtest_fraction: 0.10
+  streaming_prepare: true
+  streaming_tokenizer_sample_events: 250000
+  streaming_baseline_sample_rows: 200000
 
 model:
   hidden_dim: 512

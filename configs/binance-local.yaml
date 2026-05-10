@@ -23,6 +23,9 @@ build:
   numpy_partition_rows: 8192
   validation_fraction: 0.05
   backtest_fraction: 0.10
+  streaming_prepare: true
+  streaming_tokenizer_sample_events: 100000
+  streaming_baseline_sample_rows: 100000
 
 model:
   hidden_dim: 192

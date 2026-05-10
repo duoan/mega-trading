@@ -29,9 +29,10 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(int(binance_local.build.numpy_partition_rows), 8192)
         self.assertEqual(str(binance_modal_prep.data.data_dir), ".mega-trading/binance-modal")
         self.assertEqual(str(binance_modal_prep.data.mixture), "binance_public")
-        self.assertEqual(int(binance_modal_prep.build.numpy_partition_rows), 65536)
+        self.assertEqual(int(binance_modal_prep.build.numpy_partition_rows), 16384)
         self.assertEqual(float(binance_modal_prep.build.validation_fraction), 0.02)
         self.assertEqual(float(binance_modal_prep.build.backtest_fraction), 0.10)
+        self.assertTrue(bool(binance_modal_prep.build.streaming_prepare))
         self.assertEqual(str(server.data.data_dir), ".mega-trading/binance-modal")
         self.assertEqual(str(server.training.device), "cuda")
         self.assertEqual(str(server.training.distributed_strategy), "ddp")
@@ -41,7 +42,8 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(str(binance_modal.data.data_dir), "/data/binance-trades")
         self.assertEqual(str(binance_modal.data.mixture), "binance_public")
         self.assertEqual(str(binance_modal.training.distributed_strategy), "fsdp")
-        self.assertEqual(int(binance_modal.build.numpy_partition_rows), 65536)
+        self.assertEqual(int(binance_modal.build.numpy_partition_rows), 16384)
+        self.assertTrue(bool(server.build.streaming_prepare))
 
     def test_train_config_validates_distributed_runtime_options(self) -> None:
         with self.assertRaisesRegex(ValueError, "distributed_strategy"):

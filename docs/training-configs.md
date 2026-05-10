@@ -38,7 +38,7 @@ Modal training mounts the uploaded data at `/data/binance-trades`. The checked-i
 make server
 ```
 
-This prepares `.mega-trading/binance-modal` locally on the server, including the train/validation/backtest split metadata, then trains with `configs/server-rtx6000.yaml`. The prepare path uses `binance-datatool` plus `aria2c` to download only the configured Binance ZIP date window into `stage=01_raw`, then parses/converts the cached archives with `process_workers = 0`, which means all available CPU cores. The config targets a single large CUDA GPU with mixed precision, FlashAttention, `torch.compile`, batch size 32, and gradient accumulation 2. `make train-server-rtx6000` runs `scripts/install_flash_attn.py --require-cuda` first, so CUDA servers install `flash-attn` automatically and CPU/Mac paths stay clean. If the prepared shards already exist, use:
+This prepares `.mega-trading/binance-modal` locally on the server, including the train/validation/backtest split metadata, then trains with `configs/server-rtx6000.yaml`. The prepare path uses `binance-datatool` plus `aria2c` to download only the configured Binance ZIP date window into `stage=01_raw`, then runs a bounded-memory streaming build: sampled tokenizer fitting, per-ticker ZIP scans, and incremental NumPy partition writes. The config targets a single large CUDA GPU with mixed precision, FlashAttention, `torch.compile`, batch size 32, and gradient accumulation 2. `make train-server-rtx6000` runs `scripts/install_flash_attn.py --require-cuda` first, so CUDA servers install `flash-attn` automatically and CPU/Mac paths stay clean. If the prepared shards already exist, use:
 
 ```bash
 make train-server-rtx6000

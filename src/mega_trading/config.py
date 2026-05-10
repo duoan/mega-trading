@@ -22,6 +22,9 @@ class BuildConfig:
     numpy_partition_rows: int | None = None
     validation_fraction: float = 0.1
     backtest_fraction: float = 0.1
+    streaming_prepare: bool = False
+    streaming_tokenizer_sample_events: int = 250_000
+    streaming_baseline_sample_rows: int = 200_000
 
     def __post_init__(self) -> None:
         if self.block_size < 4:
@@ -52,6 +55,10 @@ class BuildConfig:
             raise ValueError("backtest_fraction must be in [0.0, 1.0)")
         if self.validation_fraction + self.backtest_fraction >= 1.0:
             raise ValueError("validation_fraction + backtest_fraction must be less than 1.0")
+        if self.streaming_tokenizer_sample_events <= 0:
+            raise ValueError("streaming_tokenizer_sample_events must be positive")
+        if self.streaming_baseline_sample_rows <= 0:
+            raise ValueError("streaming_baseline_sample_rows must be positive")
 
 
 @dataclass(frozen=True)

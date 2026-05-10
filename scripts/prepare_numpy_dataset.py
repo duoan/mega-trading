@@ -38,6 +38,9 @@ def main() -> int:
             numpy_partition_rows=_optional_int(config.build.numpy_partition_rows),
             validation_fraction=float(config.build.validation_fraction),
             backtest_fraction=float(config.build.backtest_fraction),
+            streaming_prepare=bool(config.build.streaming_prepare),
+            streaming_tokenizer_sample_events=int(config.build.streaming_tokenizer_sample_events),
+            streaming_baseline_sample_rows=int(config.build.streaming_baseline_sample_rows),
         ),
     )
     print(f"wrote partition-ready NumPy metadata to {config.data.data_dir}/{result.numpy_metadata_path}")

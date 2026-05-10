@@ -85,6 +85,9 @@ def _run_prepare_config(config: DictConfig, ingest_config_path: Path):
         numpy_partition_rows=_optional_int(config.build.numpy_partition_rows),
         validation_fraction=float(config.build.validation_fraction),
         backtest_fraction=float(config.build.backtest_fraction),
+        streaming_prepare=bool(config.build.streaming_prepare),
+        streaming_tokenizer_sample_events=int(config.build.streaming_tokenizer_sample_events),
+        streaming_baseline_sample_rows=int(config.build.streaming_baseline_sample_rows),
     )
     return prepare_numpy_dataset(load_ingest_config(ingest_config_path), build_config)
 

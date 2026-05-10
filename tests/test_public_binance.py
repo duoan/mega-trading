@@ -1,4 +1,5 @@
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,14 +8,18 @@ from unittest.mock import patch
 from zipfile import ZipFile
 
 from mega_trading.data.ingest import BinanceTradesIngestRequest
+from mega_trading.config import BuildConfig
+from mega_trading.data.ingest_config import IngestPipelineConfig, IngestSourceConfig
 from mega_trading.data.public.binance import (
     BINANCE_TRADES_BASE_URL,
+    BinanceTradeArchive,
     _configure_certifi_ca_bundle,
     _load_binance_trade_rows,
     _trade_rows_to_order_flow,
     download_binance_trade_archives,
     load_order_flow_from_archives,
 )
+from mega_trading.prepare import prepare_numpy_dataset
 
 
 class BinanceTradesTests(unittest.TestCase):
@@ -133,15 +138,57 @@ class BinanceTradesTests(unittest.TestCase):
             self.assertEqual(os.environ["REQUESTS_CA_BUNDLE"], os.environ["SSL_CERT_FILE"])
             self.assertEqual(os.environ["CURL_CA_BUNDLE"], os.environ["SSL_CERT_FILE"])
 
+    def test_streaming_prepare_writes_partitioned_numpy_without_materializing_downloads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive_path = root / "raw" / "BTCUSDT-trades-2024-01-01.zip"
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            archive_path.write_bytes(_trades_zip(row_count=12))
+            archive = BinanceTradeArchive(
+                symbol="BTCUSDT",
+                partition="2024-01-01",
+                url="https://example.test/BTCUSDT-trades-2024-01-01.zip",
+                path=archive_path,
+                key="data/spot/daily/trades/BTCUSDT/BTCUSDT-trades-2024-01-01.zip",
+            )
+            ingest_config = IngestPipelineConfig(
+                output_dir=str(root),
+                sources=(
+                    IngestSourceConfig(
+                        name="binance_trades",
+                        tickers=("BTCUSDT",),
+                        start="2024-01-01T00:00:00Z",
+                        end="2024-01-01T00:00:20Z",
+                        frequency="daily",
+                        process_workers=1,
+                    ),
+                ),
+            )
+            build_config = BuildConfig(
+                block_size=4,
+                stride=2,
+                min_events_per_ticker=2,
+                numpy_partition_rows=2,
+                streaming_prepare=True,
+                streaming_tokenizer_sample_events=8,
+                streaming_baseline_sample_rows=8,
+            )
+            with patch("mega_trading.prepare.download_binance_trade_archives", return_value=[archive]):
+                result = prepare_numpy_dataset(ingest_config, build_config)
 
-def _trades_zip() -> bytes:
+            metadata = json.loads(root.joinpath(result.numpy_metadata_path).read_text(encoding="utf-8"))
+            profile = json.loads(root.joinpath(result.profile_path).read_text(encoding="utf-8"))
+            self.assertTrue(metadata["partitioned"])
+            self.assertGreater(metadata["sequence_count"], 0)
+            self.assertTrue(profile["streaming_prepare"])
+
+
+def _trades_zip(row_count: int = 3) -> bytes:
     payload = io.BytesIO()
     rows = "\n".join(
-        [
-            "1,42000.0,0.10,4200.0,1704067200000,true,true",
-            "2,42010.0,0.20,8402.0,1704067201000,false,true",
-            "3,42005.0,0.05,2100.25,1704067202000,true,true",
-        ]
+        f"{index},{42000.0 + index},0.{(index % 9) + 1:02d},{4200.0 + index},"
+        f"{1704067200000 + index * 1000},{str(index % 2 != 0).lower()},true"
+        for index in range(1, row_count + 1)
     )
     with ZipFile(payload, "w") as archive:
         archive.writestr("BTCUSDT-trades-2024-01.csv", rows + "\n")

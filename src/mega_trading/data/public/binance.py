@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
-from typing import Callable
+from typing import Callable, Iterable
 from urllib.request import Request, urlopen
 from zipfile import ZipFile
 
@@ -301,6 +301,25 @@ def _parse_trades_zip(payload: bytes) -> list[dict[str, str]]:
             return rows
 
 
+def _iter_trades_zip_path(path: Path) -> Iterable[dict[str, str]]:
+    with ZipFile(path) as archive:
+        csv_name = next(name for name in archive.namelist() if name.endswith(".csv"))
+        with archive.open(csv_name) as handle:
+            text = io.TextIOWrapper(handle, encoding="utf-8")
+            for fields in csv.reader(text):
+                if not fields or fields[0] == "trade_id":
+                    continue
+                yield {
+                    "trade_id": fields[0],
+                    "price": fields[1],
+                    "qty": fields[2],
+                    "quote_qty": fields[3],
+                    "time": fields[4],
+                    "is_buyer_maker": fields[5],
+                    "is_best_match": fields[6] if len(fields) > 6 else "true",
+                }
+
+
 def _map_archive_stats(
     archives: list[BinanceTradeArchive],
     start_dt: datetime,
@@ -344,8 +363,16 @@ def _archive_to_order_flow_events(
 
 
 def _valid_trade_rows_from_archive(path: Path, symbol: str, start_dt: datetime, end_dt: datetime) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for row in _parse_trades_zip(path.read_bytes()):
+    return list(iter_valid_trade_rows_from_archive(path, symbol, start_dt, end_dt))
+
+
+def iter_valid_trade_rows_from_archive(
+    path: Path,
+    symbol: str,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> Iterable[dict[str, object]]:
+    for row in _iter_trades_zip_path(path):
         timestamp = _binance_timestamp_to_utc(int(row["time"]))
         if timestamp < start_dt or timestamp > end_dt:
             continue
@@ -353,8 +380,24 @@ def _valid_trade_rows_from_archive(path: Path, symbol: str, start_dt: datetime, 
         price = float(row["price"])
         if qty <= 0.0 or price <= 0.0:
             continue
-        rows.append(_trade_row(symbol, row, timestamp, qty, price))
-    return rows
+        yield _trade_row(symbol, row, timestamp, qty, price)
+
+
+def iter_order_flow_event_dicts_for_symbol(
+    request: BinanceTradesIngestRequest,
+    archives: list[BinanceTradeArchive],
+    qty_baseline: float,
+) -> Iterable[dict[str, object]]:
+    start_dt = _to_utc_datetime(request.start)
+    end_dt = _to_utc_datetime(request.end)
+    previous: dict[str, object] | None = None
+    for archive in sorted(archives, key=lambda item: item.partition):
+        for row in iter_valid_trade_rows_from_archive(archive.path, archive.symbol, start_dt, end_dt):
+            if previous is None:
+                previous = row
+                continue
+            yield _trade_row_to_order_flow_dict(row, previous, qty_baseline)
+            previous = row
 
 
 def _trade_rows_to_order_flow(rows: list[dict[str, object]]) -> list[OrderFlowEventRecord]:
@@ -377,6 +420,30 @@ def _trade_row_to_order_flow(
     previous: dict[str, object],
     qty_baseline: float,
 ) -> OrderFlowEventRecord:
+    event = _trade_row_to_order_flow_dict(row, previous, qty_baseline)
+    return OrderFlowEventRecord(
+        event_id=str(event["event_id"]),
+        ticker=str(event["ticker"]),
+        timestamp=str(event["timestamp"]),
+        date=str(event["date"]),
+        action=str(event["action"]),
+        side=str(event["side"]),
+        midprice=float(event["midprice"]),
+        relative_price_bps=float(event["relative_price_bps"]),
+        price_depth_bps=float(event["price_depth_bps"]),
+        size=float(event["size"]),
+        interarrival_seconds=float(event["interarrival_seconds"]),
+        provider=str(event["provider"]),
+        source_ids=list(event["source_ids"]),
+        midprice_return_bps=float(event["midprice_return_bps"]),
+    )
+
+
+def _trade_row_to_order_flow_dict(
+    row: dict[str, object],
+    previous: dict[str, object],
+    qty_baseline: float,
+) -> dict[str, object]:
     symbol = str(row["symbol"]).upper()
     timestamp = _to_utc_datetime(str(row["timestamp"]))
     price = float(row["price"])
@@ -387,22 +454,22 @@ def _trade_row_to_order_flow(
     relative_size = qty / max(qty_baseline, 1e-12)
     side = "sell" if bool(row["is_buyer_maker"]) else "buy"
     event_id = f"binance-trades-{symbol}-{row['trade_id']}"
-    return OrderFlowEventRecord(
-        event_id=event_id,
-        ticker=symbol,
-        timestamp=timestamp.isoformat().replace("+00:00", "Z"),
-        date=timestamp.date().isoformat(),
-        action="delete",
-        side=side,
-        midprice=price,
-        relative_price_bps=relative_price_bps,
-        price_depth_bps=abs(relative_price_bps),
-        size=relative_size,
-        interarrival_seconds=max((timestamp - previous_time).total_seconds(), 1e-6),
-        provider="binance_trades",
-        source_ids=[event_id],
-        midprice_return_bps=relative_price_bps,
-    )
+    return {
+        "event_id": event_id,
+        "ticker": symbol,
+        "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
+        "date": timestamp.date().isoformat(),
+        "action": "delete",
+        "side": side,
+        "midprice": price,
+        "relative_price_bps": relative_price_bps,
+        "price_depth_bps": abs(relative_price_bps),
+        "size": relative_size,
+        "interarrival_seconds": max((timestamp - previous_time).total_seconds(), 1e-6),
+        "provider": "binance_trades",
+        "source_ids": [event_id],
+        "midprice_return_bps": relative_price_bps,
+    }
 
 
 def _quantity_baselines(rows: list[dict[str, object]]) -> dict[str, float]:
