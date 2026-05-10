@@ -33,7 +33,7 @@ def run_backtest(
     device: str = "auto",
 ) -> BacktestResult:
     """Evaluate a checkpoint on the prepared chronological backtest split."""
-    profile = store.read_json(f"stage=05_shards/mixture={mixture_name}/tokens-profile.json")
+    profile = store.read_json(f"datasets/mixture={mixture_name}/tokens-profile.json")
     if profile.get("stream_contract") != STREAM_CONTRACT:
         raise ValueError("profile is not a valid token stream contract")
     numpy_metadata = dict(profile.get("numpy_dataset", {}))

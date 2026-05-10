@@ -52,8 +52,8 @@ class EventBuilder:
         if not events_by_ticker:
             raise ValueError("no tickers had enough order-flow events")
 
-        profile_path = f"stage=05_shards/mixture={self.config.mixture_name}/tokens-profile.json"
-        tokenizer_path = f"stage=05_shards/mixture={self.config.mixture_name}/tokenizer.json"
+        profile_path = f"datasets/mixture={self.config.mixture_name}/tokens-profile.json"
+        tokenizer_path = f"datasets/mixture={self.config.mixture_name}/tokenizer.json"
         manifest_path = f"manifests/build/{self.config.mixture_name}.json"
 
         event_count = sum(len(events) for events in events_by_ticker.values())
@@ -257,9 +257,9 @@ def _write_numpy_dataset(
     partition_rows: int | None = None,
     split_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    tokens_path = f"stage=05_shards/mixture={mixture_name}/tokens.npy"
-    ticker_ids_path = f"stage=05_shards/mixture={mixture_name}/ticker_ids.npy"
-    metadata_path = f"stage=05_shards/mixture={mixture_name}/tokens-numpy.json"
+    tokens_path = f"datasets/mixture={mixture_name}/tokens.npy"
+    ticker_ids_path = f"datasets/mixture={mixture_name}/ticker_ids.npy"
+    metadata_path = f"datasets/mixture={mixture_name}/tokens-numpy.json"
     tickers = sorted({str(row["ticker"]) for row in sequences})
     ticker_to_id = {ticker: index for index, ticker in enumerate(tickers)}
     token_array = np.asarray([row["tokens"] for row in sequences], dtype=np.int64)
@@ -275,7 +275,7 @@ def _write_numpy_dataset(
             partition_rows,
             split_metadata,
         )
-    store.delete_tree_if_exists(f"stage=05_shards/mixture={mixture_name}/numpy")
+    store.delete_tree_if_exists(f"datasets/mixture={mixture_name}/numpy")
     _write_npy(store, tokens_path, token_array)
     _write_npy(store, ticker_ids_path, ticker_id_array)
     metadata: dict[str, Any] = {
@@ -306,9 +306,9 @@ def _write_partitioned_numpy_dataset(
     partition_rows: int,
     split_metadata: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    root_path = f"stage=05_shards/mixture={mixture_name}/numpy"
-    store.delete_if_exists(f"stage=05_shards/mixture={mixture_name}/tokens.npy")
-    store.delete_if_exists(f"stage=05_shards/mixture={mixture_name}/ticker_ids.npy")
+    root_path = f"datasets/mixture={mixture_name}/numpy"
+    store.delete_if_exists(f"datasets/mixture={mixture_name}/tokens.npy")
+    store.delete_if_exists(f"datasets/mixture={mixture_name}/ticker_ids.npy")
     store.delete_tree_if_exists(root_path)
     partitions: list[dict[str, Any]] = []
     for partition_index, start in enumerate(range(0, int(token_array.shape[0]), partition_rows)):

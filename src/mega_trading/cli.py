@@ -105,7 +105,7 @@ def _run_prepare_config(config: DictConfig, ingest_config_path: Path):
 
 def _run_train_config(config: DictConfig):
     store = LocalObjectStore(Path(str(config.data.data_dir)))
-    shard_path = f"stage=05_shards/mixture={config.data.mixture}/tokens.npy"
+    shard_path = f"datasets/mixture={config.data.mixture}/tokens.npy"
     train_config = TrainConfig(
         run_id=str(config.run.run_id),
         mixture_name=str(config.data.mixture),

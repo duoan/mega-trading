@@ -44,7 +44,7 @@ FSDP uses the same command with `training.distributed_strategy=fsdp`. Modal laun
 make remote
 ```
 
-Data processing happens locally. Modal only sees uploaded `stage=05_shards` artifacts and runs training against `/data/binance-trades`. Every training manifest records distributed strategy, world size, gradient accumulation, compile mode, attention backend, precision, and checkpoint/resume settings. `configs/modal-binance.yaml` is the public-data Modal path.
+Data processing happens locally. Modal only sees uploaded `datasets` artifacts and runs training against `/data/binance-trades`. Every training manifest records distributed strategy, world size, gradient accumulation, compile mode, attention backend, precision, and checkpoint/resume settings. `configs/modal-binance.yaml` is the public-data Modal path.
 
 ## Paper Feature Contract
 
@@ -58,7 +58,7 @@ Each in-memory event contains only the paper-style feature fields:
 - `size`: scale-invariant relative size, normalized by a causal ticker-level volume baseline.
 - `interarrival_seconds`: elapsed time since the previous event for the ticker.
 
-The active prepare path writes partitioned NumPy token shards plus small metadata files: `tokenizer.json`, `tokens-profile.json`, and `tokens-numpy.json`. `tokenizer.json` stores fitted quantile or histogram bins and the composite vocabulary metadata.
+The active prepare path writes prepared NumPy token datasets plus small metadata files: `tokenizer.json`, `tokens-profile.json`, and `tokens-numpy.json`. `tokenizer.json` stores fitted quantile or histogram bins and the composite vocabulary metadata.
 
 For direct experiments:
 
@@ -67,13 +67,14 @@ import json
 import numpy as np
 
 root = ".mega-trading/binance-local"
-meta = json.load(open(f"{root}/stage=05_shards/mixture=binance_local/tokens-numpy.json"))
+meta = json.load(open(f"{root}/datasets/mixture=binance_local/tokens-numpy.json"))
 part = meta["partitions"][0]
 tokens = np.load(f"{root}/{part['tokens_path']}", mmap_mode="r")
-ticker_ids = np.load(f"{root}/{part['ticker_ids_path']}", mmap_mode="r")
+offset = 0
+window = tokens[offset : offset + meta["sequence_length"]]
 
-input_ids = tokens[:, :-1]
-labels = tokens[:, 1:]
+input_ids = window[:-1]
+labels = window[1:]
 ```
 
 ## Documents

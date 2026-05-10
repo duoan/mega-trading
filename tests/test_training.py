@@ -257,7 +257,7 @@ class TrainingTests(unittest.TestCase):
                     checkpoint_interval=1,
                     max_eval_batches=1,
                 ),
-            ).train("stage=05_shards/mixture=public/tokens.npy")
+            ).train("datasets/mixture=public/tokens.npy")
             eval_result = run_eval(store, "train-test", rollouts=2, generated_tokens=8, device="cpu")
             backtest_result = run_backtest(store, "train-test", rollouts=2, generated_tokens=8, max_batches=1, device="cpu")
 
@@ -312,7 +312,7 @@ class TrainingTests(unittest.TestCase):
                     wandb_enabled=False,
                     progress_bar=False,
                 ),
-            ).train("stage=05_shards/mixture=public/tokens.npy")
+            ).train("datasets/mixture=public/tokens.npy")
             resumed = Trainer(
                 store,
                 TrainConfig(
@@ -329,7 +329,7 @@ class TrainingTests(unittest.TestCase):
                     progress_bar=False,
                     resume_from_checkpoint=first.checkpoint_path,
                 ),
-            ).train("stage=05_shards/mixture=public/tokens.npy")
+            ).train("datasets/mixture=public/tokens.npy")
 
             metrics = json.loads(root.joinpath(resumed.metrics_path).read_text(encoding="utf-8"))["metrics"]
             checkpoint = torch.load(root / resumed.checkpoint_path, map_location="cpu", weights_only=False)
@@ -402,7 +402,7 @@ name = "fixture"
                 0,
             )
 
-            self.assertTrue((root / "stage=05_shards/mixture=public/tokens.npy").exists())
+            self.assertTrue((root / "datasets/mixture=public/tokens.npy").exists())
             self.assertTrue((root / "runs/train-cli/checkpoint.pt").exists())
             self.assertTrue((root / "evals/train-cli/report.json").exists())
 

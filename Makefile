@@ -39,7 +39,7 @@ prep-binance-modal: download-binance-modal
 prep-server: prep-binance-modal
 
 upload-binance-modal:
-	uv run modal volume put mega-trading-artifacts .mega-trading/binance-modal/stage=05_shards /binance-trades/stage=05_shards
+	uv run modal volume put mega-trading-artifacts .mega-trading/binance-modal/datasets /binance-trades/datasets
 
 train-modal-binance:
 	uv run modal run modal_train.py --mode cluster --run-id modal-binance --data-dir /data/binance-trades --strategy fsdp --max-steps 50000

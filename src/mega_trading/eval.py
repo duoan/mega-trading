@@ -27,8 +27,8 @@ def run_eval(
     generated_tokens: int = 128,
     device: str = "auto",
 ) -> EvalResult:
-    shard_path = f"stage=05_shards/mixture={mixture_name}/tokens.npy"
-    profile = store.read_json(f"stage=05_shards/mixture={mixture_name}/tokens-profile.json")
+    shard_path = f"datasets/mixture={mixture_name}/tokens.npy"
+    profile = store.read_json(f"datasets/mixture={mixture_name}/tokens-profile.json")
     tokenizer = MarketEventTokenizer.from_dict(store.read_json(str(profile["tokenizer_path"])))
     checkpoint = torch.load(store.root / f"runs/{run_id}/checkpoint.pt", map_location="cpu")
     model = TradingModel(

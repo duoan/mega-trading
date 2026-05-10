@@ -81,8 +81,8 @@ def main() -> int:
             "volume",
             "put",
             "mega-trading-artifacts",
-            str(REMOTE_LOCAL_DATA_DIR / "stage=05_shards"),
-            "/binance-trades/stage=05_shards",
+            str(REMOTE_LOCAL_DATA_DIR / "datasets"),
+            "/binance-trades/datasets",
         ]
     )
     if not args.skip_wandb_sync:
@@ -123,9 +123,9 @@ def _ensure_data(
 
 
 def _shards_exist(data_dir: Path, mixture: str, min_sequences: int = 0) -> bool:
-    shard_root = data_dir / "stage=05_shards" / f"mixture={mixture}"
-    metadata_path = shard_root / "tokens-numpy.json"
-    required = (metadata_path, shard_root / "tokens-profile.json", shard_root / "tokenizer.json")
+    dataset_root = data_dir / "datasets" / f"mixture={mixture}"
+    metadata_path = dataset_root / "tokens-numpy.json"
+    required = (metadata_path, dataset_root / "tokens-profile.json", dataset_root / "tokenizer.json")
     if not all(path.exists() for path in required):
         return False
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -135,6 +135,10 @@ def _shards_exist(data_dir: Path, mixture: str, min_sequences: int = 0) -> bool:
     totals = splits.get("totals", {}) if isinstance(splits, dict) else {}
     if int(totals.get("train", 0)) <= 0 or int(totals.get("backtest", 0)) <= 0:
         return False
+    if metadata.get("storage") == "token_stream":
+        if not metadata.get("partitions"):
+            return False
+        return all((data_dir / str(partition["tokens_path"])).exists() for partition in metadata.get("partitions", []))
     if metadata.get("partitioned"):
         if not metadata.get("partitions"):
             return False
@@ -142,7 +146,7 @@ def _shards_exist(data_dir: Path, mixture: str, min_sequences: int = 0) -> bool:
             (data_dir / str(partition["tokens_path"])).exists() and (data_dir / str(partition["ticker_ids_path"])).exists()
             for partition in metadata.get("partitions", [])
         )
-    return (shard_root / "tokens.npy").exists() and (shard_root / "ticker_ids.npy").exists()
+    return (dataset_root / "tokens.npy").exists() and (dataset_root / "ticker_ids.npy").exists()
 
 
 def _run(command: list[str]) -> None:

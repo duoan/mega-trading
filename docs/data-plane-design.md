@@ -81,12 +81,12 @@ For the Binance trades proxy, `order_price` is the execution price, side is infe
 ## Build Artifacts
 
 ```text
-stage=05_shards/mixture=<name>/tokenizer.json
-stage=05_shards/mixture=<name>/tokens-profile.json
-stage=05_shards/mixture=<name>/tokens-numpy.json
-stage=05_shards/mixture=<name>/numpy/part-*/tokens.npy
-stage=05_shards/mixture=<name>/numpy/part-*/ticker_ids.npy
-stage=05_shards/mixture=<name>/numpy/symbol=<ticker>/stream/tokens.npy
+datasets/mixture=<name>/tokenizer.json
+datasets/mixture=<name>/tokens-profile.json
+datasets/mixture=<name>/tokens-numpy.json
+datasets/mixture=<name>/numpy/part-*/tokens.npy
+datasets/mixture=<name>/numpy/part-*/ticker_ids.npy
+datasets/mixture=<name>/numpy/symbol=<ticker>/stream/tokens.npy
 ```
 
 `tokenizer.json` stores fitted bin edges for relative price, price depth, log relative size, and interarrival time.

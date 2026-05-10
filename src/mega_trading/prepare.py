@@ -162,7 +162,7 @@ def _prepare_streaming_binance_dataset(
         method=config.tokenizer_method,
         clip_quantile=config.tokenizer_clip_quantile,
     )
-    tokenizer_path = f"stage=05_shards/mixture={config.mixture_name}/tokenizer.json"
+    tokenizer_path = f"datasets/mixture={config.mixture_name}/tokenizer.json"
     store.write_json(tokenizer_path, tokenizer.to_dict())
     _log(
         "stream prepare: "
@@ -197,7 +197,7 @@ def _prepare_streaming_binance_dataset(
         sequence_counts,
         workers,
     )
-    profile_path = f"stage=05_shards/mixture={config.mixture_name}/tokens-profile.json"
+    profile_path = f"datasets/mixture={config.mixture_name}/tokens-profile.json"
     manifest_path = f"manifests/build/{config.mixture_name}.json"
     profile = _streaming_profile(ticker_counts, sequence_counts, tokenizer, config, tokenizer_path, numpy_metadata)
     store.write_json(profile_path, profile)
@@ -404,10 +404,10 @@ def _write_streaming_numpy_dataset(
     workers: int,
 ) -> dict[str, Any]:
     partition_rows = config.numpy_partition_rows or 65_536
-    root_path = f"stage=05_shards/mixture={config.mixture_name}/numpy"
-    metadata_path = f"stage=05_shards/mixture={config.mixture_name}/tokens-numpy.json"
-    store.delete_if_exists(f"stage=05_shards/mixture={config.mixture_name}/tokens.npy")
-    store.delete_if_exists(f"stage=05_shards/mixture={config.mixture_name}/ticker_ids.npy")
+    root_path = f"datasets/mixture={config.mixture_name}/numpy"
+    metadata_path = f"datasets/mixture={config.mixture_name}/tokens-numpy.json"
+    store.delete_if_exists(f"datasets/mixture={config.mixture_name}/tokens.npy")
+    store.delete_if_exists(f"datasets/mixture={config.mixture_name}/ticker_ids.npy")
     store.delete_tree_if_exists(root_path)
     tickers = sorted(sequence_counts)
     ticker_to_id = {ticker: index for index, ticker in enumerate(tickers)}

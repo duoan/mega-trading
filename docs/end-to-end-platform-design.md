@@ -29,11 +29,11 @@ order-flow source rows
 
 ## Artifact Contracts
 
-- `stage=05_shards/mixture=<name>/tokenizer.json`
-- `stage=05_shards/mixture=<name>/tokens-profile.json`
-- `stage=05_shards/mixture=<name>/tokens-numpy.json`
-- `stage=05_shards/mixture=<name>/numpy/part-*/tokens.npy`
-- `stage=05_shards/mixture=<name>/numpy/part-*/ticker_ids.npy`
+- `datasets/mixture=<name>/tokenizer.json`
+- `datasets/mixture=<name>/tokens-profile.json`
+- `datasets/mixture=<name>/tokens-numpy.json`
+- `datasets/mixture=<name>/numpy/part-*/tokens.npy`
+- `datasets/mixture=<name>/numpy/part-*/ticker_ids.npy`
 - `runs/<run_id>/metrics.json`
 - `runs/<run_id>/checkpoint.pt`
 - `evals/<run_id>/report.json`

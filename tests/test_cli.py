@@ -59,7 +59,7 @@ name = "fixture"
             )
 
             self.assertEqual(exit_code, 0)
-            self.assertTrue((output_dir / "stage=05_shards/mixture=public/tokens-numpy.json").exists())
+            self.assertTrue((output_dir / "datasets/mixture=public/tokens-numpy.json").exists())
 
     def test_config_applies_hydra_overrides(self) -> None:
         config = load_config(
