@@ -4,8 +4,8 @@ output_dir = ".mega-trading/binance-modal"
 [[ingest.sources]]
 name = "binance_trades"
 ticker_file = "binance-usdt-liquid-universe.txt"
-start = "2023-01-01T00:00:00Z"
-end = "2024-12-31T23:59:59Z"
+start = "2024-05-01T00:00:00Z"
+end = "2026-04-30T23:59:59Z"
 frequency = "monthly"
 download_workers = 16
 process_workers = 0
