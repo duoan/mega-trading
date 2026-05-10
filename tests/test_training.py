@@ -14,7 +14,7 @@ from mega_trading.core.store import LocalObjectStore
 from mega_trading.dataset import NumpyTickerTimeDataset, tokens_to_example
 from mega_trading.eval import run_eval
 from mega_trading.events import EventBuilder, events_by_ticker_from_rows
-from mega_trading.model import LlamaAttention, RMSNorm, SwiGLU, TradingModel
+from mega_trading.model import LlamaAttention, RMSNorm, RotaryEmbedding, SwiGLU, TradingModel, _apply_rope
 from mega_trading.report import run_report
 from mega_trading.tokenizer import MarketEventTokenizer
 from mega_trading.trainer import (
@@ -183,6 +183,41 @@ class TrainingTests(unittest.TestCase):
         self.assertIsInstance(block.attention, LlamaAttention)
         self.assertEqual(block.attention.kv_heads, 2)
         self.assertIsInstance(block.feed_forward, SwiGLU)
+        self.assertEqual(model(torch.randint(0, tokenizer.vocab_size, (2, 8))).shape, (2, 8, tokenizer.vocab_size))
+
+    def test_rotary_embedding_precomputes_and_slices_positions(self) -> None:
+        rope = RotaryEmbedding(head_dim=8, max_sequence_length=16, theta=10_000.0)
+        query = torch.randn(2, 4, 6, 8)
+        key = torch.randn(2, 2, 6, 8)
+
+        rotated_query, rotated_key = rope(query, key)
+        expected_query, expected_key = _apply_rope(query, key, theta=10_000.0)
+
+        self.assertEqual(rope.cos.shape, (1, 1, 16, 4))
+        self.assertEqual(rotated_query.shape, query.shape)
+        self.assertEqual(rotated_key.shape, key.shape)
+        self.assertTrue(torch.allclose(rotated_query, expected_query))
+        self.assertTrue(torch.allclose(rotated_key, expected_key))
+
+    def test_grouped_query_attention_uses_native_sdpa_gqa(self) -> None:
+        attention = LlamaAttention(
+            hidden_dim=16,
+            block_size=8,
+            attention_heads=4,
+            kv_heads=2,
+            dropout=0.0,
+            rope_theta=10_000.0,
+        )
+        hidden = torch.randn(1, 8, 16)
+        attended = torch.zeros(1, 4, 8, 4)
+
+        with patch("mega_trading.model.F.scaled_dot_product_attention", return_value=attended) as sdpa:
+            attention(hidden)
+
+        _query, key, value = sdpa.call_args.args[:3]
+        self.assertEqual(key.shape[1], 2)
+        self.assertEqual(value.shape[1], 2)
+        self.assertTrue(sdpa.call_args.kwargs["enable_gqa"])
 
     def test_compile_and_attention_backend_helpers_are_config_driven(self) -> None:
         model = TradingModel(vocab_size=MarketEventTokenizer().vocab_size, block_size=8, hidden_dim=16, layers=1, attention_heads=2)

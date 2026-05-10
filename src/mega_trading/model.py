@@ -41,6 +41,7 @@ class TradingModel(nn.Module):
             [
                 LlamaDecoderBlock(
                     hidden_dim=hidden_dim,
+                    block_size=block_size,
                     attention_heads=attention_heads,
                     kv_heads=kv_heads,
                     intermediate_dim=intermediate_dim,
@@ -88,6 +89,7 @@ class LlamaDecoderBlock(nn.Module):
     def __init__(
         self,
         hidden_dim: int,
+        block_size: int,
         attention_heads: int,
         kv_heads: int,
         intermediate_dim: int | None,
@@ -99,6 +101,7 @@ class LlamaDecoderBlock(nn.Module):
         self.attention_norm = RMSNorm(hidden_dim, eps=norm_eps)
         self.attention = LlamaAttention(
             hidden_dim=hidden_dim,
+            block_size=block_size,
             attention_heads=attention_heads,
             kv_heads=kv_heads,
             dropout=dropout,
@@ -118,6 +121,7 @@ class LlamaAttention(nn.Module):
     def __init__(
         self,
         hidden_dim: int,
+        block_size: int,
         attention_heads: int,
         kv_heads: int,
         dropout: float,
@@ -132,6 +136,7 @@ class LlamaAttention(nn.Module):
         self.k_proj = nn.Linear(hidden_dim, kv_heads * self.head_dim, bias=False)
         self.v_proj = nn.Linear(hidden_dim, kv_heads * self.head_dim, bias=False)
         self.o_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.rope = RotaryEmbedding(self.head_dim, block_size, theta=rope_theta)
         self.dropout = dropout
         self.rope_theta = rope_theta
 
@@ -140,16 +145,14 @@ class LlamaAttention(nn.Module):
         query = self.q_proj(hidden).view(batch_size, sequence_length, self.attention_heads, self.head_dim).transpose(1, 2)
         key = self.k_proj(hidden).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
         value = self.v_proj(hidden).view(batch_size, sequence_length, self.kv_heads, self.head_dim).transpose(1, 2)
-        query, key = _apply_rope(query, key, theta=self.rope_theta)
-        if self.repeats > 1:
-            key = key.repeat_interleave(self.repeats, dim=1)
-            value = value.repeat_interleave(self.repeats, dim=1)
+        query, key = self.rope(query, key)
         attended = F.scaled_dot_product_attention(
             query,
             key,
             value,
             dropout_p=self.dropout if self.training else 0.0,
             is_causal=True,
+            enable_gqa=self.repeats > 1,
         )
         attended = attended.transpose(1, 2).contiguous().view(batch_size, sequence_length, hidden_dim)
         return self.o_proj(attended)
@@ -174,8 +177,29 @@ class RMSNorm(nn.Module):
         self.eps = eps
 
     def forward(self, hidden: torch.Tensor) -> torch.Tensor:
-        variance = hidden.pow(2).mean(dim=-1, keepdim=True)
-        return self.weight * hidden * torch.rsqrt(variance + self.eps)
+        return F.rms_norm(hidden, (hidden.shape[-1],), self.weight, eps=self.eps)
+
+
+class RotaryEmbedding(nn.Module):
+    """Precomputed RoPE tables so training avoids rebuilding trig tensors per block."""
+
+    def __init__(self, head_dim: int, max_sequence_length: int, theta: float) -> None:
+        super().__init__()
+        if head_dim % 2 != 0:
+            raise ValueError("RoPE requires an even head dimension")
+        positions = torch.arange(max_sequence_length, dtype=torch.float32)
+        inv_freq = 1.0 / (theta ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim))
+        freqs = torch.outer(positions, inv_freq)
+        self.register_buffer("cos", freqs.cos().view(1, 1, max_sequence_length, head_dim // 2), persistent=False)
+        self.register_buffer("sin", freqs.sin().view(1, 1, max_sequence_length, head_dim // 2), persistent=False)
+
+    def forward(self, query: torch.Tensor, key: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        sequence_length = query.shape[-2]
+        if sequence_length > self.cos.shape[-2]:
+            raise ValueError(f"sequence length {sequence_length} exceeds RoPE cache length {self.cos.shape[-2]}")
+        cos = self.cos[:, :, :sequence_length].to(dtype=query.dtype)
+        sin = self.sin[:, :, :sequence_length].to(dtype=query.dtype)
+        return _rotate(query, cos, sin), _rotate(key, cos, sin)
 
 
 def _apply_rope(query: torch.Tensor, key: torch.Tensor, theta: float) -> tuple[torch.Tensor, torch.Tensor]:
