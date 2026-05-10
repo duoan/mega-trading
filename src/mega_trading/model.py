@@ -9,6 +9,11 @@ import torch.nn.functional as F
 from torch import nn
 
 from mega_trading.kernels.triton_attention import triton_attention as _triton_attention
+from mega_trading.kernels.triton_ops import (
+    triton_apply_rope as _triton_apply_rope,
+    triton_rms_norm as _triton_rms_norm,
+    triton_swiglu_gate as _triton_swiglu_gate,
+)
 
 
 class TradingModel(nn.Module):
@@ -114,7 +119,12 @@ class LlamaDecoderBlock(nn.Module):
             attention_backend=attention_backend,
         )
         self.ffn_norm = RMSNorm(hidden_dim, eps=norm_eps)
-        self.feed_forward = SwiGLU(hidden_dim, intermediate_dim or _llama_intermediate_dim(hidden_dim), dropout)
+        self.feed_forward = SwiGLU(
+            hidden_dim,
+            intermediate_dim or _llama_intermediate_dim(hidden_dim),
+            dropout,
+            operator_backend=attention_backend,
+        )
 
     def forward(self, hidden: torch.Tensor) -> torch.Tensor:
         hidden = hidden + self.attention(self.attention_norm(hidden))
@@ -145,7 +155,7 @@ class LlamaAttention(nn.Module):
         self.k_proj = nn.Linear(hidden_dim, kv_heads * self.head_dim, bias=False)
         self.v_proj = nn.Linear(hidden_dim, kv_heads * self.head_dim, bias=False)
         self.o_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
-        self.rope = RotaryEmbedding(self.head_dim, block_size, theta=rope_theta)
+        self.rope = RotaryEmbedding(self.head_dim, block_size, theta=rope_theta, operator_backend=attention_backend)
         self.dropout = dropout
         self.rope_theta = rope_theta
         self.attention_backend = attention_backend
@@ -173,34 +183,45 @@ class LlamaAttention(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, hidden_dim: int, intermediate_dim: int, dropout: float) -> None:
+    def __init__(self, hidden_dim: int, intermediate_dim: int, dropout: float, operator_backend: str = "auto") -> None:
         super().__init__()
         self.w1 = nn.Linear(hidden_dim, intermediate_dim, bias=False)
         self.w2 = nn.Linear(intermediate_dim, hidden_dim, bias=False)
         self.w3 = nn.Linear(hidden_dim, intermediate_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
+        self.operator_backend = operator_backend
 
     def forward(self, hidden: torch.Tensor) -> torch.Tensor:
-        return self.w2(self.dropout(F.silu(self.w1(hidden)) * self.w3(hidden)))
+        gate = self.w1(hidden)
+        up = self.w3(hidden)
+        if self.operator_backend == "triton":
+            gated = _triton_swiglu_gate(gate, up)
+        else:
+            gated = F.silu(gate) * up
+        return self.w2(self.dropout(gated))
 
 
 class RMSNorm(nn.Module):
-    def __init__(self, hidden_dim: int, eps: float = 1e-5) -> None:
+    def __init__(self, hidden_dim: int, eps: float = 1e-5, operator_backend: str = "auto") -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.ones(hidden_dim))
         self.eps = eps
+        self.operator_backend = operator_backend
 
     def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+        if self.operator_backend == "triton":
+            return _triton_rms_norm(hidden, self.weight, eps=self.eps)
         return F.rms_norm(hidden, (hidden.shape[-1],), self.weight, eps=self.eps)
 
 
 class RotaryEmbedding(nn.Module):
     """Precomputed RoPE tables so training avoids rebuilding trig tensors per block."""
 
-    def __init__(self, head_dim: int, max_sequence_length: int, theta: float) -> None:
+    def __init__(self, head_dim: int, max_sequence_length: int, theta: float, operator_backend: str = "auto") -> None:
         super().__init__()
         if head_dim % 2 != 0:
             raise ValueError("RoPE requires an even head dimension")
+        self.operator_backend = operator_backend
         positions = torch.arange(max_sequence_length, dtype=torch.float32)
         inv_freq = 1.0 / (theta ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim))
         freqs = torch.outer(positions, inv_freq)
@@ -213,6 +234,8 @@ class RotaryEmbedding(nn.Module):
             raise ValueError(f"sequence length {sequence_length} exceeds RoPE cache length {self.cos.shape[-2]}")
         cos = self.cos[:, :, :sequence_length].to(dtype=query.dtype)
         sin = self.sin[:, :, :sequence_length].to(dtype=query.dtype)
+        if self.operator_backend == "triton":
+            return _triton_apply_rope(query, key, cos, sin)
         return _rotate(query, cos, sin), _rotate(key, cos, sin)
 
 

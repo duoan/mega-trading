@@ -164,3 +164,57 @@ Rejected experiments:
 ## Next Optimization Step
 
 Training speed is now dominated by the `dK/dV` backward kernel. The next optimization target is reducing that kernel's register pressure without duplicating row-block work, likely by separating `dK` and `dV` only if the occupancy gain beats the extra softmax/probability recomputation.
+
+## Triton Transformer Operators
+
+Implementation:
+
+- `src/mega_trading/kernels/triton_ops.py`
+- Benchmarked by `scripts/benchmark_triton_ops.py`
+- RoPE and SwiGLU gate are called from the model when `attention_backend: triton`
+- RMSNorm has a Triton implementation for experiments, but the model keeps PyTorch `F.rms_norm` because PyTorch is faster for the server shape
+- RMSNorm and SwiGLU follow the public Liger-Kernel/Unsloth strategy: row-wise feature blocks, cached inverse RMS, and fused SiLU multiply. RMSNorm backward uses a Liger-style grouped `dX` + partial `dW` kernel instead of separate `dX` and `dW` passes.
+
+Default benchmark arguments match the server training shape:
+
+```bash
+uv run python scripts/benchmark_triton_ops.py --warmup 10 --iterations 50 --json
+uv run python scripts/benchmark_triton_ops.py --mode forward-backward --warmup 10 --iterations 50 --json
+```
+
+Target operator shapes:
+
+```text
+RMSNorm      hidden=[8, 512, 1024]
+RoPE         query=[8, 16, 512, 64], key=[8, 4, 512, 64]
+SwiGLU gate  gate/up=[8, 512, 2816]
+dtype        bfloat16
+```
+
+Forward result on RTX PRO 6000 Blackwell:
+
+```text
+operator            triton_ms  torch_ms
+RMSNorm             0.01405    0.00622
+RoPE                0.01940    0.07381
+SwiGLU gate         0.01236    0.01899
+```
+
+Forward + backward result:
+
+```text
+operator            triton_ms  torch_ms
+RMSNorm             0.10574    0.05521
+RoPE                0.12417    0.30782
+SwiGLU gate         0.08807    0.19061
+```
+
+Operational decision:
+
+- Enable Triton RoPE in the server path because both forward and backward are faster.
+- Enable Triton SwiGLU gate in the server training path because both forward and forward+backward are faster after row-wise tiling.
+- Keep RMSNorm on PyTorch in the model because the Triton version is slower in both forward and forward+backward.
+
+Rejected RMSNorm experiment:
+
+- Reusing the incoming `dY` buffer as `dX`, as some public kernels allow, improved allocation behavior but mutates the caller-provided gradient tensor. The local parity test caught the side effect, so the model keeps the safer out-of-place `dX` path.

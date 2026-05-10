@@ -18,6 +18,7 @@ from mega_trading.dataset import NumpyTickerTimeDataset, tokens_to_example
 from mega_trading.eval import run_eval
 from mega_trading.events import EventBuilder, events_by_ticker_from_rows
 from mega_trading.kernels import triton_attention as triton_attention_module
+from mega_trading.kernels import triton_ops as triton_ops_module
 from mega_trading.model import LlamaAttention, RMSNorm, RotaryEmbedding, SwiGLU, TradingModel, _apply_rope, _triton_attention
 from mega_trading.report import run_report
 from mega_trading.tokenizer import MarketEventTokenizer
@@ -247,9 +248,33 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(value.shape[1], 2)
         self.assertEqual(triton_attention.call_args.kwargs["repeats"], 2)
 
+    def test_triton_backend_routes_local_operator_kernels(self) -> None:
+        hidden = torch.randn(1, 8, 16)
+        with patch("mega_trading.model._triton_rms_norm", return_value=hidden) as rms_norm:
+            norm = RMSNorm(16, operator_backend="triton")
+            self.assertEqual(norm(hidden).shape, hidden.shape)
+        rms_norm.assert_called_once()
+
+        query = torch.randn(1, 4, 8, 4)
+        key = torch.randn(1, 2, 8, 4)
+        with patch("mega_trading.model._triton_apply_rope", return_value=(query, key)) as rope_kernel:
+            rope = RotaryEmbedding(head_dim=4, max_sequence_length=8, theta=10_000.0, operator_backend="triton")
+            self.assertEqual(rope(query, key)[0].shape, query.shape)
+        rope_kernel.assert_called_once()
+
+        with patch("mega_trading.model._triton_swiglu_gate", side_effect=lambda gate, up: torch.zeros_like(gate)) as swiglu_gate:
+            swiglu = SwiGLU(hidden_dim=16, intermediate_dim=32, dropout=0.0, operator_backend="triton")
+            self.assertEqual(swiglu(hidden).shape, hidden.shape)
+        swiglu_gate.assert_called_once()
+
     def test_triton_attention_kernel_lives_in_kernel_module(self) -> None:
         self.assertEqual(_triton_attention.__module__, "mega_trading.kernels.triton_attention")
         self.assertIn("tl.make_tensor_descriptor", inspect.getsource(triton_attention_module))
+
+    def test_triton_operator_kernels_live_in_kernel_module(self) -> None:
+        self.assertEqual(triton_ops_module.triton_rms_norm.__module__, "mega_trading.kernels.triton_ops")
+        self.assertEqual(triton_ops_module.triton_apply_rope.__module__, "mega_trading.kernels.triton_ops")
+        self.assertEqual(triton_ops_module.triton_swiglu_gate.__module__, "mega_trading.kernels.triton_ops")
 
     def test_triton_attention_benchmark_defaults_match_server_rtx6000_shape(self) -> None:
         benchmark = _load_script("benchmark_triton_attention.py")
@@ -263,6 +288,20 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(args.dtype, "bfloat16")
         self.assertEqual(args.mode, "forward")
         self.assertEqual(triton_attention_module._attention_tile_shape(args.sequence_length, args.head_dim), (64, 64))
+
+    def test_triton_ops_benchmark_defaults_match_server_rtx6000_shape(self) -> None:
+        benchmark = _load_script("benchmark_triton_ops.py")
+        args = benchmark._parse_args([])
+
+        self.assertEqual(args.batch_size, 8)
+        self.assertEqual(args.sequence_length, 512)
+        self.assertEqual(args.hidden_dim, 1024)
+        self.assertEqual(args.intermediate_dim, 2816)
+        self.assertEqual(args.query_heads, 16)
+        self.assertEqual(args.kv_heads, 4)
+        self.assertEqual(args.head_dim, 64)
+        self.assertEqual(args.dtype, "bfloat16")
+        self.assertEqual(args.mode, "forward")
 
     @unittest.skipUnless(
         torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
@@ -346,6 +385,75 @@ class TrainingTests(unittest.TestCase):
         self.assertTrue(torch.allclose(query.grad, expected_query.grad, atol=8e-2, rtol=8e-2))
         self.assertTrue(torch.allclose(key.grad, expected_key.grad, atol=8e-2, rtol=8e-2))
         self.assertTrue(torch.allclose(value.grad, expected_value.grad, atol=8e-2, rtol=8e-2))
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
+        "Triton RMSNorm parity requires CUDA and triton",
+    )
+    def test_triton_rms_norm_matches_torch(self) -> None:
+        torch.manual_seed(19)
+        hidden = torch.randn(2, 512, 1024, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        weight = torch.randn(1024, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        expected_hidden = hidden.detach().clone().requires_grad_(True)
+        expected_weight = weight.detach().clone().requires_grad_(True)
+        grad_output = torch.randn_like(hidden)
+
+        actual = triton_ops_module.triton_rms_norm(hidden, weight, eps=1e-5)
+        expected = F.rms_norm(expected_hidden, (expected_hidden.shape[-1],), expected_weight, eps=1e-5)
+        actual.backward(grad_output)
+        expected.backward(grad_output)
+
+        self.assertTrue(torch.allclose(actual, expected, atol=6e-2, rtol=6e-2))
+        self.assertTrue(torch.allclose(hidden.grad, expected_hidden.grad, atol=8e-2, rtol=8e-2))
+        self.assertTrue(torch.allclose(weight.grad, expected_weight.grad, atol=8e-2, rtol=8e-2))
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
+        "Triton RoPE parity requires CUDA and triton",
+    )
+    def test_triton_rope_matches_torch(self) -> None:
+        torch.manual_seed(23)
+        rope = RotaryEmbedding(head_dim=64, max_sequence_length=512, theta=500_000.0)
+        query = torch.randn(1, 16, 512, 64, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        key = torch.randn(1, 4, 512, 64, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        expected_query = query.detach().clone().requires_grad_(True)
+        expected_key = key.detach().clone().requires_grad_(True)
+        grad_query = torch.randn_like(query)
+        grad_key = torch.randn_like(key)
+        cos = rope.cos.to(device="cuda", dtype=torch.bfloat16)
+        sin = rope.sin.to(device="cuda", dtype=torch.bfloat16)
+
+        actual_query, actual_key = triton_ops_module.triton_apply_rope(query, key, cos, sin)
+        expected_query_out = _apply_rope(expected_query, expected_key, theta=500_000.0)[0]
+        expected_key_out = _apply_rope(expected_query, expected_key, theta=500_000.0)[1]
+        torch.autograd.backward((actual_query, actual_key), (grad_query, grad_key))
+        torch.autograd.backward((expected_query_out, expected_key_out), (grad_query, grad_key))
+
+        self.assertTrue(torch.allclose(actual_query, expected_query_out, atol=6e-2, rtol=6e-2))
+        self.assertTrue(torch.allclose(actual_key, expected_key_out, atol=6e-2, rtol=6e-2))
+        self.assertTrue(torch.allclose(query.grad, expected_query.grad, atol=8e-2, rtol=8e-2))
+        self.assertTrue(torch.allclose(key.grad, expected_key.grad, atol=8e-2, rtol=8e-2))
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
+        "Triton SwiGLU parity requires CUDA and triton",
+    )
+    def test_triton_swiglu_gate_matches_torch(self) -> None:
+        torch.manual_seed(29)
+        gate = torch.randn(2, 512, 2816, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        up = torch.randn_like(gate, requires_grad=True)
+        expected_gate = gate.detach().clone().requires_grad_(True)
+        expected_up = up.detach().clone().requires_grad_(True)
+        grad_output = torch.randn_like(gate)
+
+        actual = triton_ops_module.triton_swiglu_gate(gate, up)
+        expected = F.silu(expected_gate) * expected_up
+        actual.backward(grad_output)
+        expected.backward(grad_output)
+
+        self.assertTrue(torch.allclose(actual, expected, atol=6e-2, rtol=6e-2))
+        self.assertTrue(torch.allclose(gate.grad, expected_gate.grad, atol=8e-2, rtol=8e-2))
+        self.assertTrue(torch.allclose(up.grad, expected_up.grad, atol=8e-2, rtol=8e-2))
 
     def test_compile_and_attention_backend_helpers_are_config_driven(self) -> None:
         model = TradingModel(vocab_size=MarketEventTokenizer().vocab_size, block_size=8, hidden_dim=16, layers=1, attention_heads=2)
