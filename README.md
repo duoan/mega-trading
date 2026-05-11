@@ -19,13 +19,34 @@ This baseline intentionally keeps the modeling interface close to participant-ob
 
 ## Quickstart
 
+Clone the repository:
+
+```bash
+git clone https://github.com/duoan/mega-trading.git
+cd mega-trading
+```
+
+Install `uv` if it is not already available:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv --version
+```
+
+Create the environment and run the local checks:
+
 ```bash
 uv sync
 make test
+```
+
+Run the deterministic no-network demo:
+
+```bash
 make demo
 ```
 
-`make demo` is the no-network order-flow fixture path. The three real environment entrypoints are:
+`make demo` uses deterministic fixture order-flow events, so it does not require exchange credentials or network data. The real-data entrypoints are:
 
 ```bash
 make mac

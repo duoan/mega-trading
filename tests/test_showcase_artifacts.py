@@ -54,6 +54,12 @@ def test_project_readme_exposes_reviewer_links() -> None:
     required_links = [
         "open trading foundation model",
         "public-data baseline",
+        "git clone https://github.com/duoan/mega-trading.git",
+        "curl -LsSf https://astral.sh/uv/install.sh | sh",
+        "uv --version",
+        "cd mega-trading",
+        "uv sync",
+        "make demo",
         "## Key Links",
         "https://huggingface.co/spaces/duoan/mega-trading",
         "https://github.com/duoan/mega-trading/blob/main/huggingface-space/technical-report.pdf",
