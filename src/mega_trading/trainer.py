@@ -87,6 +87,7 @@ class MuonAdamW(torch.optim.Optimizer):
         weight_decay = float(group["weight_decay"])
         momentum = float(group["momentum"])
         ns_steps = int(group["ns_steps"])
+        buckets: dict[tuple[tuple[int, ...], torch.dtype, str], list[tuple[torch.nn.Parameter, torch.Tensor]]] = {}
         for parameter in group["params"]:
             if parameter.grad is None:
                 continue
@@ -101,8 +102,13 @@ class MuonAdamW(torch.optim.Optimizer):
             buffer.mul_(momentum).add_(parameter.grad)
             # Muon's Nesterov-style update is orthogonalized before applying the weight step.
             update = parameter.grad.add(buffer, alpha=momentum)
-            update = _muon_orthogonalize(update, ns_steps)
-            parameter.add_(update, alpha=-lr)
+            key = (tuple(update.shape), update.dtype, str(update.device))
+            buckets.setdefault(key, []).append((parameter, update))
+        for bucket in buckets.values():
+            updates = torch.stack([update for _, update in bucket])
+            orthogonalized = _muon_orthogonalize_batch(updates, ns_steps)
+            for (parameter, _), update in zip(bucket, orthogonalized.unbind(dim=0), strict=True):
+                parameter.add_(update, alpha=-lr)
 
     def _step_adamw_group(self, group: dict[str, Any]) -> None:
         lr = float(group["lr"])
@@ -428,24 +434,26 @@ def _use_muon(name: str, parameter: torch.nn.Parameter) -> bool:
 
 
 def _muon_orthogonalize(update: torch.Tensor, ns_steps: int) -> torch.Tensor:
-    original_shape = update.shape
-    matrix = update.reshape(update.shape[0], -1)
-    rows, cols = matrix.shape
+    return _muon_orthogonalize_batch(update.unsqueeze(0), ns_steps).squeeze(0)
+
+
+def _muon_orthogonalize_batch(updates: torch.Tensor, ns_steps: int) -> torch.Tensor:
+    original_shape = updates.shape[1:]
+    matrices = updates.reshape(updates.shape[0], updates.shape[1], -1)
+    rows, cols = matrices.shape[-2:]
     transposed = rows > cols
     if transposed:
-        matrix = matrix.T
-    x = matrix.float()
-    norm = x.norm()
-    if norm == 0:
-        return torch.zeros_like(update)
-    x = x / (norm + 1e-7)
+        matrices = matrices.transpose(1, 2)
+    x = matrices.float()
+    # Keep the zero-norm guard on device; branching on a CUDA scalar synchronizes every Muon tensor.
+    x = x / x.norm(dim=(1, 2), keepdim=True).clamp_min(1e-7)
     for _ in range(ns_steps):
-        gram = x @ x.T
+        gram = x @ x.transpose(1, 2)
         x = 3.4445 * x + (-4.7750 * gram + 2.0315 * (gram @ gram)) @ x
     if transposed:
-        x = x.T
+        x = x.transpose(1, 2)
     scale = math.sqrt(max(1.0, rows / cols))
-    return x.reshape(original_shape).to(dtype=update.dtype) * scale
+    return x.reshape((updates.shape[0], *original_shape)).to(dtype=updates.dtype) * scale
 
 
 def _build_lr_scheduler(optimizer: torch.optim.Optimizer, config: TrainConfig) -> torch.optim.lr_scheduler.LambdaLR:

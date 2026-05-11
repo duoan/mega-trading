@@ -35,6 +35,8 @@ from mega_trading.trainer import (
     _log_model_summary_to_mlflow,
     _maybe_compile_model,
     _maybe_cudagraph_mark_step_begin,
+    _muon_orthogonalize,
+    _muon_orthogonalize_batch,
     _nvtx_range,
     _profiler_trace_dir,
     _should_record_training_metrics,
@@ -152,6 +154,25 @@ class TrainingTests(unittest.TestCase):
             TrainConfig(run_id="bad", lr_warmup_steps=-1)
         with self.assertRaisesRegex(ValueError, "min_learning_rate"):
             TrainConfig(run_id="bad", learning_rate=0.001, min_learning_rate=0.002)
+
+    def test_muon_orthogonalize_avoids_tensor_boolean_sync(self) -> None:
+        update = torch.randn(4, 4)
+
+        def fail_on_tensor_bool(_tensor: torch.Tensor) -> bool:
+            raise AssertionError("Muon orthogonalization must not branch on a Tensor scalar")
+
+        with patch.object(torch.Tensor, "__bool__", fail_on_tensor_bool):
+            orthogonalized = _muon_orthogonalize(update, ns_steps=1)
+
+        self.assertEqual(tuple(orthogonalized.shape), tuple(update.shape))
+
+    def test_batched_muon_orthogonalize_matches_scalar_path(self) -> None:
+        updates = torch.randn(3, 4, 2)
+
+        scalar = torch.stack([_muon_orthogonalize(update, ns_steps=2) for update in updates])
+        batched = _muon_orthogonalize_batch(updates, ns_steps=2)
+
+        torch.testing.assert_close(batched, scalar)
 
     def test_model_summary_is_logged_to_mlflow(self) -> None:
         class FakeSummary:
@@ -623,6 +644,33 @@ class TrainingTests(unittest.TestCase):
         self.assertIn("blocks.0.feed_forward.w1.weight", muon_names)
         self.assertIn("token_embedding.weight", adamw_names)
         self.assertIn("norm.weight", adamw_names)
+
+    def test_muon_optimizer_batches_same_shape_orthogonalization(self) -> None:
+        first = torch.nn.Parameter(torch.ones(2, 2))
+        second = torch.nn.Parameter(torch.full((2, 2), 2.0))
+        first.grad = torch.ones_like(first)
+        second.grad = torch.full_like(second, 2.0)
+        expected_first = first.detach() - 0.1 * _muon_orthogonalize(first.grad, ns_steps=1)
+        expected_second = second.detach() - 0.1 * _muon_orthogonalize(second.grad, ns_steps=1)
+        optimizer = MuonAdamW(
+            [
+                {
+                    "params": [first, second],
+                    "algorithm": "muon",
+                    "lr": 0.1,
+                    "weight_decay": 0.0,
+                    "momentum": 0.0,
+                    "ns_steps": 1,
+                }
+            ]
+        )
+
+        with patch("mega_trading.trainer._muon_orthogonalize", wraps=_muon_orthogonalize) as scalar_orthogonalize:
+            optimizer.step()
+
+        scalar_orthogonalize.assert_not_called()
+        torch.testing.assert_close(first, expected_first)
+        torch.testing.assert_close(second, expected_second)
 
     def test_cosine_scheduler_warms_up_then_decays_to_min_lr(self) -> None:
         parameter = torch.nn.Parameter(torch.ones(1))
