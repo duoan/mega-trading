@@ -55,6 +55,11 @@ training:
   eval_interval: 1000
   max_eval_batches: 128
   metric_interval: 20
+  preload_numpy_arrays: false
+  dataloader_num_workers: 0
+  dataloader_prefetch_factor: 2
+  dataloader_pin_memory: false
+  dataloader_persistent_workers: false
   seed: 7
   device: cuda
   precision: mixed

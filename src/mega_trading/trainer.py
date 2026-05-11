@@ -164,17 +164,39 @@ class Trainer:
         if train_count <= 0:
             raise ValueError("training shard has no train rows")
 
-        dataset_format = _dataset_format(self.store, profile)
-        train_dataset = _dataset(self.store, profile, shard_path, split_counts, split="train")
-        validation_dataset = _dataset(self.store, profile, shard_path, split_counts, split="validation") if validation_count else None
-        train_loader = DataLoader(train_dataset, batch_size=self.config.batch_size)
-        validation_loader = (
-            DataLoader(validation_dataset, batch_size=self.config.batch_size, shuffle=False) if validation_dataset else None
-        )
-
         device = _resolve_device(self.config.device)
         precision = _resolve_precision(self.config.precision, device)
         accelerator = _accelerator(device, precision, self.config)
+        dataset_format = _dataset_format(self.store, profile)
+        numpy_array_cache: dict[str, Any] = {}
+        train_dataset = _dataset(
+            self.store,
+            profile,
+            shard_path,
+            split_counts,
+            split="train",
+            preload_numpy_arrays=self.config.preload_numpy_arrays,
+            array_cache=numpy_array_cache,
+        )
+        validation_dataset = (
+            _dataset(
+                self.store,
+                profile,
+                shard_path,
+                split_counts,
+                split="validation",
+                preload_numpy_arrays=self.config.preload_numpy_arrays,
+                array_cache=numpy_array_cache,
+            )
+            if validation_count
+            else None
+        )
+        dataloader_kwargs = _dataloader_kwargs(self.config, device)
+        train_loader = DataLoader(train_dataset, **dataloader_kwargs)
+        validation_loader = (
+            DataLoader(validation_dataset, **dataloader_kwargs) if validation_dataset else None
+        )
+
         model = TradingModel(
             vocab_size=int(profile["vocab_size"]),
             block_size=int(profile["block_size"]),
@@ -188,6 +210,7 @@ class Trainer:
             norm_eps=self.config.norm_eps,
             attention_backend=self.config.attention_backend,
         )
+        model.to(device)
         optimizer = _build_optimizer(model, self.config)
         scheduler = _build_lr_scheduler(optimizer, self.config)
         resume_state = _load_resume_checkpoint(self.store, self.config.resume_from_checkpoint)
@@ -201,6 +224,15 @@ class Trainer:
                 scheduler.load_state_dict(resume_state["scheduler_state_dict"])
             start_step = int(resume_state.get("step", 0)) + 1
             metrics = [dict(row) for row in resume_state.get("metrics", [])]
+
+        _init_trackers(accelerator, self.store, self.config, shard_path, profile, train_count, validation_count, precision)
+        _log_model_summary_to_mlflow(
+            accelerator=accelerator,
+            config=self.config,
+            model=model,
+            profile=profile,
+            device=device,
+        )
         model = _maybe_compile_model(model, self.config, device)
         if validation_loader is None:
             model, optimizer, scheduler, train_loader = accelerator.prepare(model, optimizer, scheduler, train_loader)
@@ -212,27 +244,25 @@ class Trainer:
                 train_loader,
                 validation_loader,
             )
-
-        _init_trackers(accelerator, self.store, self.config, shard_path, profile, train_count, validation_count, precision)
-        _log_model_summary_to_mlflow(
-            accelerator=accelerator,
-            config=self.config,
-            model=model,
-            profile=profile,
-            device=device,
-        )
         loss_fn = nn.CrossEntropyLoss()
         iterator = cycle_batches(train_loader)
         metrics_path = self.paths.run("metrics.json")
         progress = _progress_bar(accelerator, self.config, start_step)
         last_step = start_step - 1
+        metric_window_tokens = 0
+        metric_window_data_wait = 0.0
+        metric_window_compute = 0.0
+        metric_window_step = 0.0
+        metric_window_steps = 0
 
         profiler = _training_profiler(self.store, self.config, device, accelerator)
         with profiler as active_profiler:
             for step in range(start_step, self.config.max_steps + 1):
                 last_step = step
+                step_started = perf_counter()
                 with _nvtx_range(self.config, "train/data_wait", step):
                     batch = next(iterator)
+                data_wait_elapsed = max(perf_counter() - step_started, 0.0)
                 # Separate compiled forward captures per step when CUDA graphs are enabled (e.g. compile_mode reduce-overhead).
                 with _nvtx_range(self.config, "train/cudagraph_mark", step):
                     _maybe_cudagraph_mark_step_begin(self.config, device)
@@ -250,10 +280,29 @@ class Trainer:
                         scheduler.step()
                         optimizer.zero_grad(set_to_none=True)
                 elapsed = max(perf_counter() - started, 1e-9)
-                if accelerator.is_main_process and _should_record_training_metrics(step, self.config):
+                step_elapsed = max(perf_counter() - step_started, 1e-9)
+                metric_window_tokens += int(batch["labels"].numel())
+                metric_window_data_wait += data_wait_elapsed
+                metric_window_compute += elapsed
+                metric_window_step += step_elapsed
+                metric_window_steps += 1
+                should_record_metrics = _should_record_training_metrics(step, self.config)
+                metric_row: dict[str, object] | None = None
+                if accelerator.is_main_process and should_record_metrics:
                     with _nvtx_range(self.config, "train/metrics", step):
                         train_loss = float(loss.detach().cpu())
-                        tokens_per_second = _tokens_per_second(batch, elapsed, accelerator)
+                        step_rates = _metric_window_rates(
+                            token_count=int(batch["labels"].numel()),
+                            compute_seconds=elapsed,
+                            step_seconds=step_elapsed,
+                            accelerator_processes=accelerator.num_processes,
+                        )
+                        window_rates = _metric_window_rates(
+                            token_count=metric_window_tokens,
+                            compute_seconds=metric_window_compute,
+                            step_seconds=metric_window_step,
+                            accelerator_processes=accelerator.num_processes,
+                        )
                         metric_row = {
                             "step": step,
                             "stage": "training",
@@ -274,13 +323,38 @@ class Trainer:
                             "compile_enabled": self.config.compile,
                             "attention_backend": self.config.attention_backend,
                             "metric_interval": self.config.metric_interval,
+                            "preload_numpy_arrays": self.config.preload_numpy_arrays,
+                            "dataloader_num_workers": self.config.dataloader_num_workers,
+                            "dataloader_prefetch_factor": self.config.dataloader_prefetch_factor,
+                            "dataloader_pin_memory": self.config.dataloader_pin_memory,
+                            "dataloader_persistent_workers": self.config.dataloader_persistent_workers,
                             "profiler_enabled": self.config.profiler_enabled,
                             "nvtx_enabled": self.config.nvtx_enabled,
-                            "tokens_per_second": tokens_per_second,
-                            "tokens_per_gpu_second": tokens_per_second / accelerator.num_processes,
+                            "data_wait_seconds": data_wait_elapsed,
+                            "train_compute_seconds": elapsed,
+                            "train_step_seconds": step_elapsed,
+                            "metric_window_data_wait_seconds": metric_window_data_wait,
+                            "metric_window_compute_seconds": metric_window_compute,
+                            "metric_window_step_seconds": metric_window_step,
+                            "metric_window_steps": metric_window_steps,
+                            "eval_seconds": 0.0,
+                            "checkpoint_seconds": 0.0,
+                            "step_tokens_per_second": step_rates["tokens_per_second"],
+                            "step_tokens_per_gpu_second": step_rates["tokens_per_gpu_second"],
+                            "step_tokens_per_second_e2e": step_rates["tokens_per_second_e2e"],
+                            "step_tokens_per_gpu_second_e2e": step_rates["tokens_per_gpu_second_e2e"],
+                            "tokens_per_second": window_rates["tokens_per_second"],
+                            "tokens_per_gpu_second": window_rates["tokens_per_gpu_second"],
+                            "tokens_per_second_e2e": window_rates["tokens_per_second_e2e"],
+                            "tokens_per_gpu_second_e2e": window_rates["tokens_per_gpu_second_e2e"],
+                            "tokens_per_second_window": window_rates["tokens_per_second"],
+                            "tokens_per_gpu_second_window": window_rates["tokens_per_gpu_second"],
+                            "tokens_per_second_e2e_window": window_rates["tokens_per_second_e2e"],
+                            "tokens_per_gpu_second_e2e_window": window_rates["tokens_per_gpu_second_e2e"],
                         }
                     if validation_loader is not None and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
                         with _nvtx_range(self.config, "train/eval", step):
+                            eval_started = perf_counter()
                             metric_row.update(
                                 _evaluate(
                                     model,
@@ -292,12 +366,20 @@ class Trainer:
                                     self.config.max_eval_batches,
                                 )
                             )
+                            metric_row["eval_seconds"] = max(perf_counter() - eval_started, 0.0)
                     metrics.append(metric_row)
                     accelerator.log(_tracker_metrics(metric_row), step=step)
                     self.store.write_json(metrics_path, {"metrics": metrics})
                     progress.set_postfix(_progress_postfix(metric_row), refresh=False)
+                if should_record_metrics:
+                    metric_window_tokens = 0
+                    metric_window_data_wait = 0.0
+                    metric_window_compute = 0.0
+                    metric_window_step = 0.0
+                    metric_window_steps = 0
                 if self.config.checkpoint_interval and step % self.config.checkpoint_interval == 0:
                     with _nvtx_range(self.config, "train/checkpoint", step):
+                        checkpoint_started = perf_counter()
                         _save_checkpoint(
                             self.store,
                             self.paths.run(f"checkpoints/step-{step:06d}.pt"),
@@ -311,6 +393,11 @@ class Trainer:
                             metrics,
                             step,
                         )
+                        checkpoint_seconds = max(perf_counter() - checkpoint_started, 0.0)
+                    if accelerator.is_main_process and metric_row is not None:
+                        metric_row["checkpoint_seconds"] = checkpoint_seconds
+                        accelerator.log({"train/checkpoint_seconds": checkpoint_seconds}, step=step)
+                        self.store.write_json(metrics_path, {"metrics": metrics})
                 progress.update(1)
                 active_profiler.step()
         progress.close()
@@ -364,6 +451,7 @@ class Trainer:
                         "resume_from_checkpoint": self.config.resume_from_checkpoint,
                         "max_eval_batches": self.config.max_eval_batches,
                         "metric_interval": self.config.metric_interval,
+                        "preload_numpy_arrays": self.config.preload_numpy_arrays,
                         "profiler_enabled": self.config.profiler_enabled,
                         "nvtx_enabled": self.config.nvtx_enabled,
                         "profiler_trace_dir": str(_profiler_trace_dir(self.store, self.config)),
@@ -526,6 +614,25 @@ def _tokens_per_second(batch: dict[str, torch.Tensor], elapsed: float, accelerat
     return int(batch["labels"].numel()) * accelerator.num_processes / elapsed
 
 
+def _metric_window_rates(
+    token_count: int,
+    compute_seconds: float,
+    step_seconds: float,
+    accelerator_processes: int,
+) -> dict[str, float]:
+    total_tokens = int(token_count) * int(accelerator_processes)
+    compute_elapsed = max(float(compute_seconds), 1e-9)
+    step_elapsed = max(float(step_seconds), 1e-9)
+    tokens_per_second = total_tokens / compute_elapsed
+    tokens_per_second_e2e = total_tokens / step_elapsed
+    return {
+        "tokens_per_second": tokens_per_second,
+        "tokens_per_gpu_second": tokens_per_second / accelerator_processes,
+        "tokens_per_second_e2e": tokens_per_second_e2e,
+        "tokens_per_gpu_second_e2e": tokens_per_second_e2e / accelerator_processes,
+    }
+
+
 def _should_record_training_metrics(step: int, config: TrainConfig) -> bool:
     if step == 1 or step == config.max_steps:
         return True
@@ -578,10 +685,19 @@ def _dataset(
     shard_path: str,
     split_counts: dict[str, dict[str, int]],
     split: str,
+    preload_numpy_arrays: bool = False,
+    array_cache: dict[str, Any] | None = None,
 ) -> torch.utils.data.IterableDataset:
     numpy_metadata = profile.get("numpy_dataset")
     if isinstance(numpy_metadata, dict) and _numpy_dataset_exists(store, numpy_metadata):
-        return NumpyTickerTimeDataset(store, numpy_metadata, split_counts, split=split)
+        return NumpyTickerTimeDataset(
+            store,
+            numpy_metadata,
+            split_counts,
+            split=split,
+            preload_numpy_arrays=preload_numpy_arrays,
+            array_cache=array_cache,
+        )
     raise FileNotFoundError(f"NumPy token dataset is missing for {shard_path}")
 
 
@@ -722,6 +838,18 @@ def _resolve_precision(requested_precision: str, device: torch.device) -> str:
     return requested_precision
 
 
+def _dataloader_kwargs(config: TrainConfig, device: torch.device) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "batch_size": config.batch_size,
+        "num_workers": config.dataloader_num_workers,
+        "pin_memory": device.type == "cuda" and config.dataloader_pin_memory,
+    }
+    if config.dataloader_num_workers > 0:
+        kwargs["prefetch_factor"] = config.dataloader_prefetch_factor
+        kwargs["persistent_workers"] = config.dataloader_persistent_workers
+    return kwargs
+
+
 def _maybe_compile_model(model: TradingModel, config: TrainConfig, device: torch.device) -> torch.nn.Module:
     if not config.compile:
         return model
@@ -847,6 +975,11 @@ def _init_trackers(
             "compile_mode": config.compile_mode,
             "attention_backend": config.attention_backend,
             "metric_interval": config.metric_interval,
+            "preload_numpy_arrays": config.preload_numpy_arrays,
+            "dataloader_num_workers": config.dataloader_num_workers,
+            "dataloader_prefetch_factor": config.dataloader_prefetch_factor,
+            "dataloader_pin_memory": config.dataloader_pin_memory,
+            "dataloader_persistent_workers": config.dataloader_persistent_workers,
             "profiler_enabled": config.profiler_enabled,
             "nvtx_enabled": config.nvtx_enabled,
             "profiler_trace_dir": str(_profiler_trace_dir(store, config)),
@@ -903,6 +1036,8 @@ def _log_model_summary_to_mlflow(
 
 
 def _tracker_metrics(row: dict[str, object]) -> dict[str, float]:
+    data_wait_seconds = float(row["data_wait_seconds"])
+    step_seconds = max(float(row["train_step_seconds"]), 1e-9)
     metrics: dict[str, float] = {
         "train/learning_rate": float(row["learning_rate"]),
         "train/loss": float(row["train_loss"]),
@@ -911,6 +1046,27 @@ def _tracker_metrics(row: dict[str, object]) -> dict[str, float]:
         "train/top5_accuracy": float(row["train_top5_accuracy"]),
         "train/tokens_per_second": float(row["tokens_per_second"]),
         "train/tokens_per_gpu_second": float(row["tokens_per_gpu_second"]),
+        "train/tokens_per_second_e2e": float(row["tokens_per_second_e2e"]),
+        "train/tokens_per_gpu_second_e2e": float(row["tokens_per_gpu_second_e2e"]),
+        "train/tokens_per_second_window": float(row["tokens_per_second_window"]),
+        "train/tokens_per_gpu_second_window": float(row["tokens_per_gpu_second_window"]),
+        "train/tokens_per_second_e2e_window": float(row["tokens_per_second_e2e_window"]),
+        "train/tokens_per_gpu_second_e2e_window": float(row["tokens_per_gpu_second_e2e_window"]),
+        "train/step_tokens_per_second": float(row["step_tokens_per_second"]),
+        "train/step_tokens_per_gpu_second": float(row["step_tokens_per_gpu_second"]),
+        "train/step_tokens_per_second_e2e": float(row["step_tokens_per_second_e2e"]),
+        "train/step_tokens_per_gpu_second_e2e": float(row["step_tokens_per_gpu_second_e2e"]),
+        "train/data_wait_seconds": data_wait_seconds,
+        "train/dataloader_wait_seconds": data_wait_seconds,
+        "train/dataloader_wait_fraction": data_wait_seconds / step_seconds,
+        "train/compute_seconds": float(row["train_compute_seconds"]),
+        "train/step_seconds": step_seconds,
+        "train/metric_window_data_wait_seconds": float(row["metric_window_data_wait_seconds"]),
+        "train/metric_window_compute_seconds": float(row["metric_window_compute_seconds"]),
+        "train/metric_window_step_seconds": float(row["metric_window_step_seconds"]),
+        "train/metric_window_steps": float(row["metric_window_steps"]),
+        "train/eval_seconds": float(row.get("eval_seconds", 0.0)),
+        "train/checkpoint_seconds": float(row.get("checkpoint_seconds", 0.0)),
     }
     for key in ("validation_loss", "validation_perplexity", "validation_top1_accuracy", "validation_top5_accuracy"):
         if key in row:
@@ -935,4 +1091,6 @@ def _progress_postfix(row: dict[str, object]) -> dict[str, str]:
         "ppl": f"{float(row['train_perplexity']):.2f}",
         "top1": f"{float(row['train_top1_accuracy']):.2f}",
         "tok/s": f"{float(row['tokens_per_second']):.1f}",
+        "e2e tok/s": f"{float(row['tokens_per_second_e2e']):.1f}",
+        "data": f"{float(row['data_wait_seconds']) * 1000.0:.1f}ms",
     }

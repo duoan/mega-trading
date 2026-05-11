@@ -55,6 +55,11 @@ training:
   eval_interval: 20
   max_eval_batches: null
   metric_interval: 1
+  preload_numpy_arrays: false
+  dataloader_num_workers: 0
+  dataloader_prefetch_factor: 2
+  dataloader_pin_memory: false
+  dataloader_persistent_workers: false
   seed: 7
   device: auto
   precision: auto

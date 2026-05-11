@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -32,14 +33,17 @@ from mega_trading.trainer import (
     _build_lr_scheduler,
     _build_optimizer,
     _current_learning_rate,
+    _dataloader_kwargs,
     _log_model_summary_to_mlflow,
     _maybe_compile_model,
     _maybe_cudagraph_mark_step_begin,
+    _metric_window_rates,
     _muon_orthogonalize,
     _muon_orthogonalize_batch,
     _nvtx_range,
     _profiler_trace_dir,
     _should_record_training_metrics,
+    _tracker_metrics,
 )
 
 
@@ -62,19 +66,28 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(str(rtx.training.distributed_strategy), "ddp")
         self.assertEqual(int(rtx.model.hidden_dim), 1024)
         self.assertEqual(int(rtx.model.layers), 20)
-        self.assertEqual(int(rtx.training.batch_size), 8)
-        self.assertEqual(int(rtx.training.gradient_accumulation_steps), 8)
-        self.assertEqual(int(rtx.training.max_eval_batches), 64)
+        self.assertEqual(int(rtx.training.max_steps), 5000)
+        self.assertEqual(int(rtx.training.batch_size), 32)
+        self.assertEqual(int(rtx.training.gradient_accumulation_steps), 2)
+        self.assertEqual(int(rtx.training.eval_interval), 125)
+        self.assertEqual(int(rtx.training.checkpoint_interval), 500)
+        self.assertEqual(int(rtx.training.max_eval_batches), 16)
         self.assertEqual(str(rtx.training.compile_mode), "default")
         self.assertEqual(str(rtx.training.optimizer), "muon")
         self.assertEqual(str(rtx.training.lr_schedule), "cosine")
-        self.assertEqual(int(rtx.training.lr_warmup_steps), 1000)
+        self.assertEqual(int(rtx.training.lr_warmup_steps), 250)
         self.assertEqual(float(rtx.training.min_learning_rate), 0.00002)
         self.assertEqual(int(rtx.training.metric_interval), 10)
+        self.assertTrue(bool(rtx.training.preload_numpy_arrays))
+        self.assertEqual(int(rtx.training.dataloader_num_workers), 4)
+        self.assertEqual(int(rtx.training.dataloader_prefetch_factor), 4)
+        self.assertTrue(bool(rtx.training.dataloader_pin_memory))
+        self.assertTrue(bool(rtx.training.dataloader_persistent_workers))
         self.assertFalse(bool(rtx.training.profiler_enabled))
         self.assertFalse(bool(rtx.training.nvtx_enabled))
         self.assertEqual(int(rtx.training.profiler_active_steps), 4)
         self.assertTrue(bool(rtx.build.streaming_prepare))
+        self.assertFalse(bool(mac.training.preload_numpy_arrays))
         self.assertEqual(str(modal.run.run_id), "modal")
         self.assertEqual(str(modal.data.data_dir), "/data/shared")
         self.assertEqual(str(modal.data.mixture), "modal")
@@ -98,6 +111,12 @@ class TrainingTests(unittest.TestCase):
             TrainConfig(run_id="bad", max_eval_batches=0)
         with self.assertRaisesRegex(ValueError, "metric_interval"):
             TrainConfig(run_id="bad", metric_interval=0)
+        with self.assertRaisesRegex(ValueError, "dataloader_num_workers"):
+            TrainConfig(run_id="bad", dataloader_num_workers=-1)
+        with self.assertRaisesRegex(ValueError, "dataloader_prefetch_factor"):
+            TrainConfig(run_id="bad", dataloader_prefetch_factor=0)
+        with self.assertRaisesRegex(ValueError, "dataloader_persistent_workers"):
+            TrainConfig(run_id="bad", dataloader_num_workers=0, dataloader_persistent_workers=True)
         with self.assertRaisesRegex(ValueError, "profiler_wait_steps"):
             TrainConfig(run_id="bad", profiler_wait_steps=-1)
         with self.assertRaisesRegex(ValueError, "profiler_warmup_steps"):
@@ -174,6 +193,24 @@ class TrainingTests(unittest.TestCase):
 
         torch.testing.assert_close(batched, scalar)
 
+    def test_dataloader_kwargs_enable_cuda_prefetch_workers(self) -> None:
+        config = TrainConfig(
+            run_id="loader-test",
+            batch_size=32,
+            dataloader_num_workers=4,
+            dataloader_prefetch_factor=4,
+            dataloader_pin_memory=True,
+            dataloader_persistent_workers=True,
+        )
+
+        kwargs = _dataloader_kwargs(config, torch.device("cuda"))
+
+        self.assertEqual(kwargs["batch_size"], 32)
+        self.assertEqual(kwargs["num_workers"], 4)
+        self.assertTrue(kwargs["pin_memory"])
+        self.assertTrue(kwargs["persistent_workers"])
+        self.assertEqual(kwargs["prefetch_factor"], 4)
+
     def test_model_summary_is_logged_to_mlflow(self) -> None:
         class FakeSummary:
             def __str__(self) -> str:
@@ -200,6 +237,35 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(tuple(summary_kwargs["input_data"].shape), (1, 4))
         self.assertEqual(summary_kwargs["input_data"].dtype, torch.long)
         fake_mlflow.log_text.assert_called_once_with("TradingModel summary", artifact_file="model/model_summary.txt")
+
+    def test_model_summary_still_logs_when_compile_is_enabled(self) -> None:
+        class FakeSummary:
+            def __str__(self) -> str:
+                return "TradingModel summary"
+
+        fake_torchinfo = Mock()
+        fake_torchinfo.summary.return_value = FakeSummary()
+        fake_mlflow = Mock()
+        model = TradingModel(vocab_size=16, block_size=4, hidden_dim=8, layers=1, attention_heads=2)
+        accelerator = Mock(is_main_process=True)
+        accelerator.unwrap_model.return_value = model
+
+        with patch.dict(sys.modules, {"torchinfo": fake_torchinfo, "mlflow": fake_mlflow}):
+            _log_model_summary_to_mlflow(
+                accelerator=accelerator,
+                config=TrainConfig(run_id="summary-test", mlflow_enabled=True, compile=True),
+                model=model,
+                profile={"block_size": 4},
+                device=torch.device("cpu"),
+            )
+
+        fake_torchinfo.summary.assert_called_once()
+        fake_mlflow.log_text.assert_called_once_with("TradingModel summary", artifact_file="model/model_summary.txt")
+
+    def test_training_path_logs_model_summary_before_compile(self) -> None:
+        source = inspect.getsource(Trainer.train)
+
+        self.assertLess(source.index("_log_model_summary_to_mlflow("), source.index("_maybe_compile_model("))
 
     def test_build_config_validates_prepared_split_fractions(self) -> None:
         with self.assertRaisesRegex(ValueError, "validation_fraction"):
@@ -620,6 +686,61 @@ class TrainingTests(unittest.TestCase):
 
         self.assertEqual(recorded, [1, 4, 5, 6, 8, 10])
 
+    def test_tracker_metrics_include_dataloader_wait_signals_for_mlflow(self) -> None:
+        row = {
+            "learning_rate": 0.001,
+            "train_loss": 1.5,
+            "train_perplexity": 4.5,
+            "train_top1_accuracy": 0.25,
+            "train_top5_accuracy": 0.5,
+            "step_tokens_per_second": 1000.0,
+            "step_tokens_per_gpu_second": 500.0,
+            "step_tokens_per_second_e2e": 800.0,
+            "step_tokens_per_gpu_second_e2e": 400.0,
+            "tokens_per_second": 1000.0,
+            "tokens_per_gpu_second": 500.0,
+            "tokens_per_second_e2e": 800.0,
+            "tokens_per_gpu_second_e2e": 400.0,
+            "tokens_per_second_window": 1000.0,
+            "tokens_per_gpu_second_window": 500.0,
+            "tokens_per_second_e2e_window": 800.0,
+            "tokens_per_gpu_second_e2e_window": 400.0,
+            "data_wait_seconds": 0.02,
+            "train_compute_seconds": 0.08,
+            "train_step_seconds": 0.10,
+            "metric_window_data_wait_seconds": 0.06,
+            "metric_window_compute_seconds": 0.24,
+            "metric_window_step_seconds": 0.30,
+            "metric_window_steps": 3,
+            "eval_seconds": 0.04,
+            "checkpoint_seconds": 0.05,
+        }
+
+        metrics = _tracker_metrics(row)
+
+        self.assertEqual(metrics["train/dataloader_wait_seconds"], 0.02)
+        self.assertAlmostEqual(metrics["train/dataloader_wait_fraction"], 0.2)
+        self.assertEqual(metrics["train/tokens_per_second_e2e"], 800.0)
+        self.assertEqual(metrics["train/tokens_per_gpu_second_e2e"], 400.0)
+        self.assertEqual(metrics["train/step_tokens_per_second"], 1000.0)
+        self.assertEqual(metrics["train/metric_window_steps"], 3.0)
+        self.assertEqual(metrics["train/metric_window_data_wait_seconds"], 0.06)
+        self.assertEqual(metrics["train/eval_seconds"], 0.04)
+        self.assertEqual(metrics["train/checkpoint_seconds"], 0.05)
+
+    def test_metric_window_rates_average_optimizer_boundary_spikes(self) -> None:
+        rates = _metric_window_rates(
+            token_count=12_000,
+            compute_seconds=0.06,
+            step_seconds=0.10,
+            accelerator_processes=2,
+        )
+
+        self.assertEqual(rates["tokens_per_second"], 400_000.0)
+        self.assertEqual(rates["tokens_per_gpu_second"], 200_000.0)
+        self.assertEqual(rates["tokens_per_second_e2e"], 240_000.0)
+        self.assertEqual(rates["tokens_per_gpu_second_e2e"], 120_000.0)
+
     def test_profiler_trace_dir_uses_run_artifact_dir_or_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = LocalObjectStore(Path(tmp))
@@ -766,6 +887,93 @@ class TrainingTests(unittest.TestCase):
                 int(profile["sequence_count"]),
             )
 
+    def test_numpy_token_stream_preload_uses_shared_in_memory_arrays(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = LocalObjectStore(root)
+            root.joinpath("datasets").mkdir(parents=True)
+            np.save(root / "datasets/tokens-a.npy", np.arange(8, dtype=np.int64))
+            metadata = {
+                "format": "mega-trading-numpy-token-v1",
+                "storage": "token_stream",
+                "sequence_length": 4,
+                "stride": 2,
+                "ticker_to_id": {"BTCUSDT": 0},
+                "partitions": [
+                    {
+                        "ticker": "BTCUSDT",
+                        "ticker_id": 0,
+                        "tokens_path": "datasets/tokens-a.npy",
+                        "sequence_count": 2,
+                    }
+                ],
+            }
+            split_counts = {"BTCUSDT": {"train": 1, "validation": 1, "backtest": 0}}
+            array_cache: dict[str, np.ndarray] = {}
+
+            with patch("mega_trading.dataset.np.load", wraps=np.load) as load_array:
+                train_rows = list(
+                    NumpyTickerTimeDataset(
+                        store,
+                        metadata,
+                        split_counts,
+                        split="train",
+                        preload_numpy_arrays=True,
+                        array_cache=array_cache,
+                    )
+                )
+                validation_rows = list(
+                    NumpyTickerTimeDataset(
+                        store,
+                        metadata,
+                        split_counts,
+                        split="validation",
+                        preload_numpy_arrays=True,
+                        array_cache=array_cache,
+                    )
+                )
+
+            self.assertEqual(load_array.call_count, 1)
+            self.assertIsNone(load_array.call_args.kwargs.get("mmap_mode"))
+            self.assertNotIsInstance(next(iter(array_cache.values())), np.memmap)
+            self.assertEqual(train_rows[0]["input_ids"].tolist(), [0, 1, 2])
+            self.assertEqual(validation_rows[0]["input_ids"].tolist(), [2, 3, 4])
+
+    def test_numpy_token_stream_shards_rows_across_dataloader_workers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = LocalObjectStore(root)
+            root.joinpath("datasets").mkdir(parents=True)
+            np.save(root / "datasets/tokens-a.npy", np.arange(8, dtype=np.int64))
+            metadata = {
+                "format": "mega-trading-numpy-token-v1",
+                "storage": "token_stream",
+                "sequence_length": 3,
+                "stride": 1,
+                "ticker_to_id": {"BTCUSDT": 0},
+                "partitions": [
+                    {
+                        "ticker": "BTCUSDT",
+                        "ticker_id": 0,
+                        "tokens_path": "datasets/tokens-a.npy",
+                        "sequence_count": 4,
+                    }
+                ],
+            }
+            split_counts = {"BTCUSDT": {"train": 4, "validation": 0, "backtest": 0}}
+
+            full_rows = list(NumpyTickerTimeDataset(store, metadata, split_counts, split="train"))
+            with patch("mega_trading.dataset.get_worker_info", return_value=SimpleNamespace(id=0, num_workers=2)):
+                worker_zero_rows = list(NumpyTickerTimeDataset(store, metadata, split_counts, split="train"))
+            with patch("mega_trading.dataset.get_worker_info", return_value=SimpleNamespace(id=1, num_workers=2)):
+                worker_one_rows = list(NumpyTickerTimeDataset(store, metadata, split_counts, split="train"))
+
+            full_inputs = sorted(tuple(row["input_ids"].tolist()) for row in full_rows)
+            sharded_inputs = sorted(tuple(row["input_ids"].tolist()) for row in worker_zero_rows + worker_one_rows)
+            self.assertEqual(sharded_inputs, full_inputs)
+            self.assertEqual(len(worker_zero_rows), 2)
+            self.assertEqual(len(worker_one_rows), 2)
+
     def test_trainer_and_eval_smoke_write_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -822,6 +1030,18 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(metrics[-1]["optimizer"], "adamw")
             self.assertEqual(metrics[-1]["lr_schedule"], "constant")
             self.assertIn("learning_rate", metrics[-1])
+            self.assertIn("data_wait_seconds", metrics[-1])
+            self.assertIn("train_compute_seconds", metrics[-1])
+            self.assertIn("train_step_seconds", metrics[-1])
+            self.assertIn("tokens_per_second_e2e", metrics[-1])
+            self.assertIn("tokens_per_gpu_second_e2e", metrics[-1])
+            self.assertIn("eval_seconds", metrics[-1])
+            self.assertIn("checkpoint_seconds", metrics[-1])
+            self.assertGreaterEqual(metrics[-1]["data_wait_seconds"], 0.0)
+            self.assertGreater(metrics[-1]["train_compute_seconds"], 0.0)
+            self.assertGreaterEqual(metrics[-1]["train_step_seconds"], metrics[-1]["train_compute_seconds"])
+            self.assertGreaterEqual(metrics[-1]["eval_seconds"], 0.0)
+            self.assertGreater(metrics[-1]["checkpoint_seconds"], 0.0)
             self.assertEqual(manifest.metadata["distributed_strategy"], "ddp")
             self.assertEqual(manifest.metadata["dataset_format"], "numpy")
             self.assertEqual(manifest.metadata["gradient_accumulation_steps"], 1)

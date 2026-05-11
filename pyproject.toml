@@ -22,7 +22,9 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = []
+dev = [
+    "tensorboard>=2.20.0",
+]
 
 [project.scripts]
 mega-trading = "mega_trading.cli:main"

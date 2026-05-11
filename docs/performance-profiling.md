@@ -30,6 +30,8 @@ final Muon candidate:
 
 Compared with the baseline, the profiler-window max step dropped from about 200 ms to about 101 ms, and the CPU optimizer window dropped from about 324 ms to about 20 ms per two optimizer updates. The remaining sawtooth is now mostly real GPU Newton-Schulz work at accumulation boundaries, not Python scalar sync or per-tensor launch fragmentation.
 
+This was an end-to-end training-step investigation. The profiler covered data wait, host-side batch construction, forward, backward, optimizer, metrics, evaluation, and checkpoint hooks. Data loading was measured rather than assumed: the smoke active trace showed `DataLoader` iteration around 17 ms across 16 active steps, or about 1.1 ms per step. That rules out DataLoader as the bottleneck in that profiler window, but it does not rule out longer-run DataLoader tail latency from page-cache misses, CPU contention, worker startup, or mmap behavior outside the sampled window.
+
 Techniques used:
 
 - PyTorch profiler with CPU/CUDA activities and TensorBoard trace output.
@@ -39,6 +41,42 @@ Techniques used:
 - Shape-bucketed Muon updates grouped by `(shape, dtype, device)`.
 - Batched Newton-Schulz orthogonalization over stacked same-shape tensors.
 - `muon_ns_steps` sweep from `5` to `3` to measure speed/convergence tradeoff.
+- Explicit live-run DataLoader diagnostics in `metrics.json` and MLflow: `data_wait_seconds`, `train_compute_seconds`, `train_step_seconds`, `tokens_per_second_e2e`, `tokens_per_gpu_second_e2e`, `train/dataloader_wait_seconds`, and `train/dataloader_wait_fraction`.
+- Optional eager NumPy preload via `training.preload_numpy_arrays`, enabled in `configs/rtx.yaml`, so prepared `.npy` token shards are loaded into RAM instead of being faulted through mmap during training.
+
+## End-to-End Scope
+
+The profiling target was full training-step performance, not only kernel speed. Each trace should be read as a timeline of the whole loop:
+
+```text
+DataLoader -> forward -> loss -> backward -> optimizer -> metrics/eval/checkpoint hooks
+```
+
+The current smoke-profile finding is that optimizer work dominates the sampled intermittent stalls. The data path is tracked with `train/data_wait`, the built-in `enumerate(DataLoader)#_SingleProcessDataLoaderIter.__next__` annotation, and live metrics emitted every recorded training row. If the user-facing live run still shows instantaneous throughput drops, compare `tokens_per_second` with `tokens_per_second_e2e` and inspect `data_wait_seconds` for spikes before changing loader settings.
+
+Important metric semantics:
+
+```text
+tokens_per_second       = forward/backward/optimizer throughput only
+tokens_per_second_e2e   = batch wait + forward/backward/optimizer throughput
+data_wait_seconds       = time spent waiting for the next batch
+train_compute_seconds   = time spent after batch delivery
+train_step_seconds      = data_wait_seconds + train_compute_seconds plus tiny loop overhead
+```
+
+Before these fields were added, a drop in `tokens_per_second` alone could not prove a DataLoader bottleneck because that timer started after `batch = next(iterator)`. A DataLoader stall should now show up as a spike in `data_wait_seconds` and a larger drop in `tokens_per_second_e2e` than in compute-only `tokens_per_second`.
+
+MLflow receives the same signals through the training tracker payload:
+
+```text
+train/data_wait_seconds
+train/dataloader_wait_seconds
+train/dataloader_wait_fraction
+train/compute_seconds
+train/step_seconds
+train/tokens_per_second_e2e
+train/tokens_per_gpu_second_e2e
+```
 
 ## 2026-05-10 RTX PyTorch Profiler Smoke Run
 
@@ -482,13 +520,15 @@ batched ns3           3         6.594965    6.254144         0.009521
 
 This is only a 104-step smoke run, so it does not prove final convergence parity. It is enough to show that `ns_steps=3` is a promising speed setting to test in a longer training run.
 
-Data loading is not the bottleneck in this profile:
+Data loading is part of the end-to-end profile. In this sampled smoke window it was small:
 
 ```text
 enumerate(DataLoader)#_SingleProcessDataLoaderIter.__next__
 total: 17.117 ms across 16 active steps
 mean:  about 1.1 ms per step
 ```
+
+This is why the first optimization pass targeted Muon instead of DataLoader workers or pinned memory. Those settings may still matter for longer live runs, especially if `data_wait_seconds` develops spikes that were not present in the profiler window.
 
 The model compute path looks steady. Regular non-boundary steps are dominated by compiled forward/backward regions and GEMM kernels, with no periodic spike comparable to the Muon optimizer boundary.
 
@@ -527,7 +567,191 @@ Remaining options:
 - Consider a Triton implementation only for bucketed Newton-Schulz if PyTorch batched matmul remains too expensive.
 - Keep the AdamW comparison trace as a control whenever modifying optimizer internals.
 
-DataLoader tuning is lower priority based on this run. It may still help at larger batch sizes or multi-worker CPU pressure, but this trace does not show data wait as the source of the current utilization sawtooth.
+DataLoader tuning is evidence-gated. If a live run shows `data_wait_seconds` spikes aligned with `tokens_per_second_e2e` drops, prioritize loader work next. Do not enable `num_workers>0` blindly yet: the current `NumpyTickerTimeDataset` is an `IterableDataset`, so multi-worker loading needs explicit worker sharding to avoid duplicated samples.
+
+The first DataLoader-side mitigation is now available:
+
+```yaml
+training:
+  preload_numpy_arrays: true
+```
+
+When enabled, `NumpyTickerTimeDataset` reads prepared NumPy token shards into memory during dataset construction and shares the same in-memory array cache between train and validation datasets. This avoids relying on mmap page faults during the training loop. `configs/rtx.yaml` enables it by default; memory-constrained configs keep it disabled.
+
+### DataLoader Preload A/B
+
+Command shape:
+
+```bash
+uv run mega-trading train --config-name rtx \
+  run.run_id=rtx-dataloader-mmap-1100 \
+  training.preload_numpy_arrays=false \
+  training.optimizer=adamw \
+  training.max_steps=1100 \
+  training.metric_interval=1 \
+  training.eval_interval=100000 \
+  training.checkpoint_interval=null \
+  training.mlflow_enabled=false \
+  training.progress_bar=false \
+  training.profiler_enabled=false \
+  training.nvtx_enabled=false
+
+uv run mega-trading train --config-name rtx \
+  run.run_id=rtx-dataloader-preload-1100 \
+  training.preload_numpy_arrays=true \
+  training.optimizer=adamw \
+  training.max_steps=1100 \
+  training.metric_interval=1 \
+  training.eval_interval=100000 \
+  training.checkpoint_interval=null \
+  training.mlflow_enabled=false \
+  training.progress_bar=false \
+  training.profiler_enabled=false \
+  training.nvtx_enabled=false
+```
+
+The RTX token shards are about 59.1 GiB on disk. The test machine had about 163 GiB available RAM before preload, so this was safe for the local RTX server.
+
+Measured after warmup (`step > 10`):
+
+```text
+run                 data_wait mean  p50     p95     p99     max     e2e tok/s mean  p50
+mmap                0.966 ms        0.960   1.002   1.105   1.569   209,155.8       210,336.7
+preload             0.607 ms        0.603   0.637   0.663   0.770   223,333.9       228,658.2
+```
+
+Preload reduced mean DataLoader wait by about 37%, p99 by about 40%, and max observed DataLoader wait by about 51% in this 1100-step controlled run. That validates eager preload as useful for smoothing batch delivery.
+
+The largest instantaneous `tokens_per_second_e2e` drop in this controlled run was not DataLoader-bound:
+
+```text
+run       slowest step  data_wait  compute      e2e tok/s
+mmap      642           0.968 ms   177.113 ms   22,999.2
+preload   642           0.596 ms   172.671 ms   23,638.2
+```
+
+So preload improves the DataLoader component, but if a live run still has a single-step tok/s collapse with flat `data_wait_seconds`, the next bottleneck is compute/optimizer/compile rather than file loading. If the live run shows `data_wait_seconds` spikes aligned with the collapse, then the DataLoader remains the active bottleneck.
+
+### MLflow Throughput Sawtooth
+
+The `make rtx` run still showed throughput sawtooth after preload. The live metrics confirmed the pattern was not a file-loading spike:
+
+```text
+slow rows: step % 8 == 0
+gradient_accumulation_steps: 8
+optimizer: Muon
+data_wait_seconds: flat around the same level as neighboring rows
+train_compute_seconds: higher on optimizer-boundary rows
+```
+
+The previous MLflow chart used per-step throughput for the logged step. With `metric_interval=10` and `gradient_accumulation_steps=8`, the logged samples alternated between accumulation-only steps and optimizer-boundary steps, producing a persistent chart sawtooth.
+
+The training loop now records two throughput families:
+
+```text
+train/tokens_per_second              window average used for default monitoring
+train/tokens_per_gpu_second          window average used for default monitoring
+train/tokens_per_second_e2e          window average including DataLoader wait
+train/step_tokens_per_second         raw single logged step throughput
+train/step_tokens_per_gpu_second     raw single logged step throughput
+train/step_tokens_per_second_e2e     raw single logged step throughput including DataLoader wait
+```
+
+`configs/rtx.yaml` used `metric_interval: 40` for the `batch_size=8`, `gradient_accumulation_steps=8` setup. After increasing the RTX micro-batch, the equivalent token-span window is `metric_interval: 10` with `gradient_accumulation_steps=2`. Each logged throughput window contains a stable number of optimizer boundaries, so the default MLflow throughput charts track sustained training throughput rather than sampling artifacts.
+
+Smoke validation:
+
+```text
+run                         metric_interval  window min/max ratio  raw min/max ratio
+rtx-window-metrics-smoke     10               0.376                 0.295
+rtx-window-metrics-aligned   40               0.780                 0.997
+```
+
+The first aligned window includes startup/warmup overhead. Subsequent aligned windows were stable around 201k-202k tokens/GPU/s in the smoke run. Raw step throughput remains available for diagnosing real optimizer-boundary cost.
+
+### GPU Utilization Headroom
+
+The live RTX run still showed GPU-utilization dips even after DataLoader preload. The process was using about 13.7 GiB out of 95.9 GiB of GPU memory with `batch_size=8`, while CPU/host activity was high. That indicates the Blackwell GPU is under-filled by the micro-batch.
+
+`configs/rtx.yaml` now keeps the effective batch unchanged while increasing the GPU work per micro-step:
+
+```text
+before: batch_size=8,  gradient_accumulation_steps=8  -> effective 64 sequences/update
+after:  batch_size=32, gradient_accumulation_steps=2  -> effective 64 sequences/update
+```
+
+Because `max_steps` is counted in micro-steps, the schedule and training length also need token-equivalent scaling:
+
+```text
+max_steps:            20000 -> 5000
+lr_warmup_steps:       1000 -> 250
+eval_interval:          500 -> 125
+checkpoint_interval:   1000 -> 500
+metric_interval:         40 -> 10
+max_eval_batches:        64 -> 16
+```
+
+This keeps total token exposure, optimizer updates, and warmup position approximately equivalent to the old effective-batch-64 run. Validation still runs at the same token cadence, but uses fewer batches per pass to reduce synchronous stalls. Checkpoints are less frequent because they protect recoverability, not overfit detection, and full model serialization can idle the GPU.
+
+The training loop now also emits:
+
+```text
+train/eval_seconds
+train/checkpoint_seconds
+```
+
+Use these with GPU-utilization drops to distinguish validation pauses from checkpoint serialization pauses. The current already-running `make rtx` process will not pick this up; restart the run to use the new config.
+
+### TorchDynamo Recompile From Torchinfo
+
+The RTX path uses `torch.compile`. `torchinfo.summary()` registers forward hooks to inspect modules, and those hooks include Python object identity checks such as `id(module)`. Running torchinfo against a compiled model caused TorchDynamo recompilation warnings like:
+
+```text
+torch._dynamo hit config.recompile_limit
+function: 'hook' (.../torchinfo/torchinfo.py)
+last reason: tensor 'outputs' dtype mismatch
+```
+
+The model summary is only an MLflow convenience artifact, not part of training. The training path now logs torchinfo summary before `torch.compile` is applied. This keeps the MLflow model summary artifact while preventing torchinfo hooks from entering the compiled training graph.
+
+### GPU Drops After Compile Warmup
+
+The latest `rtx` metrics show a different bottleneck from the earlier optimizer and TorchDynamo issues:
+
+- Step 1 is a one-time `torch.compile`/warmup outlier.
+- Early steady-state windows show `eval_seconds=0` and `checkpoint_seconds=0`, so the repeated short GPU-utilization drops before scheduled validation/checkpointing are not primarily validation or serialization.
+- `metric_window_data_wait_seconds` is about `0.85s` per 10 steps while `metric_window_compute_seconds` is about `0.67s` per 10 steps, so the GPU is waiting on the synchronous DataLoader path.
+
+The RTX config now enables worker-backed loading:
+
+```yaml
+training:
+  preload_numpy_arrays: true
+  dataloader_num_workers: 4
+  dataloader_prefetch_factor: 4
+  dataloader_pin_memory: true
+  dataloader_persistent_workers: true
+```
+
+The iterable NumPy dataset is worker-sharded, so multiple DataLoader workers split rows instead of duplicating them. This overlaps Python slicing/tensor creation and pinned host transfer with GPU compute. Re-run `make rtx` after this change and watch `train/dataloader_wait_seconds` and `train/dataloader_wait_fraction`; they should fall if the GPU drops were from CPU-side batch production.
+
+New live-run check:
+
+```bash
+python3 - <<'PY'
+import json, pathlib
+path = pathlib.Path(".mega-trading/data/runs/<run-id>/metrics.json")
+rows = json.loads(path.read_text())["metrics"]
+for row in rows[-20:]:
+    print(
+        row["step"],
+        "data_ms=", round(row.get("data_wait_seconds", 0.0) * 1000, 2),
+        "compute_ms=", round(row.get("train_compute_seconds", 0.0) * 1000, 2),
+        "tok_s=", round(row.get("tokens_per_second", 0.0), 1),
+        "e2e_tok_s=", round(row.get("tokens_per_second_e2e", 0.0), 1),
+    )
+PY
+```
 
 ## Follow-Up Validation
 

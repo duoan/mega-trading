@@ -82,6 +82,11 @@ class TrainConfig:
     eval_interval: int = 20
     max_eval_batches: int | None = None
     metric_interval: int = 1
+    preload_numpy_arrays: bool = False
+    dataloader_num_workers: int = 0
+    dataloader_prefetch_factor: int = 2
+    dataloader_pin_memory: bool = False
+    dataloader_persistent_workers: bool = False
     hidden_dim: int = 128
     layers: int = 4
     attention_heads: int = 4
@@ -150,6 +155,12 @@ class TrainConfig:
             raise ValueError("max_eval_batches must be positive when set")
         if self.metric_interval <= 0:
             raise ValueError("metric_interval must be positive")
+        if self.dataloader_num_workers < 0:
+            raise ValueError("dataloader_num_workers must be non-negative")
+        if self.dataloader_prefetch_factor <= 0:
+            raise ValueError("dataloader_prefetch_factor must be positive")
+        if self.dataloader_persistent_workers and self.dataloader_num_workers == 0:
+            raise ValueError("dataloader_persistent_workers requires dataloader_num_workers > 0")
         if self.hidden_dim <= 0:
             raise ValueError("hidden_dim must be positive")
         if self.layers <= 0:

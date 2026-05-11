@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, MutableMapping
 
 import numpy as np
 import torch
-from torch.utils.data import IterableDataset
+from torch.utils.data import IterableDataset, get_worker_info
 
 from mega_trading.core.store import LocalObjectStore
 
@@ -22,6 +22,8 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
         numpy_metadata: dict[str, Any],
         split_counts: dict[str, Any],
         split: str,
+        preload_numpy_arrays: bool = False,
+        array_cache: MutableMapping[str, np.ndarray] | None = None,
     ) -> None:
         super().__init__()
         if split not in {"train", "validation", "backtest"}:
@@ -32,6 +34,8 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
         self.numpy_metadata = numpy_metadata
         self.split_counts = split_counts
         self.split = split
+        self.preload_numpy_arrays = preload_numpy_arrays
+        self.array_cache = array_cache if array_cache is not None else {}
         ticker_to_id = {str(ticker): int(ticker_id) for ticker, ticker_id in dict(numpy_metadata["ticker_to_id"]).items()}
         self.split_counts_by_id = {
             ticker_to_id[ticker]: {
@@ -42,6 +46,8 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
             for ticker, counts in split_counts.items()
             if ticker in ticker_to_id
         }
+        if self.preload_numpy_arrays:
+            self._preload_arrays()
 
     def __iter__(self):
         if self.numpy_metadata.get("storage") == "token_stream":
@@ -50,43 +56,79 @@ class NumpyTickerTimeDataset(IterableDataset[dict[str, torch.Tensor]]):
         if bool(self.numpy_metadata.get("partitioned")):
             yield from self._iter_partitions()
             return
-        tokens = np.load(_artifact_target(self.store, str(self.numpy_metadata["tokens_path"])), mmap_mode="r")
-        ticker_ids = np.load(_artifact_target(self.store, str(self.numpy_metadata["ticker_ids_path"])), mmap_mode="r")
+        tokens = self._load_array(str(self.numpy_metadata["tokens_path"]))
+        ticker_ids = self._load_array(str(self.numpy_metadata["ticker_ids_path"]))
         seen: Counter[int] = Counter()
+        global_row_index = 0
         for row_index in range(int(tokens.shape[0])):
             ticker_id = int(ticker_ids[row_index])
             index = seen[ticker_id]
             seen[ticker_id] += 1
-            if _row_in_split(index, self.split_counts_by_id.get(ticker_id, {}), self.split):
+            if _row_in_split(index, self.split_counts_by_id.get(ticker_id, {}), self.split) and _worker_accepts(
+                global_row_index
+            ):
                 yield tokens_to_example(tokens[row_index])
+            global_row_index += 1
 
     def _iter_partitions(self):
         seen: Counter[int] = Counter()
+        global_row_index = 0
         for partition in self.numpy_metadata.get("partitions", []):
-            tokens = np.load(_artifact_target(self.store, str(partition["tokens_path"])), mmap_mode="r")
-            ticker_ids = np.load(_artifact_target(self.store, str(partition["ticker_ids_path"])), mmap_mode="r")
+            tokens = self._load_array(str(partition["tokens_path"]))
+            ticker_ids = self._load_array(str(partition["ticker_ids_path"]))
             for row_index in range(int(tokens.shape[0])):
                 ticker_id = int(ticker_ids[row_index])
                 index = seen[ticker_id]
                 seen[ticker_id] += 1
-                if _row_in_split(index, self.split_counts_by_id.get(ticker_id, {}), self.split):
+                if _row_in_split(index, self.split_counts_by_id.get(ticker_id, {}), self.split) and _worker_accepts(
+                    global_row_index
+                ):
                     yield tokens_to_example(tokens[row_index])
+                global_row_index += 1
 
     def _iter_token_streams(self):
         sequence_length = int(self.numpy_metadata["sequence_length"])
         stride = int(self.numpy_metadata["stride"])
         seen: Counter[int] = Counter()
+        global_row_index = 0
         for partition in self.numpy_metadata.get("partitions", []):
             ticker_id = int(partition["ticker_id"])
             counts = self.split_counts_by_id.get(ticker_id, {})
-            tokens = np.load(_artifact_target(self.store, str(partition["tokens_path"])), mmap_mode="r")
+            tokens = self._load_array(str(partition["tokens_path"]))
             for _partition_index in range(int(partition["sequence_count"])):
                 index = seen[ticker_id]
                 seen[ticker_id] += 1
                 if not _row_in_split(index, counts, self.split):
+                    global_row_index += 1
+                    continue
+                if not _worker_accepts(global_row_index):
+                    global_row_index += 1
                     continue
                 offset = _partition_index * stride
                 yield tokens_to_example(tokens[offset : offset + sequence_length])
+                global_row_index += 1
+
+    def _preload_arrays(self) -> None:
+        if self.numpy_metadata.get("storage") == "token_stream":
+            for partition in self.numpy_metadata.get("partitions", []):
+                self._load_array(str(partition["tokens_path"]))
+            return
+        if bool(self.numpy_metadata.get("partitioned")):
+            for partition in self.numpy_metadata.get("partitions", []):
+                self._load_array(str(partition["tokens_path"]))
+                self._load_array(str(partition["ticker_ids_path"]))
+            return
+        self._load_array(str(self.numpy_metadata["tokens_path"]))
+        self._load_array(str(self.numpy_metadata["ticker_ids_path"]))
+
+    def _load_array(self, path: str) -> np.ndarray:
+        target = _artifact_target(self.store, path)
+        if not self.preload_numpy_arrays:
+            return np.load(target, mmap_mode="r")
+        cache_key = str(target)
+        if cache_key not in self.array_cache:
+            self.array_cache[cache_key] = np.load(target)
+        return self.array_cache[cache_key]
 
 
 def tokens_to_example(tokens: Iterable[int]) -> dict[str, torch.Tensor]:
@@ -96,6 +138,13 @@ def tokens_to_example(tokens: Iterable[int]) -> dict[str, torch.Tensor]:
     input_ids = torch.tensor(tokens[:-1], dtype=torch.long)
     labels = torch.tensor(tokens[1:], dtype=torch.long)
     return {"input_ids": input_ids, "labels": labels}
+
+
+def _worker_accepts(row_index: int) -> bool:
+    worker = get_worker_info()
+    if worker is None:
+        return True
+    return row_index % int(worker.num_workers) == int(worker.id)
 
 
 def split_counts(total_rows: int, validation_fraction: float) -> tuple[int, int]:
