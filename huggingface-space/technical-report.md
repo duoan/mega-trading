@@ -187,11 +187,11 @@ This makes inference reproducible and auditable: every generated scenario can be
 
 This is an open-loop public-data MVP. The current evaluation reports chronological backtest loss, perplexity, top-k token accuracy, and rollout-vs-real stylized facts. It does not yet implement the TradeFM-inspired closed-loop simulator that would validate order matching, fills, queue dynamics, market impact, stress behavior, or execution-policy performance.
 
-The public Binance trade adapter is also a proxy for participant-observable order flow. Real L3 data should replace this path for serious microstructure modeling.
+The public Binance trade adapter is also a proxy for participant-observable order flow. Serious microstructure modeling should replace this path with venue-grade feed data such as [IEX DEEP/HIST market data](https://iextrading.com/trading/market-data/), whose historical feed files are distributed as pcap files with feed specifications for decoding.
 
 ## Future Direction
 
-- **L3 data**: ingest full add/delete/modify order lifecycle events, true best bid/ask midprice, queue position, and venue-specific order state.
+- **L3 data**: build an [IEX DEEP/HIST](https://iextrading.com/trading/market-data/) ingestion path for venue-grade historical market data, then extend the event contract toward add/delete/modify order lifecycle events, true best bid/ask midprice, queue position, and venue-specific order state.
 - **Multimodal conditioning**: align news, filings, macro events, funding data, on-chain or flow signals, and sentiment with event-time order-flow tokens. In short, the multimodal roadmap is to condition market-event generation on external information without turning the model into a generic text generator.
 - **Closed-loop simulator**: evaluate generated events inside a deterministic LOB simulator to measure fills, slippage, spread dynamics, and market impact.
 - **Inference packaging**: ship checkpoint, tokenizer, manifest, and model card together so generated scenarios preserve provenance.

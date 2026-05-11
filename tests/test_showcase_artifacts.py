@@ -40,6 +40,8 @@ def test_huggingface_poster_contains_required_story_sections() -> None:
         "Reference Frame",
         "Multimodal",
         "L3 Data",
+        "IEX DEEP/HIST",
+        "https://iextrading.com/trading/market-data/",
     ]
     for section in required_sections:
         assert section in html
@@ -79,6 +81,7 @@ def test_latex_technical_report_has_methods_and_limitations() -> None:
         "\\bibitem{tradefm}",
         "\\bibitem{llama3}",
         "\\bibitem{triton}",
+        "\\bibitem{iexmarketdata}",
         "chronological backtest",
         "Take-Home Scope",
         "Motivation and Fit",
@@ -102,6 +105,8 @@ def test_latex_technical_report_has_methods_and_limitations() -> None:
         "Accuracy Baselines",
         "Multimodal",
         "L3",
+        "IEX DEEP/HIST",
+        "https://iextrading.com/trading/market-data/",
     ]
     for phrase in required_phrases:
         assert phrase in report

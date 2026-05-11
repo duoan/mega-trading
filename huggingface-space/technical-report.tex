@@ -347,14 +347,18 @@ rollout-versus-real stylized facts. It does not yet implement the closed-loop
 market simulator emphasized by TradeFM, which would validate order matching,
 fills, queue dynamics, market impact, stress behavior, or execution-policy
 performance \cite{tradefm}. The public Binance trade adapter is also only a
-proxy for participant-observable order flow. Real L3 data should replace this
-path for serious microstructure modeling.
+proxy for participant-observable order flow. Serious microstructure modeling
+should replace it with venue-grade feed data such as IEX DEEP/HIST market data,
+whose historical feed files are distributed in pcap format with feed
+specifications for decoding \cite{iexmarketdata}.
 
 Future directions are:
 
 \begin{itemize}[leftmargin=1.6em]
-  \item \textbf{L3 data}: ingest full add/delete/modify order lifecycle events,
-  true best bid/ask midprice, queue position, and venue-specific order state.
+  \item \textbf{L3 data}: build an IEX DEEP/HIST ingestion path for
+  venue-grade historical market data, then extend the event contract toward
+  add/delete/modify order lifecycle events, true best bid/ask midprice, queue
+  position, and venue-specific order state \cite{iexmarketdata}.
   \item \textbf{Multimodal conditioning}: align news, filings, macro events,
   funding data, on-chain or flow signals, and sentiment with event-time
   order-flow tokens.
@@ -399,6 +403,11 @@ Ashish Vaswani et al.
 AI at Meta, Llama Team.
 \newblock \emph{The Llama 3 Herd of Models}.
 \newblock arXiv:2407.21783, 2024.
+
+\bibitem{iexmarketdata}
+IEX Exchange.
+\newblock Market Data and HIST Download.
+\newblock \url{https://iextrading.com/trading/market-data/}.
 
 \bibitem{triton}
 Philippe Tillet, H. T. Kung, and David Cox.
