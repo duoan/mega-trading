@@ -1,0 +1,12 @@
+[ingest]
+output_dir = ".mega-trading/data"
+raw_dir = ".mega-trading/raw"
+
+[[ingest.sources]]
+name = "binance_trades"
+tickers = ["BTCUSDT", "ETHUSDT"]
+start = "2026-04-01T00:00:00Z"
+end = "2026-04-30T23:59:59.999999Z"
+frequency = "monthly"
+download_workers = 2
+process_workers = 0

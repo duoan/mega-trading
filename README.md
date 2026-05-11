@@ -22,22 +22,33 @@ make modal
 
 `make mac`, `make rtx`, and `make modal` prepare environment-specific mixtures under the shared `.mega-trading/data/` root, then train, backtest, and render reports keyed by `run_id`. All three environments share raw Binance ZIPs under `.mega-trading/raw/` and processed NumPy shards under `.mega-trading/data/datasets/`; `mixture=mac|rtx|modal` keeps the data budgets distinct. If the processed NumPy shards already exist, prepare is skipped.
 
-Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar, and MLflow for metric tracking. The `make mac`, `make rtx`, `make train-mac`, and `make train-rtx` targets first ensure a local MLflow server is available at `http://127.0.0.1:5000`, reusing it when it is already healthy. Server state lives under `.mega-trading/mlflow/`.
+Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar, and MLflow for metric tracking. Backtest metrics, decoded backtest examples, and HTML reports are also logged as MLflow evaluation artifacts when `training.mlflow_enabled=true`. The `make mac`, `make rtx`, `make train-mac`, and `make train-rtx` targets first ensure a local MLflow server is available at `http://127.0.0.1:5000`, reusing it when it is already healthy. Server state lives under `.mega-trading/mlflow/`.
 
 ```bash
 make mlflow-ui      # start or reuse the local MLflow server, then print the UI URL
 make mlflow-stop    # stop the process recorded in .mega-trading/mlflow/mlflow-server.pid
 ```
 
-Direct `mega-trading train` commands still fall back to a local SQLite backend under `<data_dir>/runs/mlflow/mlflow.db` unless `training.mlflow_tracking_uri` is set explicitly.
+Direct `mega-trading train`, `backtest`, `backtest-examples`, and `report` commands still fall back to a local SQLite backend under `<data_dir>/runs/mlflow/mlflow.db` unless `training.mlflow_tracking_uri` is set explicitly.
 Each MLflow training run also logs a `torchinfo` model summary artifact at `model/model_summary.txt`.
 
 `make mac` writes a backtest JSON and dashboard:
 
 ```text
 .mega-trading/data/evals/mac/backtest.json
+.mega-trading/data/evals/mac/backtest-examples.json
 .mega-trading/data/reports/mac/backtest.html
 ```
+
+For model-size and data-size ablations, edit the YAML files under `configs/ablations/` and run:
+
+```bash
+make ablation-demo
+make ablation-rtx-dry-run
+make ablation-rtx
+```
+
+The ablation runner expands `data_sizes x model_sizes` into prepare, train, backtest, decoded examples, and report commands. Run IDs follow `<name>__data_<data_size>__model_<model_size>`, and MLflow tags include `ablation.name`, `ablation.data_size`, and `ablation.model_size`.
 
 Each environment also has standalone report targets:
 
@@ -112,7 +123,9 @@ labels = window[1:]
 - [Data Plane Design](docs/data-plane-design.md)
 - [Training Plane Design](docs/training-plane-design.md)
 - [Training Configs](docs/training-configs.md)
+- [Ablation Results](docs/ablation-results.md)
 - [Custom Kernels](docs/kernels.md)
+- [Performance Profiling](docs/performance-profiling.md)
 - [Project Structure](docs/project-structure.md)
 - [Training Systems Alignment](docs/training-systems-alignment.md)
 

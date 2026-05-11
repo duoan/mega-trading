@@ -1,4 +1,4 @@
-.PHONY: test demo mac rtx modal platform-demo install-flash-attn mlflow-server mlflow-stop mlflow-ui download-mac download-rtx download-modal prep-mac prep-rtx prep-modal upload-modal train-mac train-rtx train-modal pull-modal-artifacts backtest-mac backtest-rtx backtest-modal report-mac report-rtx report-modal
+.PHONY: test demo ablation-demo ablation-rtx ablation-rtx-dry-run mac rtx modal platform-demo install-flash-attn mlflow-server mlflow-stop mlflow-ui download-mac download-rtx download-modal prep-mac prep-rtx prep-modal upload-modal train-mac train-rtx train-modal pull-modal-artifacts backtest-mac backtest-rtx backtest-modal backtest-examples-mac backtest-examples-rtx backtest-examples-modal report-mac report-rtx report-modal
 
 MLFLOW_HOST ?= 127.0.0.1
 MLFLOW_PORT ?= 5000
@@ -16,6 +16,18 @@ test:
 demo:
 	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-demo.toml --config-name default build.block_size=4 build.stride=2 build.min_events_per_ticker=2
 	uv run mega-trading train data.data_dir=.mega-trading/demo run.run_id=demo training.max_steps=1 training.batch_size=2 training.eval_interval=1 training.device=cpu model.hidden_dim=8 model.layers=1 model.attention_heads=1 training.mlflow_enabled=false
+	uv run mega-trading backtest --max-batches 1 data.data_dir=.mega-trading/demo run.run_id=demo eval.rollouts=1 eval.generated_tokens=4 eval.device=cpu training.mlflow_enabled=false
+	uv run mega-trading backtest-examples --max-sequences 2 --max-tokens 4 data.data_dir=.mega-trading/demo run.run_id=demo training.mlflow_enabled=false
+	uv run mega-trading report data.data_dir=.mega-trading/demo run.run_id=demo training.mlflow_enabled=false
+
+ablation-demo: mlflow-server
+	uv run python scripts/run_ablation.py configs/ablations/demo.yaml --mlflow-tracking-uri "$(MLFLOW_TRACKING_URI)"
+
+ablation-rtx: mlflow-server
+	uv run python scripts/run_ablation.py configs/ablations/rtx.yaml --mlflow-tracking-uri "$(MLFLOW_TRACKING_URI)"
+
+ablation-rtx-dry-run:
+	uv run python scripts/run_ablation.py configs/ablations/rtx.yaml --mlflow-tracking-uri "$(MLFLOW_TRACKING_URI)" --dry-run
 
 mac: mlflow-server
 	uv run python scripts/run_pipeline.py mac --mlflow-tracking-uri "$(MLFLOW_TRACKING_URI)"
@@ -32,6 +44,7 @@ platform-demo:
 	uv run mega-trading train --help
 	uv run mega-trading eval --help
 	uv run mega-trading backtest --help
+	uv run mega-trading backtest-examples --help
 	uv run mega-trading report --help
 
 install-flash-attn:
@@ -89,6 +102,15 @@ backtest-rtx:
 
 backtest-modal:
 	uv run mega-trading backtest --config-name modal --max-batches 128 data.data_dir=.mega-trading/data eval.device=auto
+
+backtest-examples-mac:
+	uv run mega-trading backtest-examples --config-name mac --max-sequences 5 --max-tokens 16
+
+backtest-examples-rtx:
+	uv run mega-trading backtest-examples --config-name rtx --max-sequences 5 --max-tokens 16
+
+backtest-examples-modal:
+	uv run mega-trading backtest-examples --config-name modal --max-sequences 5 --max-tokens 16 data.data_dir=.mega-trading/data
 
 report-mac:
 	uv run mega-trading report --config-name mac

@@ -1212,6 +1212,7 @@ name = "fixture"
                         "--run-id",
                         "train-cli",
                         f"data.data_dir={root}",
+                        "training.mlflow_enabled=false",
                         "eval.rollouts=1",
                         "eval.generated_tokens=4",
                         "eval.device=cpu",
@@ -1228,9 +1229,26 @@ name = "fixture"
                         "--max-batches",
                         "1",
                         f"data.data_dir={root}",
+                        "training.mlflow_enabled=false",
                         "eval.rollouts=1",
                         "eval.generated_tokens=4",
                         "eval.device=cpu",
+                    ]
+                ),
+                0,
+            )
+            self.assertEqual(
+                main(
+                    [
+                        "backtest-examples",
+                        "--run-id",
+                        "train-cli",
+                        "--max-sequences",
+                        "2",
+                        "--max-tokens",
+                        "4",
+                        f"data.data_dir={root}",
+                        "training.mlflow_enabled=false",
                     ]
                 ),
                 0,
@@ -1242,6 +1260,7 @@ name = "fixture"
                         "--run-id",
                         "train-cli",
                         f"data.data_dir={root}",
+                        "training.mlflow_enabled=false",
                     ]
                 ),
                 0,
@@ -1251,6 +1270,7 @@ name = "fixture"
             self.assertTrue((root / "runs/train-cli/checkpoint.pt").exists())
             self.assertTrue((root / "evals/train-cli/report.json").exists())
             self.assertTrue((root / "evals/train-cli/backtest.json").exists())
+            self.assertTrue((root / "evals/train-cli/backtest-examples.json").exists())
             self.assertTrue((root / "reports/train-cli/backtest.html").exists())
 
 

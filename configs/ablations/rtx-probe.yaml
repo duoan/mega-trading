@@ -1,0 +1,60 @@
+name: rtx-probe
+config_name: rtx
+ingest_config: configs/ingest-ablation-probe.toml
+data_dir: .mega-trading/data
+base_overrides:
+  - training.max_steps=20
+  - training.eval_interval=10
+  - training.max_eval_batches=4
+  - training.batch_size=8
+  - training.gradient_accumulation_steps=1
+  - training.optimizer=adamw
+  - training.learning_rate=0.0003
+  - training.lr_schedule=constant
+  - training.lr_warmup_steps=0
+  - training.min_learning_rate=0.0
+  - training.compile=false
+  - training.attention_backend=auto
+  - training.checkpoint_interval=null
+  - training.progress_bar=false
+  - training.mlflow_enabled=true
+  - model.dropout=0.0
+data_sizes:
+  - name: one_ticker
+    overrides:
+      - data.mixture=rtx-probe-one-ticker
+      - build.block_size=128
+      - build.stride=4096
+      - build.min_events_per_ticker=4096
+      - build.max_tickers=1
+      - build.streaming_tokenizer_sample_events=20000
+      - build.streaming_baseline_sample_rows=20000
+  - name: two_tickers
+    overrides:
+      - data.mixture=rtx-probe-two-tickers
+      - build.block_size=128
+      - build.stride=4096
+      - build.min_events_per_ticker=4096
+      - build.max_tickers=2
+      - build.streaming_tokenizer_sample_events=40000
+      - build.streaming_baseline_sample_rows=40000
+model_sizes:
+  - name: micro
+    overrides:
+      - model.hidden_dim=128
+      - model.layers=2
+      - model.attention_heads=4
+      - model.kv_heads=2
+      - model.intermediate_dim=352
+  - name: small
+    overrides:
+      - model.hidden_dim=256
+      - model.layers=4
+      - model.attention_heads=8
+      - model.kv_heads=4
+      - model.intermediate_dim=704
+backtest:
+  max_batches: 16
+examples:
+  max_sequences: 5
+  max_tokens: 16

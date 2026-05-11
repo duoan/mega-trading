@@ -1,0 +1,41 @@
+name: rtx-ablation
+config_name: rtx
+ingest_config: configs/ingest-rtx.toml
+data_dir: .mega-trading/data
+base_overrides:
+  - training.mlflow_enabled=true
+data_sizes:
+  - name: one_ticker
+    overrides:
+      - data.mixture=rtx-ablation-one-ticker
+      - build.max_tickers=1
+      - build.streaming_tokenizer_sample_events=50000
+      - build.streaming_baseline_sample_rows=50000
+  - name: four_tickers
+    overrides:
+      - data.mixture=rtx-ablation-four-tickers
+      - build.max_tickers=4
+      - build.streaming_tokenizer_sample_events=150000
+      - build.streaming_baseline_sample_rows=150000
+model_sizes:
+  - name: small
+    overrides:
+      - model.hidden_dim=512
+      - model.layers=8
+      - model.attention_heads=8
+      - model.kv_heads=4
+      - model.intermediate_dim=1408
+      - training.max_steps=5000
+  - name: base
+    overrides:
+      - model.hidden_dim=1024
+      - model.layers=20
+      - model.attention_heads=16
+      - model.kv_heads=4
+      - model.intermediate_dim=2816
+      - training.max_steps=20000
+backtest:
+  max_batches: 128
+examples:
+  max_sequences: 5
+  max_tokens: 16

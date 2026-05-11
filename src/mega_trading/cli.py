@@ -12,7 +12,9 @@ from mega_trading.config import BuildConfig, TrainConfig
 from mega_trading.core.store import LocalObjectStore
 from mega_trading.data.ingest_config import load_ingest_config
 from mega_trading.backtest import run_backtest
+from mega_trading.backtest_examples import run_backtest_examples
 from mega_trading.eval import run_eval
+from mega_trading.mlflow_tracking import MlflowRunConfig, log_evaluation_artifacts
 from mega_trading.prepare import prepare_numpy_dataset
 from mega_trading.report import run_report
 from mega_trading.trainer import Trainer
@@ -42,6 +44,13 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--run-id", default=None, help="run id to backtest")
     backtest.add_argument("--max-batches", type=int, default=128, help="maximum backtest batches to score")
     backtest.add_argument("overrides", nargs="*", help="Hydra overrides for data/eval settings")
+    examples = subparsers.add_parser("backtest-examples", help="write decoded examples from the backtest split")
+    examples.add_argument("--config-dir", default="configs", help="Hydra config directory")
+    examples.add_argument("--config-name", default="default", help="Hydra config name")
+    examples.add_argument("--run-id", default=None, help="run id to annotate examples")
+    examples.add_argument("--max-sequences", type=int, default=3, help="maximum backtest sequences to sample")
+    examples.add_argument("--max-tokens", type=int, default=16, help="maximum tokens per sampled sequence")
+    examples.add_argument("overrides", nargs="*", help="Hydra overrides for data settings")
     report = subparsers.add_parser("report", help="render a local HTML backtest dashboard")
     report.add_argument("--config-dir", default="configs", help="Hydra config directory")
     report.add_argument("--config-name", default="default", help="Hydra config name")
@@ -75,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
         result = _run_backtest_config(config, args.run_id, int(args.max_batches))
         print(f"wrote backtest report to {config.data.data_dir}/{result.report_path}")
+    elif args.command == "backtest-examples":
+        config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
+        result = _run_backtest_examples_config(config, args.run_id, int(args.max_sequences), int(args.max_tokens))
+        print(f"wrote backtest examples to {config.data.data_dir}/{result.report_path}")
     elif args.command == "report":
         config = load_config(Path(args.config_dir), args.config_name, list(args.overrides))
         result = _run_report_config(config, args.run_id, args.output)
@@ -193,25 +206,64 @@ def _run_eval_config(config: DictConfig, run_id: str | None):
 
 def _run_backtest_config(config: DictConfig, run_id: str | None, max_batches: int):
     store = LocalObjectStore(Path(str(config.data.data_dir)))
-    return run_backtest(
+    resolved_run_id = run_id or str(config.run.run_id)
+    result = run_backtest(
         store,
-        run_id=run_id or str(config.run.run_id),
+        run_id=resolved_run_id,
         mixture_name=str(config.data.mixture),
         max_batches=max_batches,
         rollouts=int(config.eval.rollouts),
         generated_tokens=int(config.eval.generated_tokens),
         device=str(config.eval.device),
     )
+    log_evaluation_artifacts(
+        store,
+        run_id=resolved_run_id,
+        config=_mlflow_run_config(config),
+        metric_source_path=result.report_path,
+        artifact_paths=[result.report_path],
+        tags=_experiment_tags(config),
+    )
+    return result
 
 
 def _run_report_config(config: DictConfig, run_id: str | None, output_path: str | None):
     store = LocalObjectStore(Path(str(config.data.data_dir)))
-    return run_report(
+    resolved_run_id = run_id or str(config.run.run_id)
+    result = run_report(
         store,
-        run_id=run_id or str(config.run.run_id),
+        run_id=resolved_run_id,
         mixture_name=str(config.data.mixture),
         output_path=output_path,
     )
+    log_evaluation_artifacts(
+        store,
+        run_id=resolved_run_id,
+        config=_mlflow_run_config(config),
+        artifact_paths=[result.report_path],
+        tags=_experiment_tags(config),
+    )
+    return result
+
+
+def _run_backtest_examples_config(config: DictConfig, run_id: str | None, max_sequences: int, max_tokens: int):
+    store = LocalObjectStore(Path(str(config.data.data_dir)))
+    resolved_run_id = run_id or str(config.run.run_id)
+    result = run_backtest_examples(
+        store,
+        run_id=resolved_run_id,
+        mixture_name=str(config.data.mixture),
+        max_sequences=max_sequences,
+        max_tokens=max_tokens,
+    )
+    log_evaluation_artifacts(
+        store,
+        run_id=resolved_run_id,
+        config=_mlflow_run_config(config),
+        artifact_paths=[result.report_path],
+        tags=_experiment_tags(config),
+    )
+    return result
 
 
 def _optional_int(value: object) -> int | None:
@@ -224,6 +276,23 @@ def _optional_string(value: object) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _mlflow_run_config(config: DictConfig) -> MlflowRunConfig:
+    return MlflowRunConfig(
+        enabled=bool(config.training.mlflow_enabled),
+        experiment=str(config.training.mlflow_experiment),
+        tracking_uri=_optional_string(config.training.mlflow_tracking_uri),
+    )
+
+
+def _experiment_tags(config: DictConfig) -> dict[str, str]:
+    tags: dict[str, str] = {}
+    for name in ("name", "data_size", "model_size"):
+        value = OmegaConf.select(config, f"ablation.{name}")
+        if value is not None:
+            tags[f"ablation.{name}"] = str(value)
+    return tags
 
 
 if __name__ == "__main__":

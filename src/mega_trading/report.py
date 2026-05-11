@@ -40,6 +40,7 @@ def run_report(
     profile = store.read_json(f"datasets/mixture={mixture_name}/tokens-profile.json")
     metrics = _load_metrics(store, run_id)
     backtest = _read_optional_json(store, f"evals/{run_id}/backtest.json")
+    backtest_examples = _read_optional_json(store, f"evals/{run_id}/backtest-examples.json")
     eval_report = _read_optional_json(store, f"evals/{run_id}/report.json")
     manifest = _read_optional_json(store, f"manifests/training/{run_id}.json")
 
@@ -54,6 +55,7 @@ def run_report(
             profile=profile,
             metrics=metrics,
             backtest=backtest,
+            backtest_examples=backtest_examples,
             eval_report=eval_report,
             manifest=manifest,
         ),
@@ -86,6 +88,7 @@ def _render_html(
     profile: dict[str, Any],
     metrics: list[dict[str, Any]],
     backtest: dict[str, Any] | None,
+    backtest_examples: dict[str, Any] | None,
     eval_report: dict[str, Any] | None,
     manifest: dict[str, Any] | None,
 ) -> str:
@@ -110,6 +113,7 @@ def _render_html(
         _training_chart(metrics),
         _ticker_forecast_section(store, profile, run_id),
         _backtest_section(backtest),
+        _backtest_examples_section(backtest_examples),
         _stylized_fact_section(backtest, eval_report),
         _config_section(profile, manifest),
     ]
@@ -488,6 +492,28 @@ def _backtest_section(backtest: dict[str, Any] | None) -> str:
     ]
     body = "".join(f"<tr><th>{escape(name)}</th><td>{escape(value)}</td></tr>" for name, value in rows)
     return f"<section><h2>Backtest Metrics</h2><table><tbody>{body}</tbody></table></section>"
+
+
+def _backtest_examples_section(backtest_examples: dict[str, Any] | None) -> str:
+    if backtest_examples is None:
+        return "<section><h2>Backtest Examples</h2><p class=\"warn\">No decoded backtest examples found yet.</p></section>"
+    cards = []
+    for example in list(backtest_examples.get("examples", []))[:3]:
+        tokens = []
+        for token in list(dict(example).get("tokens", []))[:8]:
+            token_value = dict(token)
+            name = str(token_value.get("token_name", "unknown"))
+            depth = _format_float(token_value.get("price_depth_bps"))
+            tokens.append(f"<li><code>{escape(name)}</code> depth={escape(depth)}</li>")
+        cards.append(
+            "<div class=\"card\">"
+            f"<h3>Sequence {escape(str(dict(example).get('sequence_index', '?')))}</h3>"
+            f"<ul>{''.join(tokens)}</ul>"
+            "</div>"
+        )
+    if not cards:
+        return "<section><h2>Backtest Examples</h2><p class=\"warn\">Backtest examples artifact is empty.</p></section>"
+    return "<section><h2>Backtest Examples</h2><div class=\"grid\">" + "".join(cards) + "</div></section>"
 
 
 def _stylized_fact_section(backtest: dict[str, Any] | None, eval_report: dict[str, Any] | None) -> str:

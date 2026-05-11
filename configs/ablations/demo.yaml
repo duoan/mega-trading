@@ -1,0 +1,36 @@
+name: demo
+config_name: default
+ingest_config: configs/ingest-demo.toml
+data_dir: .mega-trading/ablation-demo
+base_overrides:
+  - training.max_steps=1
+  - training.batch_size=2
+  - training.eval_interval=1
+  - training.device=cpu
+  - training.progress_bar=false
+  - training.mlflow_enabled=true
+  - model.dropout=0.0
+data_sizes:
+  - name: tiny
+    overrides:
+      - build.block_size=4
+      - build.stride=2
+      - build.min_events_per_ticker=2
+      - build.validation_fraction=0.2
+      - build.backtest_fraction=0.3
+model_sizes:
+  - name: micro
+    overrides:
+      - model.hidden_dim=8
+      - model.layers=1
+      - model.attention_heads=1
+  - name: small
+    overrides:
+      - model.hidden_dim=16
+      - model.layers=1
+      - model.attention_heads=2
+backtest:
+  max_batches: 1
+examples:
+  max_sequences: 3
+  max_tokens: 8
