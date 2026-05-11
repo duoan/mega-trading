@@ -10,3 +10,10 @@ build/
 *.egg-info/
 .mega-trading/
 artifacts/
+
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
