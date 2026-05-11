@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +66,16 @@ def test_huggingface_poster_embeds_local_rtx_metrics() -> None:
     ]
     for metric in expected_metrics:
         assert metric in html
+
+
+def test_huggingface_poster_opens_external_links_in_new_tabs() -> None:
+    html = (SPACE_DIR / "index.html").read_text(encoding="utf-8")
+    external_links = re.findall(r'<a\b(?=[^>]*href="https?://)[^>]*>', html)
+
+    assert external_links
+    for link in external_links:
+        assert 'target="_blank"' in link
+        assert 'rel="noopener noreferrer"' in link
 
 
 def test_latex_technical_report_has_methods_and_limitations() -> None:
