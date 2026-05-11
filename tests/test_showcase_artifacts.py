@@ -172,12 +172,13 @@ def test_huggingface_space_deploy_workflow_is_configured() -> None:
         "huggingface-space/**",
         "workflow_dispatch",
         "secrets.HF_TOKEN",
-        "huggingface-cli upload",
+        "hf upload",
         "--repo-type space",
         "technical-report.pdf",
     ]
     for phrase in required_workflow_phrases:
         assert phrase in workflow_text
+    assert "huggingface-cli upload" not in workflow_text
 
     required_space_metadata = [
         "sdk: static",

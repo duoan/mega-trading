@@ -49,7 +49,7 @@ jobs:
             exit 1
           fi
 
-          huggingface-cli upload "${HF_SPACE_REPO}" huggingface-space . \
+          hf upload "${HF_SPACE_REPO}" huggingface-space . \
             --repo-type space \
             --token "${HF_TOKEN}" \
             --commit-message "Deploy static website from ${GITHUB_SHA}"
