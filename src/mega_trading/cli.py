@@ -160,6 +160,7 @@ def _run_train_config(config: DictConfig):
         mlflow_tracking_uri=_optional_string(config.training.mlflow_tracking_uri),
         progress_bar=bool(config.training.progress_bar),
         profiler_enabled=bool(config.training.profiler_enabled),
+        nvtx_enabled=bool(config.training.nvtx_enabled),
         profiler_trace_dir=_optional_string(config.training.profiler_trace_dir),
         profiler_wait_steps=int(config.training.profiler_wait_steps),
         profiler_warmup_steps=int(config.training.profiler_warmup_steps),

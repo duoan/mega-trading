@@ -35,6 +35,7 @@ from mega_trading.trainer import (
     _log_model_summary_to_mlflow,
     _maybe_compile_model,
     _maybe_cudagraph_mark_step_begin,
+    _nvtx_range,
     _profiler_trace_dir,
     _should_record_training_metrics,
 )
@@ -69,6 +70,7 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(float(rtx.training.min_learning_rate), 0.00002)
         self.assertEqual(int(rtx.training.metric_interval), 10)
         self.assertFalse(bool(rtx.training.profiler_enabled))
+        self.assertFalse(bool(rtx.training.nvtx_enabled))
         self.assertEqual(int(rtx.training.profiler_active_steps), 4)
         self.assertTrue(bool(rtx.build.streaming_prepare))
         self.assertEqual(str(modal.run.run_id), "modal")
@@ -104,6 +106,34 @@ class TrainingTests(unittest.TestCase):
             TrainConfig(run_id="bad", profiler_repeat=0)
         with self.assertRaisesRegex(ValueError, "profiler_trace_dir"):
             TrainConfig(run_id="bad", profiler_trace_dir="")
+
+    def test_nvtx_range_marks_cuda_profiler_regions_when_enabled(self) -> None:
+        config = TrainConfig(run_id="nvtx-test", nvtx_enabled=True)
+
+        with (
+            patch("mega_trading.trainer.torch.cuda.is_available", return_value=True),
+            patch("mega_trading.trainer.torch.cuda.nvtx.range_push") as push,
+            patch("mega_trading.trainer.torch.cuda.nvtx.range_pop") as pop,
+        ):
+            with _nvtx_range(config, "train/forward", step=7):
+                pass
+
+        push.assert_called_once_with("step=7 train/forward")
+        pop.assert_called_once_with()
+
+    def test_nvtx_range_is_noop_when_disabled(self) -> None:
+        config = TrainConfig(run_id="nvtx-test", nvtx_enabled=False)
+
+        with (
+            patch("mega_trading.trainer.torch.cuda.is_available", return_value=True),
+            patch("mega_trading.trainer.torch.cuda.nvtx.range_push") as push,
+            patch("mega_trading.trainer.torch.cuda.nvtx.range_pop") as pop,
+        ):
+            with _nvtx_range(config, "train/forward", step=7):
+                pass
+
+        push.assert_not_called()
+        pop.assert_not_called()
 
     def test_train_config_validates_optimizer_and_scheduler_options(self) -> None:
         with self.assertRaisesRegex(ValueError, "optimizer"):

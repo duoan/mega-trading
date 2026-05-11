@@ -74,6 +74,8 @@ training:
   progress_bar: true
   # Enable with: training.profiler_enabled=true, then open runs/rtx/profiler in TensorBoard.
   profiler_enabled: false
+  # Enable with Nsight Systems: training.nvtx_enabled=true for train/* timeline ranges.
+  nvtx_enabled: false
   profiler_trace_dir: null
   profiler_wait_steps: 2
   profiler_warmup_steps: 2

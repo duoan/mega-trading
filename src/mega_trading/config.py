@@ -105,6 +105,7 @@ class TrainConfig:
     mlflow_tracking_uri: str | None = None
     progress_bar: bool = True
     profiler_enabled: bool = False
+    nvtx_enabled: bool = False
     profiler_trace_dir: str | None = None
     profiler_wait_steps: int = 1
     profiler_warmup_steps: int = 1

@@ -70,6 +70,7 @@ training:
   mlflow_tracking_uri: null
   progress_bar: true
   profiler_enabled: false
+  nvtx_enabled: false
   profiler_trace_dir: null
   profiler_wait_steps: 1
   profiler_warmup_steps: 1

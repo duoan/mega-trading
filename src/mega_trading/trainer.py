@@ -43,6 +43,23 @@ class _NoopProfiler:
         return None
 
 
+@contextmanager
+def _nvtx_range(config: TrainConfig, name: str, step: int | None = None) -> Iterator[None]:
+    if not config.nvtx_enabled or not torch.cuda.is_available():
+        yield
+        return
+    nvtx = getattr(torch.cuda, "nvtx", None)
+    if nvtx is None:
+        yield
+        return
+    label = f"step={step} {name}" if step is not None else name
+    nvtx.range_push(label)
+    try:
+        yield
+    finally:
+        nvtx.range_pop()
+
+
 class MuonAdamW(torch.optim.Optimizer):
     """Hybrid Muon/AdamW optimizer for transformer training."""
 
@@ -208,77 +225,86 @@ class Trainer:
         with profiler as active_profiler:
             for step in range(start_step, self.config.max_steps + 1):
                 last_step = step
-                batch = next(iterator)
+                with _nvtx_range(self.config, "train/data_wait", step):
+                    batch = next(iterator)
                 # Separate compiled forward captures per step when CUDA graphs are enabled (e.g. compile_mode reduce-overhead).
-                _maybe_cudagraph_mark_step_begin(self.config, device)
+                with _nvtx_range(self.config, "train/cudagraph_mark", step):
+                    _maybe_cudagraph_mark_step_begin(self.config, device)
                 started = perf_counter()
                 with accelerator.accumulate(model):
-                    with accelerator.autocast(), _attention_kernel_context(self.config.attention_backend, device):
-                        logits = model(batch["input_ids"])
-                        loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
-                    accelerator.backward(loss)
+                    with _nvtx_range(self.config, "train/forward", step):
+                        with accelerator.autocast(), _attention_kernel_context(self.config.attention_backend, device):
+                            logits = model(batch["input_ids"])
+                            loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
+                    with _nvtx_range(self.config, "train/backward", step):
+                        accelerator.backward(loss)
                     learning_rate = _current_learning_rate(optimizer)
-                    optimizer.step()
-                    scheduler.step()
-                    optimizer.zero_grad(set_to_none=True)
+                    with _nvtx_range(self.config, "train/optimizer", step):
+                        optimizer.step()
+                        scheduler.step()
+                        optimizer.zero_grad(set_to_none=True)
                 elapsed = max(perf_counter() - started, 1e-9)
                 if accelerator.is_main_process and _should_record_training_metrics(step, self.config):
-                    train_loss = float(loss.detach().cpu())
-                    tokens_per_second = _tokens_per_second(batch, elapsed, accelerator)
-                    metric_row = {
-                        "step": step,
-                        "stage": "training",
-                        "optimizer": self.config.optimizer,
-                        "lr_schedule": self.config.lr_schedule,
-                        "learning_rate": learning_rate,
-                        "train_loss": train_loss,
-                        "train_perplexity": _perplexity(train_loss),
-                        "train_top1_accuracy": _topk_accuracy(logits, batch["labels"], 1),
-                        "train_top5_accuracy": _topk_accuracy(logits, batch["labels"], 5),
-                        "train_sequence_count": train_count,
-                        "validation_sequence_count": validation_count,
-                        "backtest_sequence_count": backtest_count,
-                        "world_size": accelerator.num_processes,
-                        "distributed_strategy": self.config.distributed_strategy,
-                        "dataset_format": dataset_format,
-                        "gradient_accumulation_steps": self.config.gradient_accumulation_steps,
-                        "compile_enabled": self.config.compile,
-                        "attention_backend": self.config.attention_backend,
-                        "metric_interval": self.config.metric_interval,
-                        "profiler_enabled": self.config.profiler_enabled,
-                        "tokens_per_second": tokens_per_second,
-                        "tokens_per_gpu_second": tokens_per_second / accelerator.num_processes,
-                    }
+                    with _nvtx_range(self.config, "train/metrics", step):
+                        train_loss = float(loss.detach().cpu())
+                        tokens_per_second = _tokens_per_second(batch, elapsed, accelerator)
+                        metric_row = {
+                            "step": step,
+                            "stage": "training",
+                            "optimizer": self.config.optimizer,
+                            "lr_schedule": self.config.lr_schedule,
+                            "learning_rate": learning_rate,
+                            "train_loss": train_loss,
+                            "train_perplexity": _perplexity(train_loss),
+                            "train_top1_accuracy": _topk_accuracy(logits, batch["labels"], 1),
+                            "train_top5_accuracy": _topk_accuracy(logits, batch["labels"], 5),
+                            "train_sequence_count": train_count,
+                            "validation_sequence_count": validation_count,
+                            "backtest_sequence_count": backtest_count,
+                            "world_size": accelerator.num_processes,
+                            "distributed_strategy": self.config.distributed_strategy,
+                            "dataset_format": dataset_format,
+                            "gradient_accumulation_steps": self.config.gradient_accumulation_steps,
+                            "compile_enabled": self.config.compile,
+                            "attention_backend": self.config.attention_backend,
+                            "metric_interval": self.config.metric_interval,
+                            "profiler_enabled": self.config.profiler_enabled,
+                            "nvtx_enabled": self.config.nvtx_enabled,
+                            "tokens_per_second": tokens_per_second,
+                            "tokens_per_gpu_second": tokens_per_second / accelerator.num_processes,
+                        }
                     if validation_loader is not None and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
-                        metric_row.update(
-                            _evaluate(
-                                model,
-                                validation_loader,
-                                accelerator,
-                                loss_fn,
-                                self.config.attention_backend,
-                                device,
-                                self.config.max_eval_batches,
+                        with _nvtx_range(self.config, "train/eval", step):
+                            metric_row.update(
+                                _evaluate(
+                                    model,
+                                    validation_loader,
+                                    accelerator,
+                                    loss_fn,
+                                    self.config.attention_backend,
+                                    device,
+                                    self.config.max_eval_batches,
+                                )
                             )
-                        )
                     metrics.append(metric_row)
                     accelerator.log(_tracker_metrics(metric_row), step=step)
                     self.store.write_json(metrics_path, {"metrics": metrics})
                     progress.set_postfix(_progress_postfix(metric_row), refresh=False)
                 if self.config.checkpoint_interval and step % self.config.checkpoint_interval == 0:
-                    _save_checkpoint(
-                        self.store,
-                        self.paths.run(f"checkpoints/step-{step:06d}.pt"),
-                        accelerator,
-                        model,
-                        optimizer,
-                        scheduler,
-                        self.config,
-                        profile,
-                        shard_path,
-                        metrics,
-                        step,
-                    )
+                    with _nvtx_range(self.config, "train/checkpoint", step):
+                        _save_checkpoint(
+                            self.store,
+                            self.paths.run(f"checkpoints/step-{step:06d}.pt"),
+                            accelerator,
+                            model,
+                            optimizer,
+                            scheduler,
+                            self.config,
+                            profile,
+                            shard_path,
+                            metrics,
+                            step,
+                        )
                 progress.update(1)
                 active_profiler.step()
         progress.close()
@@ -333,6 +359,7 @@ class Trainer:
                         "max_eval_batches": self.config.max_eval_batches,
                         "metric_interval": self.config.metric_interval,
                         "profiler_enabled": self.config.profiler_enabled,
+                        "nvtx_enabled": self.config.nvtx_enabled,
                         "profiler_trace_dir": str(_profiler_trace_dir(self.store, self.config)),
                     },
                 ),
@@ -813,6 +840,7 @@ def _init_trackers(
             "attention_backend": config.attention_backend,
             "metric_interval": config.metric_interval,
             "profiler_enabled": config.profiler_enabled,
+            "nvtx_enabled": config.nvtx_enabled,
             "profiler_trace_dir": str(_profiler_trace_dir(store, config)),
             "stream_contract": STREAM_CONTRACT,
         },
