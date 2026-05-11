@@ -1,4 +1,14 @@
-.PHONY: test demo mac rtx modal platform-demo install-flash-attn download-mac download-rtx download-modal prep-mac prep-rtx prep-modal upload-modal train-mac train-rtx train-modal pull-modal-artifacts backtest-mac backtest-rtx backtest-modal report-mac report-rtx report-modal
+.PHONY: test demo mac rtx modal platform-demo install-flash-attn mlflow-server mlflow-stop mlflow-ui download-mac download-rtx download-modal prep-mac prep-rtx prep-modal upload-modal train-mac train-rtx train-modal pull-modal-artifacts backtest-mac backtest-rtx backtest-modal report-mac report-rtx report-modal
+
+MLFLOW_HOST ?= 127.0.0.1
+MLFLOW_PORT ?= 5000
+MLFLOW_TRACKING_URI ?= http://$(MLFLOW_HOST):$(MLFLOW_PORT)
+MLFLOW_ROOT ?= .mega-trading/mlflow
+MLFLOW_BACKEND_STORE_URI ?= sqlite:///$(abspath $(MLFLOW_ROOT)/mlflow.db)
+MLFLOW_ARTIFACT_ROOT ?= $(abspath $(MLFLOW_ROOT)/artifacts)
+MLFLOW_PID_FILE ?= $(MLFLOW_ROOT)/mlflow-server.pid
+MLFLOW_LOG_FILE ?= $(MLFLOW_ROOT)/mlflow-server.log
+MLFLOW_WAIT_SECONDS ?= 30
 
 test:
 	uv run python -m unittest discover -s tests
@@ -7,11 +17,11 @@ demo:
 	uv run python scripts/prepare_numpy_dataset.py --ingest-config configs/ingest-demo.toml --config-name default build.block_size=4 build.stride=2 build.min_events_per_ticker=2
 	uv run mega-trading train data.data_dir=.mega-trading/demo run.run_id=demo training.max_steps=1 training.batch_size=2 training.eval_interval=1 training.device=cpu model.hidden_dim=8 model.layers=1 model.attention_heads=1 training.mlflow_enabled=false
 
-mac:
-	uv run python scripts/run_pipeline.py mac
+mac: mlflow-server
+	uv run python scripts/run_pipeline.py mac --mlflow-tracking-uri "$(MLFLOW_TRACKING_URI)"
 
-rtx:
-	uv run python scripts/run_pipeline.py rtx
+rtx: mlflow-server
+	uv run python scripts/run_pipeline.py rtx --mlflow-tracking-uri "$(MLFLOW_TRACKING_URI)"
 
 modal:
 	uv run python scripts/run_pipeline.py modal
@@ -26,6 +36,15 @@ platform-demo:
 
 install-flash-attn:
 	uv run python scripts/install_flash_attn.py --require-cuda
+
+mlflow-server:
+	uv run python scripts/ensure_mlflow_server.py --host "$(MLFLOW_HOST)" --port "$(MLFLOW_PORT)" --backend-store-uri "$(MLFLOW_BACKEND_STORE_URI)" --default-artifact-root "$(MLFLOW_ARTIFACT_ROOT)" --pid-file "$(MLFLOW_PID_FILE)" --log-file "$(MLFLOW_LOG_FILE)" --timeout-seconds "$(MLFLOW_WAIT_SECONDS)"
+
+mlflow-stop:
+	uv run python scripts/ensure_mlflow_server.py --pid-file "$(MLFLOW_PID_FILE)" --stop
+
+mlflow-ui: mlflow-server
+	@echo "MLflow UI: $(MLFLOW_TRACKING_URI)"
 
 download-mac:
 	uv run python scripts/download_binance_archives.py --ingest-config configs/ingest-mac.toml
@@ -48,11 +67,11 @@ prep-modal: download-modal
 upload-modal:
 	uv run modal volume put mega-trading-artifacts .mega-trading/data/datasets /shared/datasets
 
-train-mac:
-	uv run mega-trading train --config-name mac
+train-mac: mlflow-server
+	uv run mega-trading train --config-name mac "training.mlflow_tracking_uri=$(MLFLOW_TRACKING_URI)"
 
-train-rtx:
-	uv run mega-trading train --config-name rtx
+train-rtx: mlflow-server
+	uv run mega-trading train --config-name rtx "training.mlflow_tracking_uri=$(MLFLOW_TRACKING_URI)"
 
 train-modal:
 	uv run modal run modal_train.py --mode cluster --run-id modal --config-name modal --data-dir /data/shared --strategy fsdp --max-steps 50000

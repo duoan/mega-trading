@@ -50,7 +50,9 @@ def main() -> int:
     parser.add_argument("--modal-backtest-batches", type=int, default=128, help="maximum modal backtest batches to score")
     parser.add_argument("--force-data", action="store_true", help="rebuild data even when numpy shards already exist")
     parser.add_argument("--skip-artifact-sync", action="store_true", help="do not download Modal training outputs")
+    parser.add_argument("--mlflow-tracking-uri", help="MLflow tracking server URI for local training runs")
     args = parser.parse_args()
+    mlflow_overrides = _mlflow_overrides(args.mlflow_tracking_uri)
 
     if args.target == "mac":
         _run_environment(
@@ -58,7 +60,7 @@ def main() -> int:
             train_overrides=[
                 f"training.max_steps={args.mac_steps}",
                 "training.eval_interval=50",
-                "training.mlflow_enabled=false",
+                *mlflow_overrides,
             ],
             backtest_batches=args.mac_backtest_batches,
             force_data=args.force_data,
@@ -66,7 +68,12 @@ def main() -> int:
         return 0
 
     if args.target == "rtx":
-        _run_environment(RTX, train_overrides=[], backtest_batches=args.rtx_backtest_batches, force_data=args.force_data)
+        _run_environment(
+            RTX,
+            train_overrides=mlflow_overrides,
+            backtest_batches=args.rtx_backtest_batches,
+            force_data=args.force_data,
+        )
         return 0
 
     _run_modal(args)
@@ -177,6 +184,12 @@ def _prepare_command(environment: Environment, overrides: list[str] | None = Non
         environment.config_name,
         *(overrides or []),
     ]
+
+
+def _mlflow_overrides(tracking_uri: str | None) -> list[str]:
+    if not tracking_uri:
+        return []
+    return [f"training.mlflow_tracking_uri={tracking_uri}"]
 
 
 def _ensure_data(
