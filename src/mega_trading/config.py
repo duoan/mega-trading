@@ -81,6 +81,7 @@ class TrainConfig:
     validation_fraction: float = 0.1
     eval_interval: int = 20
     max_eval_batches: int | None = None
+    metric_interval: int = 1
     hidden_dim: int = 128
     layers: int = 4
     attention_heads: int = 4
@@ -103,6 +104,15 @@ class TrainConfig:
     mlflow_experiment: str = "mega-trading"
     mlflow_tracking_uri: str | None = None
     progress_bar: bool = True
+    profiler_enabled: bool = False
+    profiler_trace_dir: str | None = None
+    profiler_wait_steps: int = 1
+    profiler_warmup_steps: int = 1
+    profiler_active_steps: int = 3
+    profiler_repeat: int = 1
+    profiler_record_shapes: bool = False
+    profiler_profile_memory: bool = False
+    profiler_with_stack: bool = False
 
     def __post_init__(self) -> None:
         if self.max_steps <= 0:
@@ -137,6 +147,8 @@ class TrainConfig:
             raise ValueError("eval_interval must be positive")
         if self.max_eval_batches is not None and self.max_eval_batches <= 0:
             raise ValueError("max_eval_batches must be positive when set")
+        if self.metric_interval <= 0:
+            raise ValueError("metric_interval must be positive")
         if self.hidden_dim <= 0:
             raise ValueError("hidden_dim must be positive")
         if self.layers <= 0:
@@ -178,3 +190,13 @@ class TrainConfig:
             raise ValueError("resume_from_checkpoint must be a non-empty path when set")
         if self.mlflow_tracking_uri is not None and not self.mlflow_tracking_uri:
             raise ValueError("mlflow_tracking_uri must be a non-empty path or URI when set")
+        if self.profiler_trace_dir is not None and not self.profiler_trace_dir:
+            raise ValueError("profiler_trace_dir must be a non-empty path when set")
+        if self.profiler_wait_steps < 0:
+            raise ValueError("profiler_wait_steps must be non-negative")
+        if self.profiler_warmup_steps < 0:
+            raise ValueError("profiler_warmup_steps must be non-negative")
+        if self.profiler_active_steps <= 0:
+            raise ValueError("profiler_active_steps must be positive")
+        if self.profiler_repeat <= 0:
+            raise ValueError("profiler_repeat must be positive")

@@ -32,6 +32,17 @@ class TrainResult:
     manifest_path: str
 
 
+class _NoopProfiler:
+    def __enter__(self) -> "_NoopProfiler":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+    def step(self) -> None:
+        return None
+
+
 class MuonAdamW(torch.optim.Optimizer):
     """Hybrid Muon/AdamW optimizer for transformer training."""
 
@@ -180,82 +191,96 @@ class Trainer:
             )
 
         _init_trackers(accelerator, self.store, self.config, shard_path, profile, train_count, validation_count, precision)
+        _log_model_summary_to_mlflow(
+            accelerator=accelerator,
+            config=self.config,
+            model=model,
+            profile=profile,
+            device=device,
+        )
         loss_fn = nn.CrossEntropyLoss()
         iterator = cycle_batches(train_loader)
         metrics_path = self.paths.run("metrics.json")
         progress = _progress_bar(accelerator, self.config, start_step)
         last_step = start_step - 1
 
-        for step in range(start_step, self.config.max_steps + 1):
-            last_step = step
-            batch = next(iterator)
-            # Separate compiled forward captures per step when CUDA graphs are enabled (e.g. compile_mode reduce-overhead).
-            _maybe_cudagraph_mark_step_begin(self.config, device)
-            started = perf_counter()
-            with accelerator.accumulate(model):
-                with accelerator.autocast(), _attention_kernel_context(self.config.attention_backend, device):
-                    logits = model(batch["input_ids"])
-                    loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
-                accelerator.backward(loss)
-                learning_rate = _current_learning_rate(optimizer)
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad(set_to_none=True)
-            elapsed = max(perf_counter() - started, 1e-9)
-            if accelerator.is_main_process:
-                metric_row = {
-                    "step": step,
-                    "stage": "training",
-                    "optimizer": self.config.optimizer,
-                    "lr_schedule": self.config.lr_schedule,
-                    "learning_rate": learning_rate,
-                    "train_loss": float(loss.detach().cpu()),
-                    "train_perplexity": _perplexity(float(loss.detach().cpu())),
-                    "train_top1_accuracy": _topk_accuracy(logits, batch["labels"], 1),
-                    "train_top5_accuracy": _topk_accuracy(logits, batch["labels"], 5),
-                    "train_sequence_count": train_count,
-                    "validation_sequence_count": validation_count,
-                    "backtest_sequence_count": backtest_count,
-                    "world_size": accelerator.num_processes,
-                    "distributed_strategy": self.config.distributed_strategy,
-                    "dataset_format": dataset_format,
-                    "gradient_accumulation_steps": self.config.gradient_accumulation_steps,
-                    "compile_enabled": self.config.compile,
-                    "attention_backend": self.config.attention_backend,
-                    "tokens_per_second": _tokens_per_second(batch, elapsed, accelerator),
-                    "tokens_per_gpu_second": _tokens_per_second(batch, elapsed, accelerator) / accelerator.num_processes,
-                }
-                if validation_loader is not None and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
-                    metric_row.update(
-                        _evaluate(
-                            model,
-                            validation_loader,
-                            accelerator,
-                            loss_fn,
-                            self.config.attention_backend,
-                            device,
-                            self.config.max_eval_batches,
+        profiler = _training_profiler(self.store, self.config, device, accelerator)
+        with profiler as active_profiler:
+            for step in range(start_step, self.config.max_steps + 1):
+                last_step = step
+                batch = next(iterator)
+                # Separate compiled forward captures per step when CUDA graphs are enabled (e.g. compile_mode reduce-overhead).
+                _maybe_cudagraph_mark_step_begin(self.config, device)
+                started = perf_counter()
+                with accelerator.accumulate(model):
+                    with accelerator.autocast(), _attention_kernel_context(self.config.attention_backend, device):
+                        logits = model(batch["input_ids"])
+                        loss = loss_fn(logits.reshape(-1, logits.shape[-1]), batch["labels"].reshape(-1))
+                    accelerator.backward(loss)
+                    learning_rate = _current_learning_rate(optimizer)
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad(set_to_none=True)
+                elapsed = max(perf_counter() - started, 1e-9)
+                if accelerator.is_main_process and _should_record_training_metrics(step, self.config):
+                    train_loss = float(loss.detach().cpu())
+                    tokens_per_second = _tokens_per_second(batch, elapsed, accelerator)
+                    metric_row = {
+                        "step": step,
+                        "stage": "training",
+                        "optimizer": self.config.optimizer,
+                        "lr_schedule": self.config.lr_schedule,
+                        "learning_rate": learning_rate,
+                        "train_loss": train_loss,
+                        "train_perplexity": _perplexity(train_loss),
+                        "train_top1_accuracy": _topk_accuracy(logits, batch["labels"], 1),
+                        "train_top5_accuracy": _topk_accuracy(logits, batch["labels"], 5),
+                        "train_sequence_count": train_count,
+                        "validation_sequence_count": validation_count,
+                        "backtest_sequence_count": backtest_count,
+                        "world_size": accelerator.num_processes,
+                        "distributed_strategy": self.config.distributed_strategy,
+                        "dataset_format": dataset_format,
+                        "gradient_accumulation_steps": self.config.gradient_accumulation_steps,
+                        "compile_enabled": self.config.compile,
+                        "attention_backend": self.config.attention_backend,
+                        "metric_interval": self.config.metric_interval,
+                        "profiler_enabled": self.config.profiler_enabled,
+                        "tokens_per_second": tokens_per_second,
+                        "tokens_per_gpu_second": tokens_per_second / accelerator.num_processes,
+                    }
+                    if validation_loader is not None and (step % self.config.eval_interval == 0 or step == self.config.max_steps):
+                        metric_row.update(
+                            _evaluate(
+                                model,
+                                validation_loader,
+                                accelerator,
+                                loss_fn,
+                                self.config.attention_backend,
+                                device,
+                                self.config.max_eval_batches,
+                            )
                         )
+                    metrics.append(metric_row)
+                    accelerator.log(_tracker_metrics(metric_row), step=step)
+                    self.store.write_json(metrics_path, {"metrics": metrics})
+                    progress.set_postfix(_progress_postfix(metric_row), refresh=False)
+                if self.config.checkpoint_interval and step % self.config.checkpoint_interval == 0:
+                    _save_checkpoint(
+                        self.store,
+                        self.paths.run(f"checkpoints/step-{step:06d}.pt"),
+                        accelerator,
+                        model,
+                        optimizer,
+                        scheduler,
+                        self.config,
+                        profile,
+                        shard_path,
+                        metrics,
+                        step,
                     )
-                metrics.append(metric_row)
-                accelerator.log(_tracker_metrics(metric_row), step=step)
-                self.store.write_json(metrics_path, {"metrics": metrics})
-                progress.set_postfix(_progress_postfix(metric_row), refresh=False)
-            if self.config.checkpoint_interval and step % self.config.checkpoint_interval == 0:
-                _save_checkpoint(
-                    self.store,
-                    self.paths.run(f"checkpoints/step-{step:06d}.pt"),
-                    accelerator,
-                    model,
-                    optimizer,
-                    scheduler,
-                    self.config,
-                    profile,
-                    shard_path,
-                    metrics,
-                    step,
-                )
-            progress.update(1)
+                progress.update(1)
+                active_profiler.step()
         progress.close()
 
         checkpoint_path = self.paths.run("checkpoint.pt")
@@ -306,6 +331,9 @@ class Trainer:
                         "checkpoint_interval": self.config.checkpoint_interval,
                         "resume_from_checkpoint": self.config.resume_from_checkpoint,
                         "max_eval_batches": self.config.max_eval_batches,
+                        "metric_interval": self.config.metric_interval,
+                        "profiler_enabled": self.config.profiler_enabled,
+                        "profiler_trace_dir": str(_profiler_trace_dir(self.store, self.config)),
                     },
                 ),
             )
@@ -323,6 +351,7 @@ def _build_optimizer(model: torch.nn.Module, config: TrainConfig) -> torch.optim
             betas=betas,
             eps=config.adam_eps,
             weight_decay=config.weight_decay,
+            fused=True,
         )
     muon_params: list[torch.nn.Parameter] = []
     muon_names: list[str] = []
@@ -460,6 +489,52 @@ def _perplexity(loss: float) -> float:
 
 def _tokens_per_second(batch: dict[str, torch.Tensor], elapsed: float, accelerator: Accelerator) -> float:
     return int(batch["labels"].numel()) * accelerator.num_processes / elapsed
+
+
+def _should_record_training_metrics(step: int, config: TrainConfig) -> bool:
+    if step == 1 or step == config.max_steps:
+        return True
+    if step % config.metric_interval == 0:
+        return True
+    if step % config.eval_interval == 0:
+        return True
+    return bool(config.checkpoint_interval and step % config.checkpoint_interval == 0)
+
+
+def _training_profiler(
+    store: LocalObjectStore,
+    config: TrainConfig,
+    device: torch.device,
+    accelerator: Accelerator,
+) -> Any:
+    if not config.profiler_enabled:
+        return _NoopProfiler()
+    trace_dir = _profiler_trace_dir(store, config)
+    if accelerator.is_main_process:
+        trace_dir.mkdir(parents=True, exist_ok=True)
+    accelerator.wait_for_everyone()
+    activities = [torch.profiler.ProfilerActivity.CPU]
+    if device.type == "cuda":
+        activities.append(torch.profiler.ProfilerActivity.CUDA)
+    worker_name = f"rank-{accelerator.process_index}"
+    return torch.profiler.profile(
+        activities=activities,
+        schedule=torch.profiler.schedule(
+            wait=config.profiler_wait_steps,
+            warmup=config.profiler_warmup_steps,
+            active=config.profiler_active_steps,
+            repeat=config.profiler_repeat,
+        ),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler(str(trace_dir), worker_name=worker_name),
+        record_shapes=config.profiler_record_shapes,
+        profile_memory=config.profiler_profile_memory,
+        with_stack=config.profiler_with_stack,
+    )
+
+
+def _profiler_trace_dir(store: LocalObjectStore, config: TrainConfig) -> Path:
+    trace_dir = config.profiler_trace_dir or f"runs/{config.run_id}/profiler"
+    return _checkpoint_target(store, trace_dir)
 
 
 def _dataset(
@@ -736,6 +811,9 @@ def _init_trackers(
             "compile_enabled": config.compile,
             "compile_mode": config.compile_mode,
             "attention_backend": config.attention_backend,
+            "metric_interval": config.metric_interval,
+            "profiler_enabled": config.profiler_enabled,
+            "profiler_trace_dir": str(_profiler_trace_dir(store, config)),
             "stream_contract": STREAM_CONTRACT,
         },
         init_kwargs={
@@ -751,6 +829,41 @@ def _init_trackers(
             }
         },
     )
+
+
+def _log_model_summary_to_mlflow(
+    *,
+    accelerator: Accelerator,
+    config: TrainConfig,
+    model: torch.nn.Module,
+    profile: dict[str, Any],
+    device: torch.device,
+) -> None:
+    if not config.mlflow_enabled or not accelerator.is_main_process:
+        return
+
+    import mlflow
+    import torchinfo
+
+    unwrapped_model = accelerator.unwrap_model(model)
+    was_training = unwrapped_model.training
+    unwrapped_model.eval()
+    input_data = torch.zeros((1, int(profile["block_size"])), dtype=torch.long, device=device)
+    try:
+        with torch.no_grad(), _attention_kernel_context(config.attention_backend, device):
+            model_summary = torchinfo.summary(
+                unwrapped_model,
+                input_data=input_data,
+                depth=6,
+                col_names=("input_size", "output_size", "num_params", "trainable"),
+                verbose=0,
+            )
+        summary_text = str(model_summary)
+    except Exception as exc:
+        summary_text = f"torchinfo model summary failed: {type(exc).__name__}: {exc}"
+    finally:
+        unwrapped_model.train(was_training)
+    mlflow.log_text(summary_text, artifact_file="model/model_summary.txt")
 
 
 def _tracker_metrics(row: dict[str, object]) -> dict[str, float]:

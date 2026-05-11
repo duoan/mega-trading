@@ -54,6 +54,7 @@ training:
   validation_fraction: 0.1
   eval_interval: 20
   max_eval_batches: null
+  metric_interval: 1
   seed: 7
   device: auto
   precision: auto
@@ -68,6 +69,15 @@ training:
   mlflow_experiment: mega-trading
   mlflow_tracking_uri: null
   progress_bar: true
+  profiler_enabled: false
+  profiler_trace_dir: null
+  profiler_wait_steps: 1
+  profiler_warmup_steps: 1
+  profiler_active_steps: 3
+  profiler_repeat: 1
+  profiler_record_shapes: false
+  profiler_profile_memory: false
+  profiler_with_stack: false
 
 eval:
   rollouts: 8

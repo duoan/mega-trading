@@ -17,6 +17,7 @@ dependencies = [
     "modal>=1.4.2",
     "numpy>=2.4.4",
     "torch>=2.11.0",
+    "torchinfo>=1.8.0",
     "tqdm>=4.67.3",
 ]
 

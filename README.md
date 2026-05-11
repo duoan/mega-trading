@@ -22,7 +22,15 @@ make modal
 
 `make mac`, `make rtx`, and `make modal` prepare environment-specific mixtures under the shared `.mega-trading/data/` root, then train, backtest, and render reports keyed by `run_id`. All three environments share raw Binance ZIPs under `.mega-trading/raw/` and processed NumPy shards under `.mega-trading/data/datasets/`; `mixture=mac|rtx|modal` keeps the data budgets distinct. If the processed NumPy shards already exist, prepare is skipped.
 
-Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar, and MLflow for metric tracking. By default MLflow writes to a local SQLite backend under `<data_dir>/runs/mlflow/mlflow.db`; set `training.mlflow_tracking_uri` to point at a remote MLflow server when needed.
+Training uses Hydra config from `configs/default.yaml`, Hugging Face Accelerate for device placement and mixed precision, a main-process progress bar, and MLflow for metric tracking. The `make mac`, `make rtx`, `make train-mac`, and `make train-rtx` targets first ensure a local MLflow server is available at `http://127.0.0.1:5000`, reusing it when it is already healthy. Server state lives under `.mega-trading/mlflow/`.
+
+```bash
+make mlflow-ui      # start or reuse the local MLflow server, then print the UI URL
+make mlflow-stop    # stop the process recorded in .mega-trading/mlflow/mlflow-server.pid
+```
+
+Direct `mega-trading train` commands still fall back to a local SQLite backend under `<data_dir>/runs/mlflow/mlflow.db` unless `training.mlflow_tracking_uri` is set explicitly.
+Each MLflow training run also logs a `torchinfo` model summary artifact at `model/model_summary.txt`.
 
 `make mac` writes a backtest JSON and dashboard:
 

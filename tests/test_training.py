@@ -2,6 +2,7 @@ import importlib.util
 import inspect
 import json
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,8 +32,11 @@ from mega_trading.trainer import (
     _build_lr_scheduler,
     _build_optimizer,
     _current_learning_rate,
+    _log_model_summary_to_mlflow,
     _maybe_compile_model,
     _maybe_cudagraph_mark_step_begin,
+    _profiler_trace_dir,
+    _should_record_training_metrics,
 )
 
 
@@ -63,6 +67,9 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(str(rtx.training.lr_schedule), "cosine")
         self.assertEqual(int(rtx.training.lr_warmup_steps), 1000)
         self.assertEqual(float(rtx.training.min_learning_rate), 0.00002)
+        self.assertEqual(int(rtx.training.metric_interval), 10)
+        self.assertFalse(bool(rtx.training.profiler_enabled))
+        self.assertEqual(int(rtx.training.profiler_active_steps), 4)
         self.assertTrue(bool(rtx.build.streaming_prepare))
         self.assertEqual(str(modal.run.run_id), "modal")
         self.assertEqual(str(modal.data.data_dir), "/data/shared")
@@ -85,6 +92,18 @@ class TrainingTests(unittest.TestCase):
             TrainConfig(run_id="bad", checkpoint_interval=0)
         with self.assertRaisesRegex(ValueError, "max_eval_batches"):
             TrainConfig(run_id="bad", max_eval_batches=0)
+        with self.assertRaisesRegex(ValueError, "metric_interval"):
+            TrainConfig(run_id="bad", metric_interval=0)
+        with self.assertRaisesRegex(ValueError, "profiler_wait_steps"):
+            TrainConfig(run_id="bad", profiler_wait_steps=-1)
+        with self.assertRaisesRegex(ValueError, "profiler_warmup_steps"):
+            TrainConfig(run_id="bad", profiler_warmup_steps=-1)
+        with self.assertRaisesRegex(ValueError, "profiler_active_steps"):
+            TrainConfig(run_id="bad", profiler_active_steps=0)
+        with self.assertRaisesRegex(ValueError, "profiler_repeat"):
+            TrainConfig(run_id="bad", profiler_repeat=0)
+        with self.assertRaisesRegex(ValueError, "profiler_trace_dir"):
+            TrainConfig(run_id="bad", profiler_trace_dir="")
 
     def test_train_config_validates_optimizer_and_scheduler_options(self) -> None:
         with self.assertRaisesRegex(ValueError, "optimizer"):
@@ -103,6 +122,33 @@ class TrainingTests(unittest.TestCase):
             TrainConfig(run_id="bad", lr_warmup_steps=-1)
         with self.assertRaisesRegex(ValueError, "min_learning_rate"):
             TrainConfig(run_id="bad", learning_rate=0.001, min_learning_rate=0.002)
+
+    def test_model_summary_is_logged_to_mlflow(self) -> None:
+        class FakeSummary:
+            def __str__(self) -> str:
+                return "TradingModel summary"
+
+        fake_torchinfo = Mock()
+        fake_torchinfo.summary.return_value = FakeSummary()
+        fake_mlflow = Mock()
+        model = TradingModel(vocab_size=16, block_size=4, hidden_dim=8, layers=1, attention_heads=2)
+        accelerator = Mock(is_main_process=True)
+        accelerator.unwrap_model.return_value = model
+
+        with patch.dict(sys.modules, {"torchinfo": fake_torchinfo, "mlflow": fake_mlflow}):
+            _log_model_summary_to_mlflow(
+                accelerator=accelerator,
+                config=TrainConfig(run_id="summary-test", mlflow_enabled=True),
+                model=model,
+                profile={"block_size": 4},
+                device=torch.device("cpu"),
+            )
+
+        fake_torchinfo.summary.assert_called_once()
+        summary_kwargs = fake_torchinfo.summary.call_args.kwargs
+        self.assertEqual(tuple(summary_kwargs["input_data"].shape), (1, 4))
+        self.assertEqual(summary_kwargs["input_data"].dtype, torch.long)
+        fake_mlflow.log_text.assert_called_once_with("TradingModel summary", artifact_file="model/model_summary.txt")
 
     def test_build_config_validates_prepared_split_fractions(self) -> None:
         with self.assertRaisesRegex(ValueError, "validation_fraction"):
@@ -515,6 +561,26 @@ class TrainingTests(unittest.TestCase):
         with patch.object(torch.compiler, "cudagraph_mark_step_begin", mark, create=True):
             _maybe_cudagraph_mark_step_begin(TrainConfig(run_id="x", compile=True), torch.device("cuda"))
         mark.assert_called_once()
+
+    def test_metric_interval_records_eval_checkpoint_and_last_steps(self) -> None:
+        config = TrainConfig(run_id="metrics-test", max_steps=10, metric_interval=4, eval_interval=5, checkpoint_interval=6)
+
+        recorded = [step for step in range(1, 11) if _should_record_training_metrics(step, config)]
+
+        self.assertEqual(recorded, [1, 4, 5, 6, 8, 10])
+
+    def test_profiler_trace_dir_uses_run_artifact_dir_or_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalObjectStore(Path(tmp))
+
+            default_dir = _profiler_trace_dir(store, TrainConfig(run_id="prof-test"))
+            custom_dir = _profiler_trace_dir(
+                store,
+                TrainConfig(run_id="prof-test", profiler_trace_dir="custom/profiler"),
+            )
+
+        self.assertEqual(default_dir, Path(tmp) / "runs/prof-test/profiler")
+        self.assertEqual(custom_dir, Path(tmp) / "custom/profiler")
 
     def test_muon_optimizer_partitions_hidden_matrices_from_adamw_params(self) -> None:
         model = TradingModel(vocab_size=MarketEventTokenizer().vocab_size, block_size=8, hidden_dim=16, layers=1, attention_heads=2)

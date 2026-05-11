@@ -136,6 +136,7 @@ def _run_train_config(config: DictConfig):
         validation_fraction=float(config.training.validation_fraction),
         eval_interval=int(config.training.eval_interval),
         max_eval_batches=_optional_int(config.training.max_eval_batches),
+        metric_interval=int(config.training.metric_interval),
         hidden_dim=int(config.model.hidden_dim),
         layers=int(config.model.layers),
         attention_heads=int(config.model.attention_heads),
@@ -158,6 +159,15 @@ def _run_train_config(config: DictConfig):
         mlflow_experiment=str(config.training.mlflow_experiment),
         mlflow_tracking_uri=_optional_string(config.training.mlflow_tracking_uri),
         progress_bar=bool(config.training.progress_bar),
+        profiler_enabled=bool(config.training.profiler_enabled),
+        profiler_trace_dir=_optional_string(config.training.profiler_trace_dir),
+        profiler_wait_steps=int(config.training.profiler_wait_steps),
+        profiler_warmup_steps=int(config.training.profiler_warmup_steps),
+        profiler_active_steps=int(config.training.profiler_active_steps),
+        profiler_repeat=int(config.training.profiler_repeat),
+        profiler_record_shapes=bool(config.training.profiler_record_shapes),
+        profiler_profile_memory=bool(config.training.profiler_profile_memory),
+        profiler_with_stack=bool(config.training.profiler_with_stack),
     )
     return Trainer(store, train_config).train(shard_path)
 
