@@ -39,9 +39,9 @@ model:
   norm_eps: 0.00001
 
 training:
-  max_steps: 5000
-  # Keep effective batch at 64 sequences while using a larger micro-batch to fill the RTX PRO 6000.
-  batch_size: 32
+  max_steps: 2500
+  # Keep effective batch at 64 sequences while maximizing per-step GPU work.
+  batch_size: 64
   learning_rate: 0.0002
   optimizer: muon
   weight_decay: 0.01
@@ -51,25 +51,27 @@ training:
   muon_momentum: 0.95
   muon_ns_steps: 5
   lr_schedule: cosine
-  lr_warmup_steps: 250
+  lr_warmup_steps: 125
   min_learning_rate: 0.00002
   validation_fraction: 0.02
-  eval_interval: 125
-  max_eval_batches: 16
-  # Same token span as the old 40-step window at batch_size=8, aligned with gradient_accumulation_steps=2.
+  # Keep validation less frequent so eval cold-start/compile does not dominate GPU utilization.
+  eval_interval: 250
+  max_eval_batches: 8
+  # Smooth monitoring overhead while keeping enough points for MLflow trend tracking.
   metric_interval: 10
   # Keep prepared .npy token shards resident in RAM to avoid mmap/page-cache data_wait spikes.
   preload_numpy_arrays: true
   # Overlap Python slicing/tensor creation and pinned host transfer with GPU compute.
-  dataloader_num_workers: 4
+  dataloader_num_workers: 8
   dataloader_prefetch_factor: 4
   dataloader_pin_memory: true
   dataloader_persistent_workers: true
+  dataloader_non_blocking: true
   seed: 7
   device: cuda
   precision: mixed
   distributed_strategy: ddp
-  gradient_accumulation_steps: 2
+  gradient_accumulation_steps: 1
   compile: true
   # default avoids torch.compile CUDA-graph capture that conflicts with Accelerate backward on single-GPU DDP.
   compile_mode: default

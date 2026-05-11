@@ -87,6 +87,7 @@ class TrainConfig:
     dataloader_prefetch_factor: int = 2
     dataloader_pin_memory: bool = False
     dataloader_persistent_workers: bool = False
+    dataloader_non_blocking: bool = False
     hidden_dim: int = 128
     layers: int = 4
     attention_heads: int = 4
@@ -161,6 +162,8 @@ class TrainConfig:
             raise ValueError("dataloader_prefetch_factor must be positive")
         if self.dataloader_persistent_workers and self.dataloader_num_workers == 0:
             raise ValueError("dataloader_persistent_workers requires dataloader_num_workers > 0")
+        if self.dataloader_non_blocking and not self.dataloader_pin_memory:
+            raise ValueError("dataloader_non_blocking requires dataloader_pin_memory")
         if self.hidden_dim <= 0:
             raise ValueError("hidden_dim must be positive")
         if self.layers <= 0:

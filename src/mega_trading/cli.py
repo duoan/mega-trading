@@ -142,6 +142,7 @@ def _run_train_config(config: DictConfig):
         dataloader_prefetch_factor=int(config.training.dataloader_prefetch_factor),
         dataloader_pin_memory=bool(config.training.dataloader_pin_memory),
         dataloader_persistent_workers=bool(config.training.dataloader_persistent_workers),
+        dataloader_non_blocking=bool(config.training.dataloader_non_blocking),
         hidden_dim=int(config.model.hidden_dim),
         layers=int(config.model.layers),
         attention_heads=int(config.model.attention_heads),

@@ -657,7 +657,7 @@ train/step_tokens_per_gpu_second     raw single logged step throughput
 train/step_tokens_per_second_e2e     raw single logged step throughput including DataLoader wait
 ```
 
-`configs/rtx.yaml` used `metric_interval: 40` for the `batch_size=8`, `gradient_accumulation_steps=8` setup. After increasing the RTX micro-batch, the equivalent token-span window is `metric_interval: 10` with `gradient_accumulation_steps=2`. Each logged throughput window contains a stable number of optimizer boundaries, so the default MLflow throughput charts track sustained training throughput rather than sampling artifacts.
+`configs/rtx.yaml` used `metric_interval: 40` for the `batch_size=8`, `gradient_accumulation_steps=8` setup. After increasing the RTX micro-batch to `batch_size=64`, the equivalent token-span window is `metric_interval: 5` with `gradient_accumulation_steps=1`. Each logged throughput window contains a stable number of optimizer boundaries, so the default MLflow throughput charts track sustained training throughput rather than sampling artifacts.
 
 Smoke validation:
 
@@ -677,21 +677,21 @@ The live RTX run still showed GPU-utilization dips even after DataLoader preload
 
 ```text
 before: batch_size=8,  gradient_accumulation_steps=8  -> effective 64 sequences/update
-after:  batch_size=32, gradient_accumulation_steps=2  -> effective 64 sequences/update
+after:  batch_size=64, gradient_accumulation_steps=1  -> effective 64 sequences/update
 ```
 
-Because `max_steps` is counted in micro-steps, the schedule and training length also need token-equivalent scaling:
+Because `max_steps` is counted in micro-steps, the schedule and training length need token-equivalent scaling. Validation and checkpointing are intentionally kept less frequent than strict token equivalence because they create visible GPU idle periods:
 
 ```text
-max_steps:            20000 -> 5000
-lr_warmup_steps:       1000 -> 250
-eval_interval:          500 -> 125
+max_steps:            20000 -> 2500
+lr_warmup_steps:       1000 -> 125
+eval_interval:          500 -> 250
 checkpoint_interval:   1000 -> 500
 metric_interval:         40 -> 10
-max_eval_batches:        64 -> 16
+max_eval_batches:        64 -> 8
 ```
 
-This keeps total token exposure, optimizer updates, and warmup position approximately equivalent to the old effective-batch-64 run. Validation still runs at the same token cadence, but uses fewer batches per pass to reduce synchronous stalls. Checkpoints are less frequent because they protect recoverability, not overfit detection, and full model serialization can idle the GPU.
+This keeps total token exposure, optimizer updates, and warmup position approximately equivalent to the old effective-batch-64 run. Validation uses fewer batches per pass and runs less often because the first compiled validation pass can create a large cold-start stall. Checkpoints are less frequent because they protect recoverability, not overfit detection, and full model serialization can idle the GPU.
 
 The training loop now also emits:
 
@@ -721,19 +721,32 @@ The latest `rtx` metrics show a different bottleneck from the earlier optimizer 
 - Step 1 is a one-time `torch.compile`/warmup outlier.
 - Early steady-state windows show `eval_seconds=0` and `checkpoint_seconds=0`, so the repeated short GPU-utilization drops before scheduled validation/checkpointing are not primarily validation or serialization.
 - `metric_window_data_wait_seconds` is about `0.85s` per 10 steps while `metric_window_compute_seconds` is about `0.67s` per 10 steps, so the GPU is waiting on the synchronous DataLoader path.
+- Raising workers from 4 to 8 did not materially change the repeated drops; the remaining `next(iterator)` time likely includes synchronous pinned host-to-device transfer and/or waiting for the previous CUDA work at the step boundary.
 
 The RTX config now enables worker-backed loading:
 
 ```yaml
 training:
   preload_numpy_arrays: true
-  dataloader_num_workers: 4
+  dataloader_num_workers: 8
   dataloader_prefetch_factor: 4
   dataloader_pin_memory: true
   dataloader_persistent_workers: true
+  dataloader_non_blocking: true
 ```
 
-The iterable NumPy dataset is worker-sharded, so multiple DataLoader workers split rows instead of duplicating them. This overlaps Python slicing/tensor creation and pinned host transfer with GPU compute. Re-run `make rtx` after this change and watch `train/dataloader_wait_seconds` and `train/dataloader_wait_fraction`; they should fall if the GPU drops were from CPU-side batch production.
+The iterable NumPy dataset is worker-sharded, so multiple DataLoader workers split rows instead of duplicating them. This overlaps Python slicing/tensor creation and pinned, non-blocking host-to-device transfer with GPU compute. Re-run `make rtx` after this change and watch `train/dataloader_wait_seconds` and `train/dataloader_wait_fraction`; they should fall if the GPU drops were from CPU-side batch production or blocking batch transfer.
+
+Metrics logging is split into two parts:
+
+- GPU metric materialization, such as `loss.detach().cpu()` and top-k accuracy, still synchronizes because the values must leave the GPU.
+- MLflow logging and `metrics.json` writes now run through a background single-thread queue and are flushed before final checkpoint/manifest creation. This removes monitoring I/O from the hot training step without dropping metrics.
+
+Periodic checkpointing follows the same pattern:
+
+- The training thread still snapshots model/optimizer/scheduler state first so the background writer never reads live tensors while training continues.
+- The expensive `torch.save`/filesystem serialization for `checkpoints/step-*.pt` runs in a background single-thread queue.
+- The final `checkpoint.pt` remains synchronous so the manifest only references a fully written terminal checkpoint.
 
 New live-run check:
 

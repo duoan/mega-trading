@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 import math
 import os
@@ -10,7 +11,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Iterator
 
-from accelerate import Accelerator
+from accelerate import Accelerator, DataLoaderConfiguration
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -41,6 +42,67 @@ class _NoopProfiler:
 
     def step(self) -> None:
         return None
+
+
+class _AsyncMetricLogger:
+    """Serialize MLflow and metrics.json writes without blocking the training step."""
+
+    def __init__(self, accelerator: Accelerator, store: LocalObjectStore, metrics_path: Path) -> None:
+        self.accelerator = accelerator
+        self.store = store
+        self.metrics_path = metrics_path
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="metrics-logger")
+        self.futures: list[Future[None]] = []
+
+    def __enter__(self) -> "_AsyncMetricLogger":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def submit(self, *, metrics: list[dict[str, object]], tracker_payload: dict[str, float], step: int) -> None:
+        metrics_snapshot = [dict(row) for row in metrics]
+        payload_snapshot = dict(tracker_payload)
+        self.futures.append(
+            self.executor.submit(self._write, metrics_snapshot=metrics_snapshot, tracker_payload=payload_snapshot, step=step)
+        )
+
+    def close(self) -> None:
+        try:
+            for future in self.futures:
+                future.result()
+        finally:
+            self.executor.shutdown(wait=True)
+
+    def _write(self, *, metrics_snapshot: list[dict[str, object]], tracker_payload: dict[str, float], step: int) -> None:
+        self.accelerator.log(tracker_payload, step=step)
+        self.store.write_json(self.metrics_path, {"metrics": metrics_snapshot})
+
+
+class _AsyncCheckpointWriter:
+    """Write checkpoint payloads in the background after the training thread snapshots state."""
+
+    def __init__(self, store: LocalObjectStore) -> None:
+        self.store = store
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="checkpoint-writer")
+        self.futures: list[Future[None]] = []
+
+    def __enter__(self) -> "_AsyncCheckpointWriter":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def submit(self, checkpoint_path: str, payload: dict[str, Any]) -> None:
+        target = _checkpoint_target(self.store, checkpoint_path)
+        self.futures.append(self.executor.submit(_write_checkpoint_payload, target, payload))
+
+    def close(self) -> None:
+        try:
+            for future in self.futures:
+                future.result()
+        finally:
+            self.executor.shutdown(wait=True)
 
 
 @contextmanager
@@ -256,7 +318,9 @@ class Trainer:
         metric_window_steps = 0
 
         profiler = _training_profiler(self.store, self.config, device, accelerator)
-        with profiler as active_profiler:
+        metric_logger = _AsyncMetricLogger(accelerator, self.store, metrics_path)
+        checkpoint_writer = _AsyncCheckpointWriter(self.store)
+        with profiler as active_profiler, metric_logger, checkpoint_writer:
             for step in range(start_step, self.config.max_steps + 1):
                 last_step = step
                 step_started = perf_counter()
@@ -328,6 +392,7 @@ class Trainer:
                             "dataloader_prefetch_factor": self.config.dataloader_prefetch_factor,
                             "dataloader_pin_memory": self.config.dataloader_pin_memory,
                             "dataloader_persistent_workers": self.config.dataloader_persistent_workers,
+                            "dataloader_non_blocking": self.config.dataloader_non_blocking,
                             "profiler_enabled": self.config.profiler_enabled,
                             "nvtx_enabled": self.config.nvtx_enabled,
                             "data_wait_seconds": data_wait_elapsed,
@@ -368,8 +433,7 @@ class Trainer:
                             )
                             metric_row["eval_seconds"] = max(perf_counter() - eval_started, 0.0)
                     metrics.append(metric_row)
-                    accelerator.log(_tracker_metrics(metric_row), step=step)
-                    self.store.write_json(metrics_path, {"metrics": metrics})
+                    metric_logger.submit(metrics=metrics, tracker_payload=_tracker_metrics(metric_row), step=step)
                     progress.set_postfix(_progress_postfix(metric_row), refresh=False)
                 if should_record_metrics:
                     metric_window_tokens = 0
@@ -380,9 +444,8 @@ class Trainer:
                 if self.config.checkpoint_interval and step % self.config.checkpoint_interval == 0:
                     with _nvtx_range(self.config, "train/checkpoint", step):
                         checkpoint_started = perf_counter()
-                        _save_checkpoint(
-                            self.store,
-                            self.paths.run(f"checkpoints/step-{step:06d}.pt"),
+                        accelerator.wait_for_everyone()
+                        payload = _checkpoint_payload(
                             accelerator,
                             model,
                             optimizer,
@@ -393,11 +456,17 @@ class Trainer:
                             metrics,
                             step,
                         )
+                        if accelerator.is_main_process:
+                            checkpoint_writer.submit(self.paths.run(f"checkpoints/step-{step:06d}.pt"), payload)
+                        accelerator.wait_for_everyone()
                         checkpoint_seconds = max(perf_counter() - checkpoint_started, 0.0)
                     if accelerator.is_main_process and metric_row is not None:
                         metric_row["checkpoint_seconds"] = checkpoint_seconds
-                        accelerator.log({"train/checkpoint_seconds": checkpoint_seconds}, step=step)
-                        self.store.write_json(metrics_path, {"metrics": metrics})
+                        metric_logger.submit(
+                            metrics=metrics,
+                            tracker_payload={"train/checkpoint_seconds": checkpoint_seconds},
+                            step=step,
+                        )
                 progress.update(1)
                 active_profiler.step()
         progress.close()
@@ -781,26 +850,64 @@ def _save_checkpoint(
     step: int,
 ) -> None:
     accelerator.wait_for_everyone()
-    model_state_dict = normalized_model_state_dict(accelerator.get_state_dict(model))
+    payload = _checkpoint_payload(
+        accelerator,
+        model,
+        optimizer,
+        scheduler,
+        config,
+        profile,
+        shard_path,
+        metrics,
+        step,
+    )
     if accelerator.is_main_process:
         target = _checkpoint_target(store, checkpoint_path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {
-                "stage": "training",
-                "step": step,
-                "model_state_dict": model_state_dict,
-                "optimizer_state_dict": optimizer.state_dict(),
-                "scheduler_state_dict": scheduler.state_dict(),
-                "config": config.__dict__,
-                "profile": profile,
-                "shard_path": shard_path,
-                "metrics": metrics,
-                "rng_state": torch.get_rng_state(),
-            },
-            target,
-        )
+        _write_checkpoint_payload(target, payload)
     accelerator.wait_for_everyone()
+
+
+def _checkpoint_payload(
+    accelerator: Accelerator,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    config: TrainConfig,
+    profile: dict[str, Any],
+    shard_path: str,
+    metrics: list[dict[str, object]],
+    step: int,
+) -> dict[str, Any]:
+    model_state_dict = normalized_model_state_dict(accelerator.get_state_dict(model))
+    return {
+        "stage": "training",
+        "step": step,
+        "model_state_dict": _state_to_cpu(model_state_dict),
+        "optimizer_state_dict": _state_to_cpu(optimizer.state_dict()),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "config": config.__dict__,
+        "profile": dict(profile),
+        "shard_path": shard_path,
+        "metrics": [dict(row) for row in metrics],
+        "rng_state": torch.get_rng_state(),
+    }
+
+
+def _write_checkpoint_payload(target: Path, payload: dict[str, Any]) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, target)
+
+
+def _state_to_cpu(value: Any) -> Any:
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().clone()
+    if isinstance(value, dict):
+        return {key: _state_to_cpu(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_state_to_cpu(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_state_to_cpu(item) for item in value)
+    return value
 
 
 def _checkpoint_target(store: LocalObjectStore, checkpoint_path: str) -> Path:
@@ -907,6 +1014,9 @@ def _accelerator(device: torch.device, precision: str, config: TrainConfig) -> A
         "mixed_precision": mixed_precision,
         "log_with": log_with,
         "gradient_accumulation_steps": config.gradient_accumulation_steps,
+        "dataloader_config": DataLoaderConfiguration(
+            non_blocking=device.type == "cuda" and config.dataloader_non_blocking
+        ),
     }
     if config.distributed_strategy == "fsdp":
         kwargs["fsdp_plugin"] = _fsdp_plugin()
@@ -980,6 +1090,7 @@ def _init_trackers(
             "dataloader_prefetch_factor": config.dataloader_prefetch_factor,
             "dataloader_pin_memory": config.dataloader_pin_memory,
             "dataloader_persistent_workers": config.dataloader_persistent_workers,
+            "dataloader_non_blocking": config.dataloader_non_blocking,
             "profiler_enabled": config.profiler_enabled,
             "nvtx_enabled": config.nvtx_enabled,
             "profiler_trace_dir": str(_profiler_trace_dir(store, config)),

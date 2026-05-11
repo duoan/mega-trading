@@ -29,6 +29,8 @@ from mega_trading.trainer import (
     MuonAdamW,
     Trainer,
     _accelerator,
+    _AsyncCheckpointWriter,
+    _AsyncMetricLogger,
     _attention_kernel_context,
     _build_lr_scheduler,
     _build_optimizer,
@@ -66,23 +68,24 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(str(rtx.training.distributed_strategy), "ddp")
         self.assertEqual(int(rtx.model.hidden_dim), 1024)
         self.assertEqual(int(rtx.model.layers), 20)
-        self.assertEqual(int(rtx.training.max_steps), 5000)
-        self.assertEqual(int(rtx.training.batch_size), 32)
-        self.assertEqual(int(rtx.training.gradient_accumulation_steps), 2)
-        self.assertEqual(int(rtx.training.eval_interval), 125)
+        self.assertEqual(int(rtx.training.max_steps), 2500)
+        self.assertEqual(int(rtx.training.batch_size), 64)
+        self.assertEqual(int(rtx.training.gradient_accumulation_steps), 1)
+        self.assertEqual(int(rtx.training.eval_interval), 250)
         self.assertEqual(int(rtx.training.checkpoint_interval), 500)
-        self.assertEqual(int(rtx.training.max_eval_batches), 16)
+        self.assertEqual(int(rtx.training.max_eval_batches), 8)
         self.assertEqual(str(rtx.training.compile_mode), "default")
         self.assertEqual(str(rtx.training.optimizer), "muon")
         self.assertEqual(str(rtx.training.lr_schedule), "cosine")
-        self.assertEqual(int(rtx.training.lr_warmup_steps), 250)
+        self.assertEqual(int(rtx.training.lr_warmup_steps), 125)
         self.assertEqual(float(rtx.training.min_learning_rate), 0.00002)
         self.assertEqual(int(rtx.training.metric_interval), 10)
         self.assertTrue(bool(rtx.training.preload_numpy_arrays))
-        self.assertEqual(int(rtx.training.dataloader_num_workers), 4)
+        self.assertEqual(int(rtx.training.dataloader_num_workers), 8)
         self.assertEqual(int(rtx.training.dataloader_prefetch_factor), 4)
         self.assertTrue(bool(rtx.training.dataloader_pin_memory))
         self.assertTrue(bool(rtx.training.dataloader_persistent_workers))
+        self.assertTrue(bool(rtx.training.dataloader_non_blocking))
         self.assertFalse(bool(rtx.training.profiler_enabled))
         self.assertFalse(bool(rtx.training.nvtx_enabled))
         self.assertEqual(int(rtx.training.profiler_active_steps), 4)
@@ -117,6 +120,8 @@ class TrainingTests(unittest.TestCase):
             TrainConfig(run_id="bad", dataloader_prefetch_factor=0)
         with self.assertRaisesRegex(ValueError, "dataloader_persistent_workers"):
             TrainConfig(run_id="bad", dataloader_num_workers=0, dataloader_persistent_workers=True)
+        with self.assertRaisesRegex(ValueError, "dataloader_non_blocking"):
+            TrainConfig(run_id="bad", dataloader_non_blocking=True, dataloader_pin_memory=False)
         with self.assertRaisesRegex(ValueError, "profiler_wait_steps"):
             TrainConfig(run_id="bad", profiler_wait_steps=-1)
         with self.assertRaisesRegex(ValueError, "profiler_warmup_steps"):
@@ -210,6 +215,21 @@ class TrainingTests(unittest.TestCase):
         self.assertTrue(kwargs["pin_memory"])
         self.assertTrue(kwargs["persistent_workers"])
         self.assertEqual(kwargs["prefetch_factor"], 4)
+
+    def test_accelerator_uses_non_blocking_dataloader_transfer(self) -> None:
+        config = TrainConfig(
+            run_id="loader-test",
+            device="cuda",
+            precision="mixed",
+            dataloader_pin_memory=True,
+            dataloader_non_blocking=True,
+        )
+
+        with patch("mega_trading.trainer.Accelerator") as accelerator:
+            _accelerator(torch.device("cuda"), "mixed", config)
+
+        dataloader_config = accelerator.call_args.kwargs["dataloader_config"]
+        self.assertTrue(dataloader_config.non_blocking)
 
     def test_model_summary_is_logged_to_mlflow(self) -> None:
         class FakeSummary:
@@ -678,6 +698,31 @@ class TrainingTests(unittest.TestCase):
         with patch.object(torch.compiler, "cudagraph_mark_step_begin", mark, create=True):
             _maybe_cudagraph_mark_step_begin(TrainConfig(run_id="x", compile=True), torch.device("cuda"))
         mark.assert_called_once()
+
+    def test_async_metric_logger_flushes_metrics_and_tracker_payloads(self) -> None:
+        store = Mock()
+        store.write_json.side_effect = lambda *_args, **_kwargs: None
+        accelerator = Mock()
+        metrics_path = Path("metrics.json")
+        metrics = [{"step": 1, "train_loss": 1.0}]
+
+        with _AsyncMetricLogger(accelerator, store, metrics_path) as logger:
+            logger.submit(metrics=metrics, tracker_payload={"train/loss": 1.0}, step=1)
+
+        accelerator.log.assert_called_once_with({"train/loss": 1.0}, step=1)
+        store.write_json.assert_called_once_with(metrics_path, {"metrics": metrics})
+
+    def test_async_checkpoint_writer_saves_payload_on_flush(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalObjectStore(Path(tmp))
+            payload = {"stage": "training", "step": 3, "model_state_dict": {"weight": torch.ones(1)}}
+
+            with _AsyncCheckpointWriter(store) as writer:
+                writer.submit("runs/test/checkpoint.pt", payload)
+
+            checkpoint = torch.load(Path(tmp) / "runs/test/checkpoint.pt", map_location="cpu", weights_only=False)
+            self.assertEqual(checkpoint["step"], 3)
+            self.assertEqual(checkpoint["model_state_dict"]["weight"].item(), 1.0)
 
     def test_metric_interval_records_eval_checkpoint_and_last_steps(self) -> None:
         config = TrainConfig(run_id="metrics-test", max_steps=10, metric_interval=4, eval_interval=5, checkpoint_interval=6)

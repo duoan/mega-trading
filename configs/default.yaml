@@ -60,6 +60,7 @@ training:
   dataloader_prefetch_factor: 2
   dataloader_pin_memory: false
   dataloader_persistent_workers: false
+  dataloader_non_blocking: false
   seed: 7
   device: auto
   precision: auto
