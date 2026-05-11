@@ -159,3 +159,29 @@ def test_ablation_figure_is_available_as_standalone_svg() -> None:
     ]
     for label in required_labels:
         assert label in svg
+
+
+def test_huggingface_space_deploy_workflow_is_configured() -> None:
+    workflow = ROOT / ".github" / "workflows" / "deploy-huggingface-space.yml"
+    workflow_text = workflow.read_text(encoding="utf-8")
+    space_readme = (SPACE_DIR / "README.md").read_text(encoding="utf-8")
+
+    required_workflow_phrases = [
+        "Deploy Hugging Face Space",
+        "duoan/mega-trading",
+        "huggingface-space/**",
+        "workflow_dispatch",
+        "secrets.HF_TOKEN",
+        "huggingface-cli upload",
+        "--repo-type space",
+        "technical-report.pdf",
+    ]
+    for phrase in required_workflow_phrases:
+        assert phrase in workflow_text
+
+    required_space_metadata = [
+        "sdk: static",
+        "app_file: index.html",
+    ]
+    for phrase in required_space_metadata:
+        assert phrase in space_readme

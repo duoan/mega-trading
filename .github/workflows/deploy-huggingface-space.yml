@@ -1,0 +1,55 @@
+name: Deploy Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "huggingface-space/**"
+      - ".github/workflows/deploy-huggingface-space.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: huggingface-space-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Upload static Space files
+    runs-on: ubuntu-latest
+    env:
+      HF_SPACE_REPO: duoan/mega-trading
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Hugging Face Hub CLI
+        run: python -m pip install --upgrade "huggingface_hub[cli]"
+
+      - name: Validate static Space payload
+        run: |
+          test -f huggingface-space/index.html
+          test -f huggingface-space/README.md
+          test -f huggingface-space/technical-report.pdf
+
+      - name: Upload static website to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "${HF_TOKEN}" ]; then
+            echo "::error::Missing HF_TOKEN repository secret with write access to ${HF_SPACE_REPO}."
+            exit 1
+          fi
+
+          huggingface-cli upload "${HF_SPACE_REPO}" huggingface-space . \
+            --repo-type space \
+            --token "${HF_TOKEN}" \
+            --commit-message "Deploy static website from ${GITHUB_SHA}"

@@ -1,3 +1,9 @@
+---
+title: Mega Trading
+sdk: static
+app_file: index.html
+---
+
 # Mega-Trading Static Space
 
 This folder is ready to upload to a Hugging Face Static Space.
