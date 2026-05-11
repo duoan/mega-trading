@@ -48,6 +48,24 @@ def test_huggingface_poster_contains_required_story_sections() -> None:
         assert section in html
 
 
+def test_project_readme_exposes_reviewer_links() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    required_links = [
+        "## Key Links",
+        "https://huggingface.co/spaces/duoan/mega-trading",
+        "https://github.com/duoan/mega-trading/blob/main/huggingface-space/technical-report.pdf",
+        "huggingface-space/index.html",
+        "huggingface-space/backtest-report-rtx.html",
+        "huggingface-space/pipeline-figure.pdf",
+        "docs/ablation-results.md",
+        "docs/performance-profiling.md",
+        "docs/kernels.md",
+    ]
+    for link in required_links:
+        assert link in readme
+
+
 def test_huggingface_poster_embeds_local_rtx_metrics() -> None:
     html = (SPACE_DIR / "index.html").read_text(encoding="utf-8")
 

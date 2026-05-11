@@ -4,6 +4,17 @@ Mega-Trading is a reproduction-oriented trading foundation model prototype. The 
 
 The target paper uses participant-observable trade-flow messages with action, side, price depth, volume, and interarrival time. This repo keeps that contract as the modeling interface. The active no-credential path is `binance_trades`, an event-level public trades adapter.
 
+## Key Links
+
+- [Hugging Face Space](https://huggingface.co/spaces/duoan/mega-trading): hosted static project poster.
+- [Technical Report PDF](https://github.com/duoan/mega-trading/blob/main/huggingface-space/technical-report.pdf): reviewer-facing report with methods, architecture, ablations, and roadmap.
+- [Poster Source](huggingface-space/index.html): static HTML page deployed to the Space.
+- [Backtest Dashboard](huggingface-space/backtest-report-rtx.html): RTX run report with training curves, backtest metrics, and generated-vs-real charts.
+- [Architecture Figure](huggingface-space/pipeline-figure.pdf): paper-style data-to-model-to-output pipeline diagram.
+- [Ablation Results](docs/ablation-results.md): capacity, data-size, and training-budget probe results.
+- [Performance Profiling](docs/performance-profiling.md): PyTorch profiler notes for optimizer and throughput bottlenecks.
+- [Custom Kernels](docs/kernels.md): Triton causal GQA attention benchmark and kernel notes.
+
 ## Quickstart
 
 ```bash
