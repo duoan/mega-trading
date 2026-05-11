@@ -52,6 +52,8 @@ def test_project_readme_exposes_reviewer_links() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     required_links = [
+        "open trading foundation model",
+        "public-data baseline",
         "## Key Links",
         "https://huggingface.co/spaces/duoan/mega-trading",
         "https://github.com/duoan/mega-trading/blob/main/huggingface-space/technical-report.pdf",

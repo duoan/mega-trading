@@ -1,8 +1,10 @@
 # Mega-Trading
 
-Mega-Trading is a reproduction-oriented trading foundation model prototype. The active path is now intentionally narrow: order-flow style events are represented with the paper-aligned feature contract, tokenized as one composite token per event, trained with a Llama 3-style decoder, and evaluated on generated feature distributions.
+Mega-Trading is an attempt to build an open trading foundation model: a transparent, reproducible sequence-modeling stack for market microstructure data. The long-term goal is to learn from venue-grade order-flow streams, generate realistic market-event scenarios, and support downstream research in execution, risk, and trading agents.
 
-The target paper uses participant-observable trade-flow messages with action, side, price depth, volume, and interarrival time. This repo keeps that contract as the modeling interface. The active no-credential path is `binance_trades`, an event-level public trades adapter.
+The current repository is the public-data baseline for that goal. It converts Binance public trade archives into a paper-aligned order-flow event contract, tokenizes each event as one composite token, trains a Llama-style decoder with next-token prediction, and evaluates the checkpoint with chronological backtests plus generated-vs-real event statistics.
+
+This baseline intentionally keeps the modeling interface close to participant-observable trade-flow messages: action, side, price depth, volume, and interarrival time. The active no-credential path is `binance_trades`, an event-level public trades adapter. The roadmap is to replace this proxy with L3 market data such as IEX DEEP/HIST and then add closed-loop simulator evaluation.
 
 ## Key Links
 
