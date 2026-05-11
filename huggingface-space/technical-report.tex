@@ -88,18 +88,13 @@ style at take-home scale: define a research-shaped problem, build the data and
 training pipeline around it, optimize the system enough to run real experiments,
 and present success criteria and limitations honestly.
 
-\begin{figure}[t]
+\begin{figure}[p]
   \centering
-  \fbox{\begin{minipage}{0.96\linewidth}
-  \centering
-  \textbf{Architecture figure:} \texttt{pipeline-figure.svg}\\[0.35em]
-  The static Space renders the complete architecture figure from this SVG. For
-  a PDF-only submission, export the SVG to PDF and replace this box with a
-  standard \texttt{includegraphics} call.
-  \end{minipage}}
+  \includegraphics[width=\linewidth]{pipeline-figure.pdf}
   \caption{Mega-Trading data-to-model-to-output pipeline. The figure separates
   the data plane, tokenization, model core, training and evaluation, and
-  inference output layers.}
+  inference output layers, with engineering evidence for lineage, custom
+  kernels, and profiling connected back to the system modules they validate.}
   \label{fig:pipeline}
 \end{figure}
 
@@ -232,7 +227,7 @@ decoded examples per run. The goal was to validate the ablation workflow and
 identify which dimensions are worth scaling next, not to claim a final
 leaderboard.
 
-\begin{table}[h]
+\begin{table}[htbp]
   \centering
   \caption{Ablation probe results from \href{https://github.com/duoan/mega-trading/blob/main/docs/ablation-results.md}{\texttt{docs/ablation-results.md}}.}
   \begin{tabular}{llrrrrrr}
@@ -248,7 +243,7 @@ leaderboard.
   \end{tabular}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
   \centering
   \includegraphics[width=\linewidth]{ablation-figure.pdf}
   \caption{Ablation study summary across backtest loss, price-depth L1, and
@@ -269,7 +264,7 @@ therefore to gate future runs on both likelihood and rollout realism.
 
 The submitted checkpoint was scored on 128 backtest batches, or 524,288 tokens.
 
-\begin{table}[h]
+\begin{table}[htbp]
   \centering
   \caption{Open-loop chronological backtest metrics.}
   \begin{tabular}{lr}
@@ -298,7 +293,7 @@ top-5 is 0.86\%. The more serious issue is token imbalance: on the exact
 524,288-token scored backtest sample, only 135 labels appear and the effective
 vocabulary is about 19.56.
 
-\begin{table}[h]
+\begin{table}[htbp]
   \centering
   \caption{Prediction baselines on the same scored backtest sample.}
   \begin{tabular}{lr}

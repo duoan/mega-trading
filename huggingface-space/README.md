@@ -4,6 +4,8 @@ This folder is ready to upload to a Hugging Face Static Space.
 
 - `index.html`: poster-style project page.
 - `pipeline-figure.svg`: standalone architecture figure used by the overview page.
+- `pipeline-figure.tex`: TikZ source for the paper-style architecture figure embedded in the technical report.
+- `pipeline-figure.pdf`: compiled architecture figure embedded in the technical report.
 - `ablation-figure.svg`: standalone ablation chart used by the overview page.
 - `ablation-figure.pdf`: ablation chart embedded by the LaTeX report.
 - `technical-report.pdf`: compiled technical report. The poster links to the GitHub PDF at https://github.com/duoan/mega-trading/blob/main/huggingface-space/technical-report.pdf.

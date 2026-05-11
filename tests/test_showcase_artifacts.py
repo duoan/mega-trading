@@ -72,7 +72,8 @@ def test_latex_technical_report_has_methods_and_limitations() -> None:
         "\\documentclass",
         "\\begin{abstract}",
         "Mega-Trading",
-        "pipeline-figure.svg",
+        "pipeline-figure.pdf",
+        "\\includegraphics[width=\\linewidth]{pipeline-figure.pdf}",
         "discrete event token",
         "decoder-only Transformer",
         "\\bibitem{tradefm}",
@@ -119,6 +120,26 @@ def test_pipeline_figure_is_available_as_standalone_svg() -> None:
     ]
     for label in required_labels:
         assert label in svg
+
+
+def test_pipeline_figure_is_available_as_embedded_pdf_source() -> None:
+    figure_source = (SPACE_DIR / "pipeline-figure.tex").read_text(encoding="utf-8")
+
+    assert (SPACE_DIR / "pipeline-figure.pdf").is_file()
+    required_labels = [
+        "Mega-Trading Architecture",
+        "DATA PLANE",
+        "TOKENIZATION",
+        "MODEL CORE",
+        "TRAINING",
+        "EVALUATION",
+        "kernel: Triton GQA forward",
+        "156.23 TFLOP/s",
+        "profiling: optimizer CPU window",
+        "323.645 ms to 20.018 ms",
+    ]
+    for label in required_labels:
+        assert label in figure_source
 
 
 def test_ablation_figure_is_available_as_standalone_svg() -> None:
