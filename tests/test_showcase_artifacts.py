@@ -63,6 +63,7 @@ def test_project_readme_exposes_reviewer_links() -> None:
         "mac",
         "local smoke run",
         "rtx",
+        "RTX PRO 6000 Blackwell",
         "single-server GPU baseline",
         "modal",
         "cloud GPU path",

@@ -59,7 +59,7 @@ Environment names are capacity targets, not product names:
 | Target | What it means | Use when |
 | --- | --- | --- |
 | `mac` | local smoke run on a small Binance slice | You want to verify the end-to-end data, train, backtest, and report wiring quickly on a laptop or modest local machine. |
-| `rtx` | single-server GPU baseline for the submitted report | You want the reviewer-facing RTX run with the larger public-data slice, mixed precision, Triton attention, MLflow tracking, backtest dashboard, and static showcase artifacts. |
+| `rtx` | RTX PRO 6000 Blackwell single-server GPU baseline for the submitted report | You want the reviewer-facing RTX PRO 6000 Blackwell run with the larger public-data slice, mixed precision, Triton attention, MLflow tracking, backtest dashboard, and static showcase artifacts. |
 | `modal` | cloud GPU path through Modal | You want to prepare data locally, upload dataset artifacts, and launch the same training contract on cloud GPU infrastructure. |
 
 `make mac`, `make rtx`, and `make modal` prepare environment-specific mixtures under the shared `.mega-trading/data/` root, then train, backtest, and render reports keyed by `run_id`. All three environments share raw Binance ZIPs under `.mega-trading/raw/` and processed NumPy shards under `.mega-trading/data/datasets/`; `mixture=mac|rtx|modal` keeps the data budgets distinct. If the processed NumPy shards already exist, prepare is skipped.
