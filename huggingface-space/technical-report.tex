@@ -168,11 +168,13 @@ batch size 64, mixed precision, Triton attention where available, and
 \texttt{torch.compile} \cite{triton}.
 
 Long single-GPU runs use prepared NumPy streams, persistent dataloader workers,
-pinned host transfer, non-blocking device transfer, and a Triton attention path
-where available.
-The final submitted metric row reports 108K tokens/sec and a last-50-point mean
-of 111K tokens/sec. MLflow is enabled; the tracking database contains 9 runs,
-596,177 metric rows, 273 params, and 72 tags.
+pinned host transfer, non-blocking device transfer, a Triton causal GQA
+attention path, Triton RoPE and SwiGLU gate operators, and a Liger-Kernel-style
+fused linear-cross-entropy path that avoids materializing the full
+\texttt{[batch, time, vocab]} logits tensor on the loss head. The final
+submitted metric row reports 108K tokens/sec and a last-50-point mean of 111K
+tokens/sec. MLflow is enabled; the tracking database contains 9 runs, 596,177
+metric rows, 273 params, and 72 tags.
 
 \section{Engineering Design Evidence}
 
@@ -188,11 +190,21 @@ single final metric table:
     \item \href{https://github.com/duoan/mega-trading/blob/main/docs/training-plane-design.md}{\texttt{docs/training-plane-design.md}} records the NumPy shard input
     contract, checkpoint and manifest outputs, Accelerate-based DDP/FSDP
     execution path, and backtest handoff.
-    \item \href{https://github.com/duoan/mega-trading/blob/main/docs/kernels.md}{\texttt{docs/kernels.md}} documents the Triton causal GQA attention
-    path. On the submitted RTX-shape bf16 benchmark, the forward kernel reports
-    156.23 approximate TFLOP/s versus 148.49 for PyTorch SDPA. The same note
-    also records the current backward bottleneck: dK/dV register pressure and
-    spills, so the limitation is explicit rather than hidden.
+    \item \href{https://github.com/duoan/mega-trading/blob/main/docs/kernels.md}{\texttt{docs/kernels.md}} documents the project's three custom Triton
+    paths. The causal GQA attention forward kernel reports 156.23 approximate
+    TFLOP/s versus 148.49 for PyTorch SDPA on the submitted RTX-shape bf16
+    benchmark; the note also records the current backward bottleneck (dK/dV
+    register pressure and spills) so the limitation is explicit rather than
+    hidden. The transformer operators (RoPE, SwiGLU gate, RMSNorm) ship a row-wise
+    Triton implementation; RoPE and SwiGLU gate are faster than PyTorch on the
+    target shape, RMSNorm is documented as an experiment but kept on PyTorch.
+    A fused linear-cross-entropy kernel (Liger-Kernel-style: chunked cuBLAS
+    GEMMs plus one row-wise online-softmax Triton kernel) cuts loss-head peak
+    memory from 509\,MB to 126\,MB ($\sim$4.0$\times$) for the rtx training
+    shape while staying within $\sim$12\% of the PyTorch \texttt{linear} +
+    \texttt{cross\_entropy} latency. The same note records the failed
+    hand-written fused-matmul variants (4--5$\times$ slower than cuBLAS) as a
+    cautionary tuning history.
     \item \href{https://github.com/duoan/mega-trading/blob/main/docs/performance-profiling.md}{\texttt{docs/performance-profiling.md}} records the end-to-end PyTorch
     profiler investigation. The baseline CPU optimizer window was 323.645 ms
     over two optimizer updates; after the shape-bucketed Muon optimization with
