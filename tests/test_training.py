@@ -487,6 +487,7 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(triton_ops_module.triton_rms_norm.__module__, "mega_trading.kernels.triton_ops")
         self.assertEqual(triton_ops_module.triton_apply_rope.__module__, "mega_trading.kernels.triton_ops")
         self.assertEqual(triton_ops_module.triton_swiglu_gate.__module__, "mega_trading.kernels.triton_ops")
+        self.assertEqual(triton_ops_module.triton_add_rms_norm.__module__, "mega_trading.kernels.triton_ops")
 
     def test_triton_attention_benchmark_defaults_match_rtx_shape(self) -> None:
         benchmark = _load_script("benchmark_triton_attention.py")
@@ -666,6 +667,205 @@ class TrainingTests(unittest.TestCase):
         self.assertTrue(torch.allclose(actual, expected, atol=6e-2, rtol=6e-2))
         self.assertTrue(torch.allclose(gate.grad, expected_gate.grad, atol=8e-2, rtol=8e-2))
         self.assertTrue(torch.allclose(up.grad, expected_up.grad, atol=8e-2, rtol=8e-2))
+
+    def test_triton_add_rms_norm_falls_back_on_cpu(self) -> None:
+        # The fallback path must stay correct because the kernel is currently
+        # kept out of the model path; CPU users still get a sane result.
+        hidden = torch.randn(2, 4, 16)
+        residual = torch.randn_like(hidden)
+        weight = torch.randn(16)
+        actual_residual, actual_normed = triton_ops_module.triton_add_rms_norm(
+            hidden, residual, weight, eps=1e-5
+        )
+        expected_residual = hidden + residual
+        expected_normed = F.rms_norm(expected_residual, (16,), weight, eps=1e-5)
+        self.assertTrue(torch.allclose(actual_residual, expected_residual))
+        self.assertTrue(torch.allclose(actual_normed, expected_normed, atol=1e-5, rtol=1e-5))
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
+        "Triton fused add+RMSNorm parity requires CUDA and triton",
+    )
+    def test_triton_add_rms_norm_matches_torch(self) -> None:
+        torch.manual_seed(37)
+        hidden = torch.randn(2, 512, 1024, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        residual = torch.randn_like(hidden, requires_grad=True)
+        weight = torch.randn(1024, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+        expected_hidden = hidden.detach().clone().requires_grad_(True)
+        expected_residual = residual.detach().clone().requires_grad_(True)
+        expected_weight = weight.detach().clone().requires_grad_(True)
+        grad_residual = torch.randn_like(hidden)
+        grad_normed = torch.randn_like(hidden)
+
+        actual_residual, actual_normed = triton_ops_module.triton_add_rms_norm(
+            hidden, residual, weight, eps=1e-5
+        )
+        expected_residual_out = expected_hidden + expected_residual
+        expected_normed = F.rms_norm(
+            expected_residual_out, (expected_residual_out.shape[-1],), expected_weight, eps=1e-5
+        )
+        torch.autograd.backward(
+            [actual_residual, actual_normed], [grad_residual, grad_normed]
+        )
+        torch.autograd.backward(
+            [expected_residual_out, expected_normed], [grad_residual, grad_normed]
+        )
+
+        self.assertTrue(torch.allclose(actual_residual, expected_residual_out, atol=6e-2, rtol=6e-2))
+        self.assertTrue(torch.allclose(actual_normed, expected_normed, atol=6e-2, rtol=6e-2))
+        self.assertTrue(torch.allclose(hidden.grad, expected_hidden.grad, atol=8e-2, rtol=8e-2))
+        self.assertTrue(torch.allclose(residual.grad, expected_residual.grad, atol=8e-2, rtol=8e-2))
+        self.assertTrue(torch.allclose(weight.grad, expected_weight.grad, atol=8e-2, rtol=8e-2))
+
+    def test_triton_fused_linear_cross_entropy_lives_in_kernel_module(self) -> None:
+        self.assertEqual(triton_ops_module.triton_fused_linear_cross_entropy.__module__, "mega_trading.kernels.triton_ops")
+
+    def test_triton_fused_linear_cross_entropy_cpu_fallback_matches_reference(self) -> None:
+        torch.manual_seed(37)
+        rows, hidden_dim, vocab_size = 6, 8, 17
+        hidden = torch.randn(rows, hidden_dim, requires_grad=True)
+        weight = torch.randn(vocab_size, hidden_dim, requires_grad=True)
+        labels = torch.randint(low=0, high=vocab_size, size=(rows,), dtype=torch.long)
+        # Sprinkle the ignore_index so we exercise the masked rows.
+        labels[1] = -100
+        labels[4] = -100
+        expected_hidden = hidden.detach().clone().requires_grad_(True)
+        expected_weight = weight.detach().clone().requires_grad_(True)
+
+        actual_loss = triton_ops_module.triton_fused_linear_cross_entropy(
+            hidden, weight, labels, ignore_index=-100
+        )
+        expected_loss = F.cross_entropy(
+            F.linear(expected_hidden, expected_weight),
+            labels,
+            ignore_index=-100,
+        )
+        actual_loss.backward()
+        expected_loss.backward()
+
+        self.assertTrue(torch.allclose(actual_loss, expected_loss, atol=1e-5, rtol=1e-5))
+        self.assertTrue(torch.allclose(hidden.grad, expected_hidden.grad, atol=1e-5, rtol=1e-5))
+        self.assertTrue(torch.allclose(weight.grad, expected_weight.grad, atol=1e-5, rtol=1e-5))
+
+    def test_triton_fused_linear_cross_entropy_cpu_handles_all_ignored_rows(self) -> None:
+        # When every label is ignored the loss is zero and gradients must stay finite.
+        torch.manual_seed(41)
+        rows, hidden_dim, vocab_size = 4, 8, 11
+        hidden = torch.randn(rows, hidden_dim, requires_grad=True)
+        weight = torch.randn(vocab_size, hidden_dim, requires_grad=True)
+        labels = torch.full((rows,), -100, dtype=torch.long)
+
+        loss = triton_ops_module.triton_fused_linear_cross_entropy(
+            hidden, weight, labels, ignore_index=-100
+        )
+        loss.backward()
+
+        self.assertEqual(float(loss.detach()), 0.0)
+        self.assertTrue(torch.all(hidden.grad == 0).item())
+        self.assertTrue(torch.all(weight.grad == 0).item())
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and importlib.util.find_spec("triton") is not None,
+        "Triton fused linear cross-entropy parity requires CUDA and triton",
+    )
+    def test_triton_fused_linear_cross_entropy_matches_torch(self) -> None:
+        torch.manual_seed(43)
+        # Smaller-than-rtx but realistic shapes keep the test under one second on a single GPU
+        # while still covering vocab > BLOCK_V and a multi-tile hidden_dim path.
+        rows, hidden_dim, vocab_size = 4 * 64, 256, 4_096
+        hidden_bf16 = torch.randn(rows, hidden_dim, device="cuda", dtype=torch.bfloat16) * 0.5
+        weight_bf16 = torch.randn(vocab_size, hidden_dim, device="cuda", dtype=torch.bfloat16) * 0.02
+        labels = torch.randint(low=0, high=vocab_size, size=(rows,), device="cuda", dtype=torch.long)
+        # Mix in a handful of ignored labels so the masked-row path is covered on the GPU.
+        labels[::31] = -100
+
+        # Triton path operates on bf16 inputs end-to-end.
+        hidden = hidden_bf16.detach().clone().requires_grad_(True)
+        weight = weight_bf16.detach().clone().requires_grad_(True)
+        # Reference path uses fp32 to keep the parity tolerance tight; bf16 round-trip stays close enough.
+        expected_hidden = hidden_bf16.detach().clone().float().requires_grad_(True)
+        expected_weight = weight_bf16.detach().clone().float().requires_grad_(True)
+
+        actual_loss = triton_ops_module.triton_fused_linear_cross_entropy(
+            hidden, weight, labels, ignore_index=-100
+        )
+        expected_loss = F.cross_entropy(
+            F.linear(expected_hidden, expected_weight),
+            labels,
+            ignore_index=-100,
+        )
+        actual_loss.backward()
+        expected_loss.backward()
+
+        self.assertTrue(
+            torch.allclose(actual_loss.float(), expected_loss, atol=5e-3, rtol=5e-3),
+            f"loss diff={ (actual_loss.float() - expected_loss).abs().item():.5f}",
+        )
+        self.assertTrue(
+            torch.allclose(hidden.grad.float(), expected_hidden.grad, atol=5e-2, rtol=5e-2),
+            f"hidden grad max diff={ (hidden.grad.float() - expected_hidden.grad).abs().max().item():.4f}",
+        )
+        self.assertTrue(
+            torch.allclose(weight.grad.float(), expected_weight.grad, atol=5e-2, rtol=5e-2),
+            f"weight grad max diff={ (weight.grad.float() - expected_weight.grad).abs().max().item():.4f}",
+        )
+
+    def test_forward_with_loss_returns_loss_only_when_logits_are_not_requested(self) -> None:
+        torch.manual_seed(53)
+        # dropout=0 keeps the standard and fused paths deterministic for parity comparisons.
+        model = TradingModel(
+            vocab_size=32, block_size=8, hidden_dim=16, layers=1, attention_heads=2, dropout=0.0
+        )
+        model.eval()
+        input_ids = torch.randint(low=0, high=32, size=(2, 8), dtype=torch.long)
+        labels = torch.randint(low=0, high=32, size=(2, 8), dtype=torch.long)
+
+        loss, logits = model.forward_with_loss(input_ids, labels, return_logits=False)
+
+        self.assertIsNone(logits)
+        self.assertEqual(tuple(loss.shape), ())
+        reference_logits = model(input_ids)
+        reference_loss = F.cross_entropy(reference_logits.reshape(-1, 32), labels.reshape(-1), ignore_index=-100)
+        self.assertTrue(torch.allclose(loss, reference_loss, atol=1e-5, rtol=1e-5))
+
+    def test_forward_with_loss_returns_logits_for_metric_steps(self) -> None:
+        torch.manual_seed(59)
+        model = TradingModel(
+            vocab_size=32, block_size=8, hidden_dim=16, layers=1, attention_heads=2, dropout=0.0
+        )
+        model.eval()
+        input_ids = torch.randint(low=0, high=32, size=(2, 8), dtype=torch.long)
+        labels = torch.randint(low=0, high=32, size=(2, 8), dtype=torch.long)
+
+        loss, logits = model.forward_with_loss(input_ids, labels, return_logits=True)
+
+        assert logits is not None
+        self.assertEqual(tuple(logits.shape), (2, 8, 32))
+        reference_logits = model(input_ids)
+        self.assertTrue(torch.allclose(logits, reference_logits, atol=1e-5, rtol=1e-5))
+        reference_loss = F.cross_entropy(reference_logits.reshape(-1, 32), labels.reshape(-1), ignore_index=-100)
+        self.assertTrue(torch.allclose(loss, reference_loss, atol=1e-5, rtol=1e-5))
+
+    def test_triton_backend_routes_fused_linear_cross_entropy_kernel(self) -> None:
+        torch.manual_seed(61)
+        model = TradingModel(
+            vocab_size=32,
+            block_size=8,
+            hidden_dim=16,
+            layers=1,
+            attention_heads=2,
+            attention_backend="triton",
+        )
+        input_ids = torch.randint(low=0, high=32, size=(2, 8), dtype=torch.long)
+        labels = torch.randint(low=0, high=32, size=(2, 8), dtype=torch.long)
+        sentinel_loss = torch.tensor(1.23)
+
+        with patch("mega_trading.model._triton_fused_linear_cross_entropy", return_value=sentinel_loss) as fused_ce:
+            loss, logits = model.forward_with_loss(input_ids, labels, return_logits=False)
+
+        self.assertIsNone(logits)
+        self.assertIs(loss, sentinel_loss)
+        fused_ce.assert_called_once()
 
     def test_compile_and_attention_backend_helpers_are_config_driven(self) -> None:
         model = TradingModel(vocab_size=MarketEventTokenizer().vocab_size, block_size=8, hidden_dim=16, layers=1, attention_heads=2)

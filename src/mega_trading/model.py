@@ -11,6 +11,7 @@ from torch import nn
 from mega_trading.kernels.triton_attention import triton_attention as _triton_attention
 from mega_trading.kernels.triton_ops import (
     triton_apply_rope as _triton_apply_rope,
+    triton_fused_linear_cross_entropy as _triton_fused_linear_cross_entropy,
     triton_rms_norm as _triton_rms_norm,
     triton_swiglu_gate as _triton_swiglu_gate,
 )
@@ -44,6 +45,9 @@ class TradingModel(nn.Module):
         self.hidden_dim = hidden_dim
         self.attention_heads = attention_heads
         self.kv_heads = kv_heads
+        # Operator backend is captured here so the loss head can route through the fused
+        # Triton kernel without re-threading config into every call site.
+        self.operator_backend = attention_backend
         self.token_embedding = nn.Embedding(vocab_size, hidden_dim)
         self.blocks = nn.ModuleList(
             [
@@ -76,6 +80,56 @@ class TradingModel(nn.Module):
         for block in self.blocks:
             hidden = block(hidden)
         return self.output(self.norm(hidden))
+
+    def forward_with_loss(
+        self,
+        input_ids: torch.Tensor,
+        labels: torch.Tensor,
+        *,
+        return_logits: bool,
+        ignore_index: int = -100,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """Run the network and compute next-token cross-entropy in one call.
+
+        When `operator_backend == "triton"` and logits are not requested, the loss is
+        computed by the fused linear-cross-entropy kernel so the `[batch, time, vocab]`
+        logits tensor is never materialized. On metric steps callers pass
+        `return_logits=True` to get logits back for top-k accuracy reporting; that
+        path falls back to the standard linear projection plus `F.cross_entropy`.
+        """
+        if input_ids.ndim != 2:
+            raise ValueError("input_ids must have shape [batch, time]")
+        if labels.shape != input_ids.shape:
+            raise ValueError("labels must match input_ids shape")
+        _batch_size, sequence_length = input_ids.shape
+        if sequence_length > self.block_size:
+            raise ValueError(f"sequence length {sequence_length} exceeds block_size {self.block_size}")
+
+        hidden = self.token_embedding(input_ids)
+        for block in self.blocks:
+            hidden = block(hidden)
+        normalized = self.norm(hidden)
+
+        if self.operator_backend == "triton" and not return_logits:
+            flat_hidden = normalized.reshape(-1, normalized.shape[-1])
+            flat_labels = labels.reshape(-1)
+            loss = _triton_fused_linear_cross_entropy(
+                flat_hidden,
+                self.output.weight,
+                flat_labels,
+                ignore_index=ignore_index,
+            )
+            return loss, None
+
+        logits = self.output(normalized)
+        loss = F.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]),
+            labels.reshape(-1),
+            ignore_index=ignore_index,
+        )
+        # Drop logits when callers do not need them so the trainer can rely on
+        # `None` to skip top-k accuracy work without an extra branch.
+        return loss, (logits if return_logits else None)
 
     @torch.no_grad()
     def generate(self, input_ids: torch.Tensor, max_new_tokens: int, top_k: int = 16) -> torch.Tensor:
